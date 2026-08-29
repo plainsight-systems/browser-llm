@@ -7,7 +7,8 @@ This repository inherits Plainsight Systems governance from `docs/decisions/`.
 1. Read `docs/decisions/MEMORY.md`.
 2. Read `docs/decisions/QUEUE.md`.
 3. Read `docs/decisions/workflow.md`.
-4. Read inherited governance docs relevant to the task.
+4. Read `docs/decisions/inherited.md` for inherited governance, what is
+   publicly readable, and how to link the rest locally.
 5. Inspect product-specific source and tests before editing.
 
 ## Operating Rules
