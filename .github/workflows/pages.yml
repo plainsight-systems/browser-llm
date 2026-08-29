@@ -1,11 +1,14 @@
 # Builds the WebAssembly module and deploys the static page to GitHub Pages.
 #
-# Trigger is workflow_dispatch only until BLLM-001 completes. The wasm target
-# does not build yet: src/wasm/bindings.cpp and the WebGPU device path have
-# not been written. Adding the push trigger is the last step of that packet.
+# This workflow fails until BLLM-001 completes: src/wasm/bindings.cpp and the
+# WebGPU device path are not written yet, and the wasm configure stops with an
+# explicit message. That failure is accurate — deployment genuinely does not
+# work — and is preferred over a green badge that implies otherwise.
 name: pages
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
