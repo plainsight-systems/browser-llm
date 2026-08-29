@@ -54,19 +54,14 @@ Decided 2026-08-28 during repo bootstrap:
 - **No operating brand.** Internal R&D attributed to Plainsight Systems LLC
   directly.
 - **Version control is local-only for now.** `git init -b main`, no remote.
-- **Inherited governance is referenced, not symlinked, in version control.**
-  The runbook's symlink pattern assumes a private repo. This repo is intended to
-  be public, and committed symlinks into a private sibling would dangle in every
-  clone while advertising eight documents no outside reader can open. That is a
-  documentation facade under `plainsight_policies.md`. Instead:
-  `docs/decisions/inherited.md` is committed and states what is inherited, what
-  is publicly readable, and what is internal; the local symlinks are gitignored
-  and recreated by `scripts/link-governance.sh`. Deviation from
-  `repo_creation_runbook.md`, which should grow a public-repo branch in its
-  symlink guidance.
-- **Scope posture: narrow slice at full quality, not demo-ware.** Per
-  `engineering_philosophies.md`, "tech demo" here means the real harness on a
-  deliberately narrow scope at full intended quality.
+- **Inherited governance is referenced by URL, not symlinked, in version
+  control.** The runbook's symlink pattern assumes a private governance repo.
+  `plainsight-systems-governance` was published (CC BY 4.0) with its internal
+  content moved to the operations repo, so `docs/decisions/inherited.md` is a
+  single pointer to it. Documents can change there without any edit here.
+  Local symlinks are gitignored and rebuilt by `scripts/link-governance.sh`.
+  Deviation from `repo_creation_runbook.md`, which should grow a public-repo
+  branch in its symlink guidance.
 
 ## Open Questions
 
