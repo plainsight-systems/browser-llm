@@ -7,13 +7,14 @@ This repository inherits Plainsight Systems governance from `docs/decisions/`.
 1. Read `docs/decisions/MEMORY.md`.
 2. Read `docs/decisions/QUEUE.md`.
 3. Read `docs/decisions/workflow.md`.
-4. Read `docs/decisions/inherited.md` for inherited governance, what is
-   publicly readable, and how to link the rest locally.
+4. Read the inherited governance in `docs/decisions/governance/` (submodule;
+   run `git submodule update --init` if empty). `docs/decisions/inherited.md`
+   explains the pin.
 5. Inspect product-specific source and tests before editing.
 
 ## Operating Rules
 
-- Follow Lite Factory workflow from `docs/decisions/product_memory_workflow.md`.
+- Follow Lite Factory workflow from `docs/decisions/governance/product_memory_workflow.md`.
 - No non-trivial implementation without a packet in `docs/decisions/packets/`.
 - Keep product decisions in `docs/decisions/` and research in `docs/research/`.
 - Update `MEMORY.md` and `QUEUE.md` when work state or durable knowledge changes.
@@ -24,11 +25,11 @@ This repository inherits Plainsight Systems governance from `docs/decisions/`.
 This repo is C++-dominant and performance-sensitive. Both C++ gates bind:
 
 - Non-trivial C++ changes require a C++ architecture note in the packet before
-  implementation, and a review against `docs/decisions/cpp_architecture_review.md`
+  implementation, and a review against `docs/decisions/governance/cpp_architecture_review.md`
   before acceptance.
 - Performance-sensitive C++ changes require a C++ performance note in the packet
   before implementation, and a review against
-  `docs/decisions/cpp_performance_review.md` before acceptance.
+  `docs/decisions/governance/cpp_performance_review.md` before acceptance.
 - Treat inference execution paths, model load, memory footprint, and GPU
   dispatch as performance-sensitive by default.
 

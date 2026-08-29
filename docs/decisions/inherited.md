@@ -1,19 +1,47 @@
 # Inherited Governance
 
 This repo inherits its engineering philosophies, C++ architecture and
-performance gates, and workflow from:
+performance gates, and workflow from `plainsight-systems-governance`, checked
+out in-tree as a submodule at:
 
-**<https://github.com/plainsight-systems/plainsight-systems-governance>**
+**[`docs/decisions/governance/`](./governance/)**
 
-That repository is public and CC BY 4.0. It is the canonical source and its own
-README is the index — nothing is duplicated here, so documents can be added or
-revised there without any edit to this repo.
+Canonical source: <https://github.com/plainsight-systems/plainsight-systems-governance>
+(public, CC BY 4.0). Its README is the index.
 
-Parent-organization policy is internal and is not required to read or apply the
-governance above.
+## Why a submodule
 
-## Local links
+The documents are pinned to a specific commit, so it is always recoverable
+which version of the review gates a given packet was written and reviewed
+against. A floating link cannot answer that.
 
-If you keep the governance repos checked out alongside this one,
-`./scripts/link-governance.sh` symlinks the documents into `docs/decisions/`
-for editor and agent convenience. Those links are gitignored.
+Clone with the documents present:
+
+```sh
+git clone --recurse-submodules <this repo>
+```
+
+Already cloned:
+
+```sh
+git submodule update --init
+```
+
+## Updating
+
+The pin advances deliberately, not automatically:
+
+```sh
+git submodule update --remote docs/decisions/governance
+git commit -am "Advance governance pin"
+```
+
+A stale pin is not a defect. It records the governance this repo was working
+under. Advance it when the newer guidance matters, and say so in the commit.
+
+## Not included
+
+Parent-organization policy is internal and lives in the private operations
+repo. It is not required to read or apply the governance above, and is
+deliberately not a submodule here — a private submodule would break cloning for
+anyone outside the org.

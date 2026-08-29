@@ -1,6 +1,6 @@
 # Workflow
 
-This repo uses Lite Factory workflow from `product_memory_workflow.md`.
+This repo uses Lite Factory workflow from `governance/product_memory_workflow.md`.
 
 ## Default Chain
 
@@ -21,8 +21,8 @@ extended at two points:
 ```text
 packet          -> must carry a C++ architecture note for non-trivial C++ work,
                    and a C++ performance note for performance-sensitive work
-review          -> C++ architecture review (cpp_architecture_review.md)
-                -> C++ performance review (cpp_performance_review.md)
+review          -> C++ architecture review (governance/cpp_architecture_review.md)
+                -> C++ performance review (governance/cpp_performance_review.md)
 ```
 
 - Acceptance is blocked on any P0 or P1 architecture or performance finding.

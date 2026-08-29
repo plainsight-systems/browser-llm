@@ -1,0 +1,3 @@
+[submodule "docs/decisions/governance"]
+	path = docs/decisions/governance
+	url = https://github.com/plainsight-systems/plainsight-systems-governance.git

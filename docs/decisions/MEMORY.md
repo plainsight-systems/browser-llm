@@ -54,14 +54,15 @@ Decided 2026-08-28 during repo bootstrap:
 - **No operating brand.** Internal R&D attributed to Plainsight Systems LLC
   directly.
 - **Version control is local-only for now.** `git init -b main`, no remote.
-- **Inherited governance is referenced by URL, not symlinked, in version
-  control.** The runbook's symlink pattern assumes a private governance repo.
-  `plainsight-systems-governance` was published (CC BY 4.0) with its internal
-  content moved to the operations repo, so `docs/decisions/inherited.md` is a
-  single pointer to it. Documents can change there without any edit here.
-  Local symlinks are gitignored and rebuilt by `scripts/link-governance.sh`.
-  Deviation from `repo_creation_runbook.md`, which should grow a public-repo
-  branch in its symlink guidance.
+- **Inherited governance is a pinned submodule at
+  `docs/decisions/governance/`.** `plainsight-systems-governance` was published
+  (CC BY 4.0) with its internal content moved to the operations repo, so it can
+  be checked out in-tree over HTTPS by anyone. Pinning is deliberate: it records
+  which version of the review gates a packet was written and reviewed against,
+  which a floating link cannot. The pin advances by explicit commit, not
+  automatically; a stale pin is a record, not a defect. Deviation from
+  `repo_creation_runbook.md`, which prescribes symlinks into a private sibling
+  and should grow a public-repo branch.
 
 ## Open Questions
 
