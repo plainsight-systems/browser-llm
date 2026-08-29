@@ -4,19 +4,22 @@ This file tracks active and accepted work.
 
 ## Active
 
-- **Repo governance bootstrap (2026-08-28).** Governance surface created per
-  `repo_creation_runbook.md`. No packet: this is a decision-doc bootstrap where
-  the decision conversation is the work. Implementation complete; awaiting human
-  acceptance.
+- **BLLM-001: Repo skeleton and build system.** Packet:
+  `packets/2026-08-29-repo-skeleton-and-build-system.md`. Change class:
+  architectural. Build system, platform-neutral core, native test suite,
+  boundary checks and native CI are implemented and verified. Remaining:
+  `core/gpu` device/buffer/pipeline, `src/wasm/bindings.cpp`, `web/`, and
+  enabling the Pages workflow on push. Blocked on a working Emscripten
+  toolchain to compile against — the WebGPU device path will not be written
+  unverified.
 
 ## Ready
 
-- **BLLM-001: Harness architecture decision packet.** Not yet written. Must be
-  scoped with a human before any implementation, because it settles the Open
-  Questions in `MEMORY.md` (target model, quantization, blessed browser/GPU
-  targets, C++/JS boundary, WebGPU access path, performance budget). Change
-  class: architectural. Requires a C++ architecture note and a C++ performance
-  note.
+- **BLLM-002: Model, quantization and blessed targets.** Not yet written.
+  Settles target model, parameter count, quantization format, weight layout,
+  and the performance budget with a baseline. Change class: architectural.
+  Requires a C++ architecture note and a C++ performance note. Nothing in
+  BLLM-001 depends on it.
 
 ## Accepted
 

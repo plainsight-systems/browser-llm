@@ -1,0 +1,54 @@
+# Builds the WebAssembly module and deploys the static page to GitHub Pages.
+#
+# Trigger is workflow_dispatch only until BLLM-001 completes. The wasm target
+# does not build yet: src/wasm/bindings.cpp and the WebGPU device path have
+# not been written. Adding the push trigger is the last step of that packet.
+name: pages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Same pinned toolchain the Makefile uses locally. CI is not special.
+    container: emscripten/emsdk:6.0.8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure and build wasm
+        run: |
+          emcmake cmake --preset wasm-release
+          cmake --build --preset wasm-release
+
+      - name: Assemble dist
+        run: |
+          mkdir -p dist
+          cp web/* dist/
+          cp build/wasm-release/browser_llm.mjs build/wasm-release/browser_llm.wasm dist/
+          touch dist/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
