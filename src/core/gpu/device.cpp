@@ -46,6 +46,7 @@ void on_uncaptured_error(WGPUDevice const*, WGPUErrorType type,
 // on whichever path completes.
 struct PendingDeviceRequest {
     std::unique_ptr<Device> device;
+    WGPULimits adapter_limits = {};
     Device::RequestCallback callback;
     void* userdata;
 
@@ -64,7 +65,7 @@ struct PendingDeviceRequest {
 
 void Device::request(RequestCallback callback, void* userdata) {
     auto* pending = new PendingDeviceRequest{
-        std::unique_ptr<Device>(new Device()), callback, userdata};
+        std::unique_ptr<Device>(new Device()), {}, callback, userdata};
 
     pending->device->instance_.reset(wgpuCreateInstance(nullptr));
     if (!pending->device->instance_) {
@@ -99,7 +100,9 @@ void Device::request(RequestCallback callback, void* userdata) {
 
         // Adapter maxima: what could be granted if requested. Informational.
         // Recorded separately because it is NOT what validation enforces.
-        WGPULimits adapter_limits = {};
+        // Stored on the pending request, not the stack: the device request is
+        // asynchronous and the descriptor points at this until it completes.
+        WGPULimits& adapter_limits = p->adapter_limits;
         if (wgpuAdapterGetLimits(adapter, &adapter_limits) != WGPUStatus_Success) {
             p->fail("could not query adapter limits; refusing to dispatch "
                     "against unknown device capabilities");
@@ -110,8 +113,16 @@ void Device::request(RequestCallback callback, void* userdata) {
             adapter_limits.maxComputeWorkgroupsPerDimension,
             adapter_limits.maxComputeInvocationsPerWorkgroup};
 
+        // Ask for what this adapter says it can give, rather than accepting
+        // WebGPU's defaults. Requesting an adapter's own advertised maxima is
+        // always satisfiable, so this raises the ceiling on capable hardware
+        // without narrowing portability: a weaker adapter simply advertises,
+        // and is granted, less.
+        //
+        // WGPULimits is initialised from the adapter query above.
         WGPUDeviceDescriptor device_desc = {};
         device_desc.uncapturedErrorCallbackInfo.callback = on_uncaptured_error;
+        device_desc.requiredLimits = &adapter_limits;
 
         WGPURequestDeviceCallbackInfo device_cb = {};
         device_cb.mode = WGPUCallbackMode_AllowSpontaneous;

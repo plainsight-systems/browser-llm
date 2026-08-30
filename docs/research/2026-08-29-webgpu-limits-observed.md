@@ -1,56 +1,63 @@
-# WebGPU limits: adapter maxima are not device limits
+# WebGPU limits: defaults, adapter maxima, and what you get if you ask
 
-**Date:** 2026-08-29, **corrected 2026-08-30**
+**Date:** 2026-08-29, **revised twice** — 2026-08-30.
 **Context:** BLLM-001 self-check, Chrome on Apple silicon (`apple` / `metal-3`).
 
-## Correction
+## What is actually true
 
-The first version of this note claimed that observed limits "far exceed the
-spec minimums" and concluded that weight residency was therefore a portability
-decision rather than a hard constraint. **That was wrong, and it was wrong in a
-way that mattered**: it read `wgpuAdapterGetLimits` as if it described the
-device that had been acquired.
+WebGPU limits work in three layers, and conflating any two of them produces a
+wrong design conclusion. All three measured on the same machine:
 
-It does not. WebGPU grants a device the **default** limits unless better ones
-are named in `requiredLimits` at acquisition, and validation enforces the
-*device's* limits, not the adapter's maxima.
+| Limit | Spec default | Device, asking nothing | Adapter advertises | Device, asking for adapter maxima |
+|---|---|---|---|---|
+| `maxBufferSize` | 256 MiB | 256 MiB | 4096 MiB | **4096 MiB** |
+| `maxStorageBufferBindingSize` | 128 MiB | 128 MiB | 4096 MiB | **4096 MiB** |
+| `maxComputeInvocationsPerWorkgroup` | 256 | 256 | 1024 | **1024** |
+| `maxComputeWorkgroupsPerDimension` | 65,535 | 65,535 | 65,535 | 65,535 |
 
-## Measured, both sides
+- `wgpuAdapterGetLimits` reports what the adapter **could** grant.
+- A device gets the **defaults** unless `requiredLimits` asks for more.
+- `wgpuDeviceGetLimits` reports what validation actually enforces.
 
-Same machine, same run, after querying `wgpuDeviceGetLimits` separately:
+**128 MiB is not a cap. It is the price of not asking.**
 
-| Limit | Spec default | Device (enforced) | Adapter (could grant) |
-|---|---|---|---|
-| `maxBufferSize` | 256 MiB | **256 MiB** | 4096 MiB |
-| `maxStorageBufferBindingSize` | 128 MiB | **128 MiB** | 4096 MiB |
-| `maxComputeInvocationsPerWorkgroup` | 256 | **256** | 1024 |
-| `maxComputeWorkgroupsPerDimension` | 65,535 | 65,535 | 65,535 |
+## Strategy, and why this one
 
-The acquired device sits exactly on the spec defaults, because this project
-requested no better limits. The 4 GiB figure is capability the adapter would
-grant *if asked* — and was never asked for.
+Requesting an adapter's *own advertised maxima* is always satisfiable — every
+adapter can grant what it just said it supports. So it raises the ceiling on
+capable hardware at **no portability cost**: a weaker adapter advertises less
+and is granted less, and the harness must cope with varying limits either way.
 
-## What this means
+That is what the harness now does. The alternatives:
 
-The original design conclusion was right after all: a several-hundred-megabyte
-model **must** be split across many bound buffers, because 128 MiB is the
-binding size actually in force.
+- **Ask for nothing** — uniform 128 MiB everywhere, simplest to reason about,
+  and needlessly discards an order of magnitude on capable hardware.
+- **Ask for a fixed floor** — uniform above the floor, but acquisition *fails*
+  on anything below it. That is a declared portability floor and a real
+  product decision, not a default to drift into.
+- **Ask for the adapter's maxima** (chosen) — best available per device, no
+  acquisition failures, at the cost of limits that differ between machines.
 
-The real decision for BLLM-002 is different from either previous framing:
+## Consequence for BLLM-002
 
-- **Ask for nothing** — run on the defaults, work everywhere WebGPU works, and
-  accept 128 MiB storage-buffer bindings as a hard design constraint.
-- **Ask for more via `requiredLimits`** — better residency on capable hardware,
-  but acquisition *fails* on any device that cannot grant it. That is a
-  portability floor being declared, and it must be declared deliberately.
+Weight residency is sized against a number that **varies per device** and is
+known only after acquisition. The harness must plan buffer packing from the
+device's actual granted limits, not from a compile-time constant, and must
+still degrade sensibly on an adapter that advertises only the defaults.
 
-Either way the floor is a product decision, and the harness must request what
-it needs at acquisition and fail explicitly when it is unavailable, rather than
-discovering the shortfall mid-load.
+## Correction history, kept deliberately
 
-## Lesson
+This note was wrong twice, in opposite directions:
 
-Two queries that look interchangeable were not, and the difference silently
-inverted a design conclusion. It survived a self-review and was caught only by
-independent review. Capability reported by a component is not capacity granted
-to you — check the thing you were actually given.
+1. Design discussion: "128 MiB and 256 MiB are hard caps; weights must split
+   across many buffers regardless of device." Wrong — they are defaults.
+2. First revision: "observed limits are 4096 MiB, so residency is a
+   portability decision." Right conclusion, wrong mechanism — it read adapter
+   capability as capacity already granted, when nothing had been requested.
+3. Second revision: "the original figures were right; weights must split."
+   Wrong again, over-corrected off the back of finding (2)'s error.
+
+The lesson worth keeping is not any of the three numbers. It is that
+*capability advertised*, *capacity granted*, and *capacity requested* are three
+different quantities, and every wrong version above came from treating two of
+them as one.

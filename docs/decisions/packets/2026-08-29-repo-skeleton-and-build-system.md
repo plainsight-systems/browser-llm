@@ -243,12 +243,16 @@ error its author already made.
   successfully, so the pinned environment is exercised on every push.
 - Verified end to end on 2026-08-29: Chrome on Apple silicon (`apple` /
   `metal-3`), 4096 elements, 0 mismatches, deployed from CI to GitHub Pages.
-- **Correction, then correction of the correction.** The design discussion
-  treated `maxStorageBufferBindingSize` 128MB / `maxBufferSize` 256MB as hard
-  caps. A first pass "corrected" this to 4096 MiB — but that read
-  `wgpuAdapterGetLimits` as though it described the acquired device. It does
-  not: a device gets WebGPU's defaults unless `requiredLimits` asks for more.
-  Measured on the same machine, the device enforces exactly 256/128 MiB while
-  the adapter would grant 4096 MiB. **The original design figures were right.**
-  Caught by independent review, not by self-review. See
-  `docs/research/2026-08-29-webgpu-limits-observed.md`; owed to BLLM-002.
+- **Limits: wrong twice, in opposite directions.** The design discussion
+  treated 128/256 MiB as hard caps. A first correction read adapter maxima as
+  capacity already granted. A second over-corrected back to "the originals
+  were right." All three were wrong: those are WebGPU's *defaults*, and
+  `requiredLimits` raises them. Measured — asking for the adapter's own maxima
+  grants 4096 MiB and 1024 invocations per workgroup, against 128 MiB and 256
+  by default. See `docs/research/2026-08-29-webgpu-limits-observed.md`.
+- **Scope note (§5.6).** Fixing the P1 required separating device limits from
+  adapter maxima. *Also requesting* those maxima via `requiredLimits` is a
+  behavior change beyond that fix, taken deliberately: leaving the harness on
+  defaults would mean designing weight residency around a limit the hardware
+  does not actually impose. Flagged rather than folded in silently. If the
+  reviewer disagrees, it belongs in BLLM-002 where the floor is decided.
