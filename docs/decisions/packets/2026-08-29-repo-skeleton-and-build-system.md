@@ -42,24 +42,27 @@
 
 ## Acceptance Criteria
 
-- [ ] `cmake --preset native-debug && cmake --build --preset native-debug`
+- [x] `cmake --preset native-debug && cmake --build --preset native-debug`
       succeeds from a clean tree.
-- [ ] `ctest --preset native-debug` passes, exercising real logic, without a
+- [x] `ctest --preset native-debug` passes, exercising real logic, without a
       browser and without a GPU.
-- [ ] The wasm configuration builds inside the pinned Emscripten image and
+- [x] The wasm configuration builds inside the pinned Emscripten image and
       emits `browser_llm.mjs` and `browser_llm.wasm`.
-- [ ] Grep check passes: no file under `src/core/` matches `emscripten.h`,
+- [x] Grep check passes: no file under `src/core/` matches `emscripten.h`,
       `EM_JS`, `EMSCRIPTEN_`, or `#include "wasm/`.
-- [ ] Grep check passes: `src/wasm/bindings.cpp` is the only file under `src/`
+- [x] Grep check passes: `src/wasm/bindings.cpp` is the only file under `src/`
       that includes `emscripten.h`.
-- [ ] Shader embedding is verified: the generated C++ constant is byte-identical
+- [x] Shader embedding is verified: the generated C++ constant is byte-identical
       to `src/shaders/vector_add.wgsl`, asserted by a native test rather than
       by inspection.
-- [ ] Serving `dist/` over http and opening the page in Chrome reports a
-      non-empty adapter description, the four buffer limits this project is
-      constrained by, and `vector_add: OK`.
-- [ ] Both CI workflows pass on a push.
-- [ ] `README.md` documents the layout as built, with planned-but-absent
+- [x] Serving `dist/` over http and opening the page in Chrome reports the
+      adapter, the four buffer limits, and `vector_add: OK`. Verified locally
+      and against the deployed Pages site. Note: this adapter reports empty
+      `description` and `device` strings and populates `vendor`/`architecture`
+      instead, so the criterion's "non-empty description" wording was wrong;
+      the page renders "(not reported)" rather than implying data it lacks.
+- [x] Both CI workflows pass on a push.
+- [x] `README.md` documents the layout as built, with planned-but-absent
       directories marked as planned.
 
 ## Verification Plan

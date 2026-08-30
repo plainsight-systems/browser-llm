@@ -39,8 +39,8 @@ src/
     runtime/       planned — weight residency, KV cache, forward pass
     sampler/       planned
   shaders/         WGSL, embedded into the binary at build time
-  wasm/            planned — the single Emscripten-aware translation unit
-web/               planned — static page, worker, model cache. no npm.
+  wasm/            the single Emscripten-aware translation unit
+web/               static page and worker. no npm. model cache planned.
 tests/             native unit tests. no browser, no GPU.
 tools/             boundary checks and helper scripts
 cmake/             shader embedding codegen
@@ -55,8 +55,8 @@ native test binary and for WebAssembly. This is the one structural decision
 that is expensive to reverse, because it determines whether inference logic can
 be tested at all without launching a browser.
 
-**The browser is the platform wrapper.** `src/wasm/` will be a single
-translation unit exposing core to JavaScript, and `web/` owns the page. Product
+**The browser is the platform wrapper.** `src/wasm/` is a single translation
+unit exposing core to JavaScript, and `web/` owns the page. Product
 behavior does not live there. Both invariants are enforced by
 `tools/check_boundaries.sh` in CI rather than by review, because a reviewer
 noticing a stray include is not a control.
