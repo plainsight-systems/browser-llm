@@ -26,10 +26,6 @@ This file tracks active and accepted work.
   kernel. Until then `device.cpp` and `self_check.cpp` compile for wasm only
   and no kernel has a deterministic native oracle.
 
-- **BLLM-004: Review tooling.** `scripts/codex-review.sh` was added outside any
-  packet, which the review correctly flagged against one-packet/one-intent.
-  Retrofit a packet covering it and its two guard tests.
-
 ## Accepted
 
 - None.

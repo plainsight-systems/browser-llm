@@ -32,6 +32,10 @@ review          -> C++ architecture review (governance/cpp_architecture_review.m
   material, because this is setup-time code" is the artifact, not an
   omission. If either server is unreachable, say so and get explicit
   agreement before writing C++ rather than proceeding quietly.
+- **Never retrofit a packet for work that is already complete.** A packet
+  gates work before it starts; written afterwards it changes nothing and only
+  makes the process look followed. "This shipped without a packet" is a lesson
+  about sequencing — record it once and move on.
 - Acceptance is blocked on any P0 or P1 architecture or performance finding.
 - Treat inference execution, model load, memory footprint, and GPU dispatch as
   performance-sensitive by default. A packet touching those paths without a
