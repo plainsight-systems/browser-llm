@@ -21,6 +21,12 @@ is inferred. See [Current state](#current-state).
 
 Live: <https://plainsight-systems.github.io/browser-llm/>
 
+## Architecture
+
+[`docs/architecture.md`](docs/architecture.md) — module boundaries, build
+targets, the runtime call sequence, and control flow, as diagrams. It
+documents what exists today, not what is planned.
+
 ## Repository structure
 
 Directories marked *planned* do not exist yet. They are listed because the
@@ -42,7 +48,7 @@ src/
   wasm/            the single Emscripten-aware translation unit
 web/               static page and worker. no npm. model cache planned.
 tests/             native unit tests. no browser, no GPU.
-tools/             boundary checks and helper scripts
+tools/             boundary checks, diagram validation, helper scripts
 cmake/             shader embedding codegen
 docs/decisions/    project memory, packets, and inherited governance submodule
 ```

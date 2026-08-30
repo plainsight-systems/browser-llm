@@ -19,6 +19,9 @@ jobs:
       - name: Guards fire when violated
         run: ./tests/test_check_boundaries.sh
 
+      - name: Diagrams (id collisions, nesting depth)
+        run: ./tools/check_diagrams.py
+
       - name: Configure
         run: cmake --preset native-release
 
