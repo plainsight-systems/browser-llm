@@ -50,10 +50,16 @@ docs/decisions/    project memory, packets, and inherited governance submodule
 ### Why this shape
 
 **`src/core/` never knows it is in a browser.** It contains no `emscripten.h`,
-no `EM_JS`, and no `#ifdef __EMSCRIPTEN__`. The same sources compile for the
-native test binary and for WebAssembly. This is the one structural decision
-that is expensive to reverse, because it determines whether inference logic can
-be tested at all without launching a browser.
+no `EM_JS`, and no `#ifdef __EMSCRIPTEN__`, enforced by
+`tools/check_boundaries.sh`. This is the one structural decision that is
+expensive to reverse, because it determines whether inference logic can be
+tested at all without launching a browser.
+
+Note what is *not* yet true: the GPU sources currently compile only for
+WebAssembly, because natively `webgpu.h` means linking Dawn and that is
+deferred to the first model kernel. They are written against the same C API so
+that adding Dawn needs no source change, but until then only the
+platform-neutral logic is compiled and tested natively.
 
 **The browser is the platform wrapper.** `src/wasm/` is a single translation
 unit exposing core to JavaScript, and `web/` owns the page. Product

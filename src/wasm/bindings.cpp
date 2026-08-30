@@ -90,7 +90,9 @@ void on_self_check(const bllm::gpu::SelfCheckResult& result, void*) {
     json += "\"architecture\":\"" + json_escape(info.architecture) + "\",";
     json += "\"device\":\"" + json_escape(info.device) + "\",";
     json += "\"description\":\"" + json_escape(info.description) + "\",";
-    json += "\"backend\":\"" + json_escape(info.backend) + "\"},\"limits\":{";
+    json += "\"backend\":\"" + json_escape(info.backend) + "\",";
+    json += "\"queried\":" + std::string(info.queried ? "true" : "false") +
+            "},\"limits\":{";
     json += "\"maxBufferSize\":" + std::to_string(limits.max_buffer_size) + ",";
     json += "\"maxStorageBufferBindingSize\":" +
             std::to_string(limits.max_storage_buffer_binding_size) + ",";

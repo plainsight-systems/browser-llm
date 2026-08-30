@@ -11,9 +11,11 @@ test:
 	cmake --build --preset native-debug
 	ctest --preset native-debug
 
-## Structural invariants (core/wrapper boundary).
+## Structural invariants, plus the tests proving each guard actually fires.
 check:
 	./tools/check_boundaries.sh
+	./tests/test_check_boundaries.sh
+	./tests/test_codex_review_preflight.sh
 
 ## WebAssembly build, inside the pinned toolchain image.
 wasm:

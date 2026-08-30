@@ -18,6 +18,10 @@ struct DeviceLimits {
 };
 
 struct AdapterInfo {
+    // False when wgpuAdapterGetInfo failed outright. Distinct from an adapter
+    // that legitimately reports empty strings for some fields — conflating the
+    // two would let a failed query render as a normal, sparsely-populated page.
+    bool queried = false;
     std::string vendor;
     std::string architecture;
     std::string device;

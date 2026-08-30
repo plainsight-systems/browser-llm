@@ -85,22 +85,33 @@ void Device::request(RequestCallback callback, void* userdata) {
         }
         p->device->adapter_.reset(adapter);
 
+        // Adapter metadata is informational: a failed query is recorded as
+        // such rather than silently rendering as empty fields.
         WGPUAdapterInfo info = {};
         if (wgpuAdapterGetInfo(adapter, &info) == WGPUStatus_Success) {
             p->device->adapter_info_ = AdapterInfo{
+                true,
                 to_string(info.vendor), to_string(info.architecture),
                 to_string(info.device), to_string(info.description),
                 backend_name(info.backendType)};
             wgpuAdapterInfoFreeMembers(info);
         }
 
+        // Limits are NOT informational. Every dispatch is sized against
+        // maxComputeWorkgroupsPerDimension, so defaulting them to zero would
+        // make the first dispatch fail with "exceeds this device's dispatch
+        // limit" — an error describing the workload when the real fault was
+        // the query. Fail here, where the cause is still visible.
         WGPULimits limits = {};
-        if (wgpuAdapterGetLimits(adapter, &limits) == WGPUStatus_Success) {
-            p->device->limits_ = DeviceLimits{
-                limits.maxBufferSize, limits.maxStorageBufferBindingSize,
-                limits.maxComputeWorkgroupsPerDimension,
-                limits.maxComputeInvocationsPerWorkgroup};
+        if (wgpuAdapterGetLimits(adapter, &limits) != WGPUStatus_Success) {
+            p->fail("could not query adapter limits; refusing to dispatch "
+                    "against unknown device capabilities");
+            return;
         }
+        p->device->limits_ = DeviceLimits{
+            limits.maxBufferSize, limits.maxStorageBufferBindingSize,
+            limits.maxComputeWorkgroupsPerDimension,
+            limits.maxComputeInvocationsPerWorkgroup};
 
         WGPUDeviceDescriptor device_desc = {};
         device_desc.uncapturedErrorCallbackInfo.callback = on_uncaptured_error;

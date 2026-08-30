@@ -16,6 +16,9 @@ jobs:
       - name: Structural invariants
         run: ./tools/check_boundaries.sh
 
+      - name: Guards fire when violated
+        run: ./tests/test_check_boundaries.sh
+
       - name: Configure
         run: cmake --preset native-release
 

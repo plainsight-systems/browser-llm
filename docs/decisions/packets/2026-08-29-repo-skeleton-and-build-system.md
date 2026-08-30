@@ -32,8 +32,16 @@
   - `src/core/**` never includes `emscripten.h` and never references anything
     under `src/wasm/` or `web/`. Dependency direction is one-way.
   - `src/wasm/bindings.cpp` is the only Emscripten-aware translation unit.
-  - The same `src/core` sources compile in both the native and wasm
-    configurations. No `#ifdef __EMSCRIPTEN__` in core.
+  - No `#ifdef __EMSCRIPTEN__` anywhere in `src/core`: core is written
+    platform-neutral, and `tools/check_boundaries.sh` enforces that it never
+    references Emscripten or depends outward on the wrapper.
+  - `dispatch_math` and `unique_handle` compile and are tested in the native
+    configuration. `device.cpp` and `self_check.cpp` compile **only** under
+    Emscripten in this packet, because they need an implementation of
+    `webgpu.h` and the native one is Dawn, which is deferred to the first
+    model-kernel packet. They are written against `webgpu.h` so that adding
+    Dawn requires no source change — but until it lands, native source parity
+    is NOT claimed.
   - The build never requires `SharedArrayBuffer`, cross-origin isolation, or
     pthreads. GitHub Pages cannot set COOP/COEP headers, so any dependency on
     them would break deployment.

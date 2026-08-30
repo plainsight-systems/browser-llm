@@ -4,7 +4,7 @@
 # Usage:  ./scripts/codex-review.sh <packet-file> [output-file]
 #
 # Hand it a packet. It reviews the packet's claims against the actual code in
-# the working tree, grounded in the cpp-guidelines and cpp-perf-guidelines MCP
+# the working tree, grounded in the cpp-guidelines and cpp-performance MCP
 # servers. Output is written to a file, not attached to a commit — the packet,
 # not the commit, is the unit of work here.
 #
@@ -22,8 +22,9 @@ cd "$(dirname "$0")/.."
 MODEL="${CODEX_MODEL:-gpt-5.6-sol}"
 EFFORT="${CODEX_EFFORT:-high}"
 
-# The MCP servers this review is required to consult, as configured in
-# ~/.codex/config.toml. Checked before spending a model call.
+# The MCP servers this review is required to consult. Names must match the
+# server keys in ~/.codex/config.toml (cpp-guidelines, cpp-performance) or the
+# reviewer will cite tools it never called.
 GUIDELINES_URL="${CPP_GUIDELINES_URL:-http://127.0.0.1:7011}"
 PERF_URL="${CPP_PERF_URL:-http://127.0.0.1:7015}"
 
@@ -59,16 +60,20 @@ check_mcp() {
   # Any HTTP status means the server is listening. A bare GET returns 406
   # because the MCP streamable transport wants its own Accept headers, so
   # `curl -f` must NOT be used here — it would reject a healthy server.
-  # curl reports 000 when the connection itself fails.
-  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "${url}" 2>/dev/null || echo 000)"
-  if [ "${code}" = "000" ]; then
+  #
+  # Branch on curl's exit status, not on the body. An earlier version used
+  # `... || echo 000` as a fallback, but on connection failure curl BOTH
+  # prints 000 and exits non-zero, producing "000000" and silently passing
+  # the check this function exists to enforce. Covered by
+  # tests/test_codex_review_preflight.sh.
+  if ! curl -s -o /dev/null --max-time 5 "${url}" 2>/dev/null; then
     die "MCP server '${name}' is not reachable at ${url}
   This review is required to be grounded in it. Start the server and retry,
   rather than running a review that cannot check what it claims to check."
   fi
 }
 check_mcp "cpp-guidelines" "${GUIDELINES_URL}"
-check_mcp "cpp-perf-guidelines" "${PERF_URL}"
+check_mcp "cpp-performance" "${PERF_URL}"
 
 PACKET_BASE="$(basename "${PACKET}" .md)"
 OUTPUT="${OUTPUT_ARG:-docs/research/${PACKET_BASE}-codex-review.md}"
@@ -118,7 +123,7 @@ Two MCP servers are available and you MUST use them. Do not cite a rule from
 memory.
 
   cpp-guidelines       search_guidelines / get_guideline   (C++ Core Guidelines)
-  cpp-perf-guidelines  search_guidelines / get_guideline   (performance corpus)
+  cpp-performance      search_guidelines / get_guideline   (performance corpus)
 
   1. Search before you cite. Confirm the rule says what you think it says.
   2. Cite rule IDs (e.g. R.1, E.25, I.11, C.31, LIFE.6) for every guideline

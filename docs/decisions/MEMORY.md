@@ -7,8 +7,8 @@ This file is the canonical entry point for durable project context.
 - **Product:** browser-llm (working name)
 - **Operating brand:** None. Internal R&D under the parent entity.
 - **Parent entity:** Plainsight Systems LLC
-- **Repository:** local only at `repositories/tech-demos/browser-llm`. No remote
-  created as of 2026-08-28.
+- **Repository:** <https://github.com/plainsight-systems/browser-llm> (public).
+  Deployed: <https://plainsight-systems.github.io/browser-llm/>
 
 ## Purpose
 
@@ -16,7 +16,10 @@ A self-built inference harness that runs an open-weight model entirely in the
 browser: C++ compiled to WebAssembly, with compute executed on WebGPU. No
 server-side inference, no remote model execution.
 
-Status: bootstrapped governance only. No implementation exists.
+Status as of 2026-08-30: the toolchain reaches the GPU. The dual-target build,
+platform-neutral core, WebGPU device path, wasm bindings and a static page all
+exist, and CI deploys the page. No model is loaded and nothing is inferred.
+BLLM-001 is `changes_requested` after independent review.
 
 ## Inherited Governance
 
