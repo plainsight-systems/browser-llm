@@ -9,9 +9,21 @@ This file tracks active and accepted work.
   `changes_requested` after independent codex review
   (`research/2026-08-29-repo-skeleton-and-build-system-codex-review.md`).
   Implementation is complete and deployed; the review's P1 and P2 findings
-  have been worked. Remaining before acceptance: re-run the review now that
-  `get_guideline` approval is configured, since the first pass recorded the
-  guideline audit as NOT PERFORMED.
+  have been worked. Second review completed 2026-08-30 with a full guideline
+  audit (no environment failure) and again returned `changes_requested`;
+  `research/2026-08-30-bllm-001-codex-review-2.md`. Its P1 and the mechanical
+  P2/P3 findings are fixed. Two design-level findings remain open and are
+  tracked below rather than half-fixed.
+
+- **BLLM-005: Async callback contracts and wrapper state.** From the second
+  review. Callback non-null preconditions are neither stated nor checked;
+  `RequestCallback` passes an error pointer into a temporary with undocumented
+  lifetime; the bridging contexts use naked `new` / `delete this` outside the
+  `UniqueHandle` system; and `active_device()` / `request_in_flight()` remain
+  mutable singleton state that construct-on-first-use does not eliminate
+  (I.5, I.12, ES.65, R.11, ES.24, I.2, R.6). Needs owned result objects and
+  run state threaded through userdata, plus fake-async tests covering every
+  completion path.
 
 ## Ready
 

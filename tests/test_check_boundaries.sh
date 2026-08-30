@@ -47,7 +47,14 @@ printf '#include <emscripten.h>\n' > "${F}"
 expect_violation "second Emscripten-aware translation unit"
 rm -f "${F}"
 
+# 4. Near-collision: the allowlist is an exact path, not a regex. With `.`
+#    treated as a wildcard, "bindingsXcpp" would be silently excluded too.
+F=src/wasm/bindingsXcpp; CREATED="${CREATED} ${F}"
+printf '#include <emscripten.h>\n' > "${F}"
+expect_violation "near-collision filename slipping through the allowlist"
+rm -f "${F}"
+
 # Tree must be clean again afterwards.
 "${CHECK}" >/dev/null 2>&1 || fail "checker still failing after probes removed"
 
-echo "check_boundaries: OK (all three rules fire)"
+echo "check_boundaries: OK (all four rules fire)"

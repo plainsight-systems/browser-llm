@@ -97,21 +97,18 @@ void Device::request(RequestCallback callback, void* userdata) {
             wgpuAdapterInfoFreeMembers(info);
         }
 
-        // Limits are NOT informational. Every dispatch is sized against
-        // maxComputeWorkgroupsPerDimension, so defaulting them to zero would
-        // make the first dispatch fail with "exceeds this device's dispatch
-        // limit" — an error describing the workload when the real fault was
-        // the query. Fail here, where the cause is still visible.
-        WGPULimits limits = {};
-        if (wgpuAdapterGetLimits(adapter, &limits) != WGPUStatus_Success) {
+        // Adapter maxima: what could be granted if requested. Informational.
+        // Recorded separately because it is NOT what validation enforces.
+        WGPULimits adapter_limits = {};
+        if (wgpuAdapterGetLimits(adapter, &adapter_limits) != WGPUStatus_Success) {
             p->fail("could not query adapter limits; refusing to dispatch "
                     "against unknown device capabilities");
             return;
         }
-        p->device->limits_ = DeviceLimits{
-            limits.maxBufferSize, limits.maxStorageBufferBindingSize,
-            limits.maxComputeWorkgroupsPerDimension,
-            limits.maxComputeInvocationsPerWorkgroup};
+        p->device->adapter_maxima_ = DeviceLimits{
+            adapter_limits.maxBufferSize, adapter_limits.maxStorageBufferBindingSize,
+            adapter_limits.maxComputeWorkgroupsPerDimension,
+            adapter_limits.maxComputeInvocationsPerWorkgroup};
 
         WGPUDeviceDescriptor device_desc = {};
         device_desc.uncapturedErrorCallbackInfo.callback = on_uncaptured_error;
@@ -130,6 +127,20 @@ void Device::request(RequestCallback callback, void* userdata) {
             }
             q->device->device_.reset(device);
             q->device->queue_.reset(wgpuDeviceGetQueue(device));
+
+            // The effective limits are the DEVICE's, not the adapter's. This
+            // request named no requiredLimits, so the device carries WebGPU's
+            // defaults regardless of what the adapter advertises.
+            WGPULimits device_limits = {};
+            if (wgpuDeviceGetLimits(device, &device_limits) != WGPUStatus_Success) {
+                q->fail("could not query device limits; refusing to dispatch "
+                        "against unknown device capabilities");
+                return;
+            }
+            q->device->limits_ = DeviceLimits{
+                device_limits.maxBufferSize, device_limits.maxStorageBufferBindingSize,
+                device_limits.maxComputeWorkgroupsPerDimension,
+                device_limits.maxComputeInvocationsPerWorkgroup};
             q->succeed();
         };
         wgpuAdapterRequestDevice(adapter, &device_desc, device_cb);

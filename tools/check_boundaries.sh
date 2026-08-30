@@ -36,7 +36,7 @@ fi
 
 # 3. Exactly the allowlisted file may be Emscripten-aware. A second one is a
 #    decision, not a drift — and it must be that file, not merely one file.
-offenders="$(grep -rlE "${EMSCRIPTEN_TOKENS}" src/ 2>/dev/null | grep -v "^${WRAPPER}$" || true)"
+offenders="$(grep -rlE "${EMSCRIPTEN_TOKENS}" src/ 2>/dev/null | grep -Fvx "${WRAPPER}" || true)"
 if [ -n "${offenders}" ]; then
     echo "${offenders}" | sed 's/^/  /' >&2
     fail "only ${WRAPPER} may be Emscripten-aware."

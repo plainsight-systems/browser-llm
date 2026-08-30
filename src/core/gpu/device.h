@@ -57,7 +57,20 @@ public:
     WGPUDevice handle() const { return device_.get(); }
     WGPUQueue queue() const { return queue_.get(); }
     const AdapterInfo& adapter_info() const { return adapter_info_; }
+
+    // Limits of the ACQUIRED DEVICE. These are what validation enforces and
+    // what dispatch must be sized against.
+    //
+    // Not the same thing as adapter_maxima(). WebGPU grants a device the
+    // DEFAULT limits unless better ones are named in requiredLimits at
+    // acquisition, so an adapter advertising 4 GiB buffers can yield a device
+    // capped at 256/128 MiB. Sizing work against the adapter's numbers would
+    // pass our own checks and then fail device validation.
     const DeviceLimits& limits() const { return limits_; }
+
+    // What the adapter could grant if asked. Informational only: never size a
+    // dispatch or a buffer against these.
+    const DeviceLimits& adapter_maxima() const { return adapter_maxima_; }
 
 private:
     Device() = default;
@@ -71,7 +84,8 @@ private:
     DeviceHandle device_;
     Queue queue_;
     AdapterInfo adapter_info_;
-    DeviceLimits limits_;
+    DeviceLimits limits_;          // of the acquired device
+    DeviceLimits adapter_maxima_;  // of the adapter, informational
 };
 
 }  // namespace bllm::gpu

@@ -81,6 +81,9 @@ Native unit tests cover the logic that exists at this stage and no more:
 |---|---|
 | `dispatch_math_test` | Workgroup-count arithmetic: exact multiples, non-multiples, zero elements, and sizes near the `maxComputeWorkgroupsPerDimension` bound. Pure function, exhaustively checkable. |
 | `shader_embed_test` | The embedded shader constant equals the on-disk `.wgsl` byte for byte, so the single-source invariant cannot silently break. |
+| `unique_handle_test` | `UniqueHandle` ownership: releases exactly once on destruction, move transfers without double-release, self-move is safe, `reset` releases the prior handle, `release` relinquishes without releasing. This is what makes the RAII claim evidence rather than assertion. |
+| `test_check_boundaries.sh` | Each boundary rule actually fires against real probe files, including a near-collision filename. |
+| `test_codex_review_preflight.sh` | The review script refuses to run when a required MCP server is unreachable. |
 
 Structural invariants are verified by grep in CI rather than by review, because
 a reviewer noticing a stray `#include <emscripten.h>` is not a control.
@@ -240,9 +243,12 @@ error its author already made.
   successfully, so the pinned environment is exercised on every push.
 - Verified end to end on 2026-08-29: Chrome on Apple silicon (`apple` /
   `metal-3`), 4096 elements, 0 mismatches, deployed from CI to GitHub Pages.
-- **Correction discovered during verification.** The design discussion treated
-  `maxStorageBufferBindingSize` 128MB / `maxBufferSize` 256MB as hard caps.
-  They are the spec's guaranteed minimums; this device reports 4096 MiB for
-  both. Weight residency is therefore a portability decision rather than a
-  fixed constraint. Recorded in
-  `docs/research/2026-08-29-webgpu-limits-observed.md` and owed to BLLM-002.
+- **Correction, then correction of the correction.** The design discussion
+  treated `maxStorageBufferBindingSize` 128MB / `maxBufferSize` 256MB as hard
+  caps. A first pass "corrected" this to 4096 MiB — but that read
+  `wgpuAdapterGetLimits` as though it described the acquired device. It does
+  not: a device gets WebGPU's defaults unless `requiredLimits` asks for more.
+  Measured on the same machine, the device enforces exactly 256/128 MiB while
+  the adapter would grant 4096 MiB. **The original design figures were right.**
+  Caught by independent review, not by self-review. See
+  `docs/research/2026-08-29-webgpu-limits-observed.md`; owed to BLLM-002.

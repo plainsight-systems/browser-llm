@@ -84,6 +84,7 @@ void on_self_check(const bllm::gpu::SelfCheckResult& result, void*) {
     const auto& device = *active_device();
     const auto& info = device.adapter_info();
     const auto& limits = device.limits();
+    const auto& maxima = device.adapter_maxima();
 
     std::string json = "{\"ok\":true,\"adapter\":{";
     json += "\"vendor\":\"" + json_escape(info.vendor) + "\",";
@@ -100,6 +101,10 @@ void on_self_check(const bllm::gpu::SelfCheckResult& result, void*) {
             std::to_string(limits.max_compute_workgroups_per_dimension) + ",";
     json += "\"maxComputeInvocationsPerWorkgroup\":" +
             std::to_string(limits.max_compute_invocations_per_workgroup) + "},";
+    json += "\"adapterMaxima\":{";
+    json += "\"maxBufferSize\":" + std::to_string(maxima.max_buffer_size) + ",";
+    json += "\"maxStorageBufferBindingSize\":" +
+            std::to_string(maxima.max_storage_buffer_binding_size) + "},";
     json += "\"selfCheck\":{\"elements\":" + std::to_string(result.elements) +
             ",\"mismatches\":" + std::to_string(result.mismatches) + "}}";
     bllm_deliver(json.c_str());

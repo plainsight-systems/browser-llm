@@ -21,6 +21,12 @@ const renderPairs = (el, pairs) => {
   }
 };
 
+// A failed wgpuAdapterGetInfo and an adapter that legitimately reports an
+// empty field are different facts. Rendering both as "(not reported)" would
+// hide a query failure behind normal-looking output.
+const field = (adapter, name) =>
+  adapter.queried === false ? '(query failed)' : (adapter[name] || '(not reported)');
+
 const mib = (bytes) => `${Number(bytes).toLocaleString()} (${(bytes / 1048576).toFixed(0)} MiB)`;
 
 // Fail early and specifically rather than letting the module fail obscurely.
@@ -53,16 +59,18 @@ if (!('gpu' in navigator)) {
       `${r.selfCheck.mismatches} mismatches against the CPU result.`;
 
     renderPairs(adapterEl, [
-      ['description', r.adapter.description || '(not reported)'],
-      ['vendor', r.adapter.vendor || '(not reported)'],
-      ['architecture', r.adapter.architecture || '(not reported)'],
-      ['device', r.adapter.device || '(not reported)'],
-      ['backend', r.adapter.backend],
+      ['description', field(r.adapter, 'description')],
+      ['vendor', field(r.adapter, 'vendor')],
+      ['architecture', field(r.adapter, 'architecture')],
+      ['device', field(r.adapter, 'device')],
+      ['backend', field(r.adapter, 'backend')],
     ]);
 
     renderPairs(limitsEl, [
-      ['maxBufferSize', mib(r.limits.maxBufferSize)],
-      ['maxStorageBufferBindingSize', mib(r.limits.maxStorageBufferBindingSize)],
+      ['maxBufferSize (device)', mib(r.limits.maxBufferSize)],
+      ['maxStorageBufferBindingSize (device)', mib(r.limits.maxStorageBufferBindingSize)],
+      ['maxBufferSize (adapter could grant)', mib(r.adapterMaxima.maxBufferSize)],
+      ['maxStorageBufferBindingSize (adapter could grant)', mib(r.adapterMaxima.maxStorageBufferBindingSize)],
       ['maxComputeWorkgroupsPerDimension', Number(r.limits.maxComputeWorkgroupsPerDimension).toLocaleString()],
       ['maxComputeInvocationsPerWorkgroup', Number(r.limits.maxComputeInvocationsPerWorkgroup).toLocaleString()],
     ]);

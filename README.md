@@ -87,7 +87,9 @@ identical to the file on disk. There is no second copy to drift.
 
 **Weights are not in this repository, and cannot be.** GitHub caps files at
 100MB and Pages does not serve Git LFS; a small quantized model is several
-hundred megabytes. Weights will be fetched from a CDN on first run, verified by
+hundred megabytes. They must also be split across many GPU buffers: the
+acquired device enforces WebGPU's default 128 MiB storage-buffer binding
+limit, regardless of the far larger maxima the adapter advertises. Weights will be fetched from a CDN on first run, verified by
 SHA-256, and cached in OPFS. The *code* is self-contained; the weights are
 fetched once. Saying otherwise would be a facade.
 
