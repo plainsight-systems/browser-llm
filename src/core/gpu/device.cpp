@@ -139,9 +139,13 @@ void Device::request(RequestCallback callback, void* userdata) {
             q->device->device_.reset(device);
             q->device->queue_.reset(wgpuDeviceGetQueue(device));
 
-            // The effective limits are the DEVICE's, not the adapter's. This
-            // request named no requiredLimits, so the device carries WebGPU's
-            // defaults regardless of what the adapter advertises.
+            // Read back what was actually granted rather than assuming the
+            // request was honoured wholesale. These are the limits validation
+            // enforces, and the only ones work may be sized against.
+            //
+            // With requiredLimits set to the adapter's own maxima these should
+            // match adapter_maxima(), and the page shows both so a divergence
+            // is visible rather than silently assumed away.
             WGPULimits device_limits = {};
             if (wgpuDeviceGetLimits(device, &device_limits) != WGPUStatus_Success) {
                 q->fail("could not query device limits; refusing to dispatch "
