@@ -97,9 +97,12 @@ the contract. Unit-test surface arrives with BLLM-002 and its GGUF parsing.
   self-check and device description to JavaScript. `web/` owns the page, the
   worker, and rendering.
 
-- **Public interfaces changed:** None exist yet. Introduced: `gpu::Device`,
-  `gpu::Buffer`, `gpu::ComputePipeline`, `gpu::dispatch_count`, and
-  `gpu::run_self_check`.
+- **Public interfaces changed:** None existed. Introduced:
+  `gpu::UniqueHandle<Handle, ReleaseFn>` and the RAII aliases in
+  `wgpu_handles.h` (`Buffer`, `ShaderModule`, `ComputePipeline`, `BindGroup`,
+  `BindGroupLayout`, `CommandEncoder`, `CommandBuffer`, `ComputePassEncoder`,
+  `Instance`, `Adapter`, `DeviceHandle`, `Queue`), plus `gpu::Device`,
+  `gpu::dispatch_count`, `gpu::DispatchResult` and `gpu::run_self_check`.
 
 - **New files/classes/targets/modules:** Targets `browser_llm_core` (static
   library, both configurations), `browser_llm_tests` (native only),
@@ -112,17 +115,25 @@ the contract. Unit-test surface arrives with BLLM-002 and its GGUF parsing.
   on core and doctest. `browser_llm` depends on core and Emscripten. No edge
   points from core outward.
 
-- **Ownership/lifetime model:** RAII throughout. `Device` owns the WGPU
-  instance, adapter, and device handles and releases them in reverse
-  acquisition order. `Buffer` and `ComputePipeline` own single WGPU handles
-  and are move-only, non-copyable — a copied handle would double-release.
-  Nothing is shared; no `shared_ptr` appears.
+- **Ownership/lifetime model:** RAII throughout, via
+  `UniqueHandle<Handle, ReleaseFn>`: move-only, non-copyable, releasing
+  exactly once in its destructor. Every WebGPU release in the codebase is
+  reached through that template — no source file calls `wgpuXRelease` by hand,
+  which is what makes early returns safe in a build compiled without
+  exceptions (E.25). `Device` holds its instance, adapter, device and queue as
+  such handles; member declaration order gives reverse-order release without
+  a hand-written destructor. Device ownership is transferred to the caller as
+  `std::unique_ptr<Device>`, never as a raw pointer (I.11). Nothing is shared;
+  no `shared_ptr` appears.
 
-- **Test surface independent of UI wrappers:** `dispatch_count` and the shader
-  embedding are pure and tested natively. `Device`, `Buffer`, and
-  `ComputePipeline` are written against `webgpu.h` specifically so they can be
-  linked against native Dawn later without modification. That capability is
-  established here and exercised in the first kernel packet.
+- **Test surface independent of UI wrappers:** `dispatch_count`, the shader
+  embedding, and `UniqueHandle` are tested natively with no GPU and no
+  browser. `UniqueHandle` is deliberately free of `webgpu.h` so its ownership
+  semantics — release once, move transfers, self-move safe, reset releases the
+  old handle — are pinned by tests rather than asserted in prose. `Device` and
+  the self-check are written against `webgpu.h` so they can link against
+  native Dawn later without modification; that is exercised in the first
+  kernel packet.
 
 - **Why this decomposition is appropriate:** The core/wrapper split is the
   only structural decision that is expensive to reverse. Everything else in
@@ -131,7 +142,9 @@ the contract. Unit-test surface arrives with BLLM-002 and its GGUF parsing.
   — in testable C++ instead of split across the WASM boundary.
 
 - **What is intentionally not abstracted:** There is no rendering, tensor, or
-  model abstraction. No interface has more than one implementation and none is
+  model abstraction. `UniqueHandle` is not `std::unique_ptr` with a custom
+  deleter: these are opaque handles whose release function is not `delete`,
+  and the deleter form buys nothing while making every alias noisier. No interface has more than one implementation and none is
   introduced speculatively. `Device` is a concrete type, not an interface;
   substitutability is provided by `webgpu.h` itself, one layer down.
 
@@ -173,6 +186,34 @@ the contract. Unit-test surface arrives with BLLM-002 and its GGUF parsing.
 
 - **Accuracy/product-contract risk from performance optimizations:** None.
   No optimization is performed.
+
+## Review Record: C++ guidelines audit (2026-08-30)
+
+Audited against the `cpp-guidelines` and `cpp-perf-guidelines` MCP servers.
+This check was **skipped during implementation** — both servers dropped
+mid-session and the C++ was written anyway without the gap being raised. That
+process failure is the primary finding; the defects below are its consequence.
+
+| Severity | Finding | Guidelines | Status |
+|---|---|---|---|
+| P1 | This packet documented `gpu::Buffer` and `gpu::ComputePipeline` and claimed "RAII throughout" when neither type existed and release was manual | §3.6 no-facades | Fixed: the types now exist and the note describes them accurately |
+| P1 | 11 hand-written `wgpuXRelease` calls; no RAII. Build has exceptions disabled, so an added early return would leak silently | R.1, E.6, C.31, P.8, E.25 | Fixed: `UniqueHandle`; zero manual releases remain |
+| P1 | `wgpuDeviceCreateBuffer` is `WGPU_NULLABLE`; four calls unchecked, null flowing into `wgpuQueueWriteBuffer` | E.25, P.8 | Fixed: checked, with an explicit error |
+| P2 | `g_device` non-const owning global, never freed, overwritten on re-entry | R.6, I.2, LIFE.6 | Fixed: construct-on-first-use, re-entry refused explicitly |
+| P2 | Device ownership transferred through a raw `Device*` the callee had to `delete` | I.11, R.3, C.149, R.20, F.26 | Fixed: `std::unique_ptr<Device>` |
+| P2 | WebGPU validation and OOM errors were silent — no uncaptured-error callback installed | §3.3 observability | Fixed: installed on the device descriptor |
+| P3 | Unused `<cstring>`; `std::string_view` included only transitively; `char` passed to `%04x` | Include-what-you-use | Fixed |
+
+Performance corpus: searched, **no material findings**. Top hits were arena
+allocators, NUMA and lossy ring buffers — all hot-path concerns. Nothing in
+this packet is on a hot path; it is setup-time code run once. `LIFE.6` was the
+only applicable rule and is addressed above. Recorded rather than omitted,
+because "checked and found nothing, for this reason" is the artifact.
+
+**This audit was self-review.** `product_memory_workflow.md` requires reviewer
+≠ implementer for material changes. It should be repeated by a different
+identity before acceptance; a self-audit is least likely to catch a conceptual
+error its author already made.
 
 ## Records
 

@@ -25,6 +25,13 @@ review          -> C++ architecture review (governance/cpp_architecture_review.m
                 -> C++ performance review (governance/cpp_performance_review.md)
 ```
 
+- **All C++ work must be checked against the `cpp-guidelines` MCP server
+  before implementation, and all performance-sensitive work against
+  `cpp-perf-guidelines`.** Record the check in the packet's review record,
+  including when it produces no material findings — "checked, nothing
+  material, because this is setup-time code" is the artifact, not an
+  omission. If either server is unreachable, say so and get explicit
+  agreement before writing C++ rather than proceeding quietly.
 - Acceptance is blocked on any P0 or P1 architecture or performance finding.
 - Treat inference execution, model load, memory footprint, and GPU dispatch as
   performance-sensitive by default. A packet touching those paths without a

@@ -1,9 +1,10 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <string>
 
-#include <webgpu/webgpu.h>
+#include "core/gpu/wgpu_handles.h"
 
 namespace bllm::gpu {
 
@@ -24,43 +25,49 @@ struct AdapterInfo {
     std::string backend;
 };
 
-// Owns a WebGPU instance, adapter and device.
+// Owns a WebGPU instance, adapter and device. Every handle is an RAII alias,
+// so release is not written by hand anywhere.
 //
 // Acquisition is asynchronous because WebGPU's adapter and device requests are
 // promises in the browser and this build deliberately does not enable ASYNCIFY.
 // The caller supplies a continuation rather than blocking.
 //
-// On success `device` is non-null and the callee takes ownership; it must
-// `delete` it. On failure `device` is null and `error` describes why. Exactly
-// one of those two states is delivered, exactly once.
+// Ownership is transferred through a unique_ptr rather than a raw pointer, so
+// the callee cannot forget to destroy it (I.11, R.20). On failure the pointer
+// is null and `error` describes why. Exactly one of those states is delivered,
+// exactly once.
 class Device {
 public:
-    using RequestCallback = void (*)(Device* device, const char* error, void* userdata);
+    using RequestCallback = void (*)(std::unique_ptr<Device> device,
+                                     const char* error,
+                                     void* userdata);
 
     static void request(RequestCallback callback, void* userdata);
 
-    ~Device();
+    ~Device() = default;
     Device(const Device&) = delete;
     Device& operator=(const Device&) = delete;
     Device(Device&&) = delete;
     Device& operator=(Device&&) = delete;
 
-    WGPUDevice handle() const { return device_; }
-    WGPUQueue queue() const { return queue_; }
+    WGPUDevice handle() const { return device_.get(); }
+    WGPUQueue queue() const { return queue_.get(); }
     const AdapterInfo& adapter_info() const { return adapter_info_; }
     const DeviceLimits& limits() const { return limits_; }
 
 private:
     Device() = default;
+    friend struct PendingDeviceRequest;
 
-    WGPUInstance instance_ = nullptr;
-    WGPUAdapter adapter_ = nullptr;
-    WGPUDevice device_ = nullptr;
-    WGPUQueue queue_ = nullptr;
+    // Declaration order is release order reversed by the compiler: members are
+    // destroyed bottom-up, so queue releases before device, device before
+    // adapter, adapter before instance.
+    Instance instance_;
+    Adapter adapter_;
+    DeviceHandle device_;
+    Queue queue_;
     AdapterInfo adapter_info_;
     DeviceLimits limits_;
-
-    struct PendingRequest;
 };
 
 }  // namespace bllm::gpu

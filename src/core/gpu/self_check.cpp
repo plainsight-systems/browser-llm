@@ -1,11 +1,14 @@
 #include "core/gpu/self_check.h"
 
 #include <cstdint>
-#include <cstring>
+#include <memory>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 #include "bllm/shaders_generated.h"
 #include "core/gpu/dispatch_math.h"
+#include "core/gpu/wgpu_handles.h"
 
 namespace bllm::gpu {
 namespace {
@@ -16,20 +19,25 @@ WGPUStringView view(std::string_view s) {
     return WGPUStringView{s.data(), s.size()};
 }
 
-// Everything the readback callback needs once the encoder work has been
-// submitted. Heap allocated: it outlives the call that created it.
+// Everything the readback callback needs once the work has been submitted.
+// Heap allocated: it outlives the call that created it.
 struct ReadbackContext {
-    WGPUBuffer readback;
+    Buffer readback;
     std::vector<float> expected;
     SelfCheckCallback callback;
     void* userdata;
 
     void finish(SelfCheckResult result) {
-        wgpuBufferRelease(readback);
         callback(result, userdata);
-        delete this;
+        delete this;   // releases `readback` via its destructor
     }
 };
+
+void fail(SelfCheckCallback callback, void* userdata, std::string message) {
+    SelfCheckResult r;
+    r.error = std::move(message);
+    callback(r, userdata);
+}
 
 }  // namespace
 
@@ -38,11 +46,10 @@ void run_self_check(Device& device, std::size_t elements,
     const auto dispatch = dispatch_count(
         elements, kWorkgroupSize, device.limits().max_compute_workgroups_per_dimension);
     if (dispatch.status != DispatchStatus::Ok) {
-        SelfCheckResult r;
-        r.error = dispatch.status == DispatchStatus::InvalidWorkgroupSize
-                      ? "invalid workgroup size"
-                      : "element count exceeds this device's dispatch limit";
-        callback(r, userdata);
+        fail(callback, userdata,
+             dispatch.status == DispatchStatus::InvalidWorkgroupSize
+                 ? "invalid workgroup size"
+                 : "element count exceeds this device's dispatch limit");
         return;
     }
 
@@ -56,66 +63,75 @@ void run_self_check(Device& device, std::size_t elements,
 
     WGPUDevice dev = device.handle();
 
+    // wgpuDeviceCreateBuffer is the one creation call the header declares
+    // nullable, so allocation failure is a contract outcome and is checked.
+    // Every early return below is safe because each handle owns itself.
     auto make_buffer = [&](WGPUBufferUsage usage) {
         WGPUBufferDescriptor d = {};
         d.usage = usage;
         d.size = bytes;
-        return wgpuDeviceCreateBuffer(dev, &d);
+        return Buffer(wgpuDeviceCreateBuffer(dev, &d));
     };
-    WGPUBuffer lhs_buf = make_buffer(WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
-    WGPUBuffer rhs_buf = make_buffer(WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
-    WGPUBuffer out_buf = make_buffer(WGPUBufferUsage_Storage | WGPUBufferUsage_CopySrc);
-    WGPUBuffer readback = make_buffer(WGPUBufferUsage_MapRead | WGPUBufferUsage_CopyDst);
+    Buffer lhs_buf = make_buffer(WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
+    Buffer rhs_buf = make_buffer(WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
+    Buffer out_buf = make_buffer(WGPUBufferUsage_Storage | WGPUBufferUsage_CopySrc);
+    Buffer readback = make_buffer(WGPUBufferUsage_MapRead | WGPUBufferUsage_CopyDst);
+    if (!lhs_buf || !rhs_buf || !out_buf || !readback) {
+        fail(callback, userdata,
+             "GPU buffer allocation failed; the device could not provide " +
+                 std::to_string(bytes * 4) + " bytes");
+        return;
+    }
 
-    wgpuQueueWriteBuffer(device.queue(), lhs_buf, 0, lhs.data(), bytes);
-    wgpuQueueWriteBuffer(device.queue(), rhs_buf, 0, rhs.data(), bytes);
+    wgpuQueueWriteBuffer(device.queue(), lhs_buf.get(), 0, lhs.data(), bytes);
+    wgpuQueueWriteBuffer(device.queue(), rhs_buf.get(), 0, rhs.data(), bytes);
 
     WGPUShaderSourceWGSL wgsl = {};
     wgsl.chain.sType = WGPUSType_ShaderSourceWGSL;
     wgsl.code = view(shaders::vector_add);
     WGPUShaderModuleDescriptor module_desc = {};
     module_desc.nextInChain = &wgsl.chain;
-    WGPUShaderModule module = wgpuDeviceCreateShaderModule(dev, &module_desc);
+    ShaderModule module(wgpuDeviceCreateShaderModule(dev, &module_desc));
 
     WGPUComputePipelineDescriptor pipeline_desc = {};
-    pipeline_desc.compute.module = module;
+    pipeline_desc.compute.module = module.get();
     pipeline_desc.compute.entryPoint = view("main");
-    WGPUComputePipeline pipeline = wgpuDeviceCreateComputePipeline(dev, &pipeline_desc);
+    ComputePipeline pipeline(wgpuDeviceCreateComputePipeline(dev, &pipeline_desc));
+
+    // These are not declared nullable; failures arrive on the device's
+    // uncaptured-error callback, which Device installs.
+    BindGroupLayout layout(wgpuComputePipelineGetBindGroupLayout(pipeline.get(), 0));
 
     WGPUBindGroupEntry entries[3] = {};
-    entries[0].binding = 0; entries[0].buffer = lhs_buf; entries[0].size = bytes;
-    entries[1].binding = 1; entries[1].buffer = rhs_buf; entries[1].size = bytes;
-    entries[2].binding = 2; entries[2].buffer = out_buf; entries[2].size = bytes;
+    entries[0].binding = 0; entries[0].buffer = lhs_buf.get(); entries[0].size = bytes;
+    entries[1].binding = 1; entries[1].buffer = rhs_buf.get(); entries[1].size = bytes;
+    entries[2].binding = 2; entries[2].buffer = out_buf.get(); entries[2].size = bytes;
     WGPUBindGroupDescriptor bg_desc = {};
-    bg_desc.layout = wgpuComputePipelineGetBindGroupLayout(pipeline, 0);
+    bg_desc.layout = layout.get();
     bg_desc.entryCount = 3;
     bg_desc.entries = entries;
-    WGPUBindGroup bind_group = wgpuDeviceCreateBindGroup(dev, &bg_desc);
+    BindGroup bind_group(wgpuDeviceCreateBindGroup(dev, &bg_desc));
 
-    WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(dev, nullptr);
-    WGPUComputePassEncoder pass = wgpuCommandEncoderBeginComputePass(encoder, nullptr);
-    wgpuComputePassEncoderSetPipeline(pass, pipeline);
-    wgpuComputePassEncoderSetBindGroup(pass, 0, bind_group, 0, nullptr);
-    wgpuComputePassEncoderDispatchWorkgroups(pass, dispatch.workgroup_count, 1, 1);
-    wgpuComputePassEncoderEnd(pass);
-    wgpuCommandEncoderCopyBufferToBuffer(encoder, out_buf, 0, readback, 0, bytes);
-    WGPUCommandBuffer commands = wgpuCommandEncoderFinish(encoder, nullptr);
-    wgpuQueueSubmit(device.queue(), 1, &commands);
+    CommandEncoder encoder(wgpuDeviceCreateCommandEncoder(dev, nullptr));
+    {
+        ComputePassEncoder pass(
+            wgpuCommandEncoderBeginComputePass(encoder.get(), nullptr));
+        wgpuComputePassEncoderSetPipeline(pass.get(), pipeline.get());
+        wgpuComputePassEncoderSetBindGroup(pass.get(), 0, bind_group.get(), 0, nullptr);
+        wgpuComputePassEncoderDispatchWorkgroups(pass.get(), dispatch.workgroup_count, 1, 1);
+        wgpuComputePassEncoderEnd(pass.get());
+    }
+    wgpuCommandEncoderCopyBufferToBuffer(encoder.get(), out_buf.get(), 0,
+                                         readback.get(), 0, bytes);
+    CommandBuffer commands(wgpuCommandEncoderFinish(encoder.get(), nullptr));
+    WGPUCommandBuffer raw_commands = commands.get();
+    wgpuQueueSubmit(device.queue(), 1, &raw_commands);
 
-    // Everything except the readback buffer is done being referenced by us; the
-    // submitted commands hold their own references until they retire.
-    wgpuCommandBufferRelease(commands);
-    wgpuComputePassEncoderRelease(pass);
-    wgpuCommandEncoderRelease(encoder);
-    wgpuBindGroupRelease(bind_group);
-    wgpuBindGroupLayoutRelease(bg_desc.layout);
-    wgpuComputePipelineRelease(pipeline);
-    wgpuShaderModuleRelease(module);
-    wgpuBufferRelease(lhs_buf);
-    wgpuBufferRelease(rhs_buf);
-    wgpuBufferRelease(out_buf);
-
-    auto* ctx = new ReadbackContext{readback, std::move(expected), callback, userdata};
+    // Ownership of the readback buffer moves into the callback context; every
+    // other handle is released here by going out of scope. The submitted
+    // commands hold their own references until they retire.
+    auto* ctx = new ReadbackContext{std::move(readback), std::move(expected),
+                                    callback, userdata};
 
     WGPUBufferMapCallbackInfo map_cb = {};
     map_cb.mode = WGPUCallbackMode_AllowSpontaneous;
@@ -131,7 +147,7 @@ void run_self_check(Device& device, std::size_t elements,
             return;
         }
         const auto byte_count = c->expected.size() * sizeof(float);
-        const void* mapped = wgpuBufferGetConstMappedRange(c->readback, 0, byte_count);
+        const void* mapped = wgpuBufferGetConstMappedRange(c->readback.get(), 0, byte_count);
         if (mapped == nullptr) {
             r.error = "readback buffer mapped but produced no range";
             c->finish(r);
@@ -144,7 +160,7 @@ void run_self_check(Device& device, std::size_t elements,
                 ++r.mismatches;
             }
         }
-        wgpuBufferUnmap(c->readback);
+        wgpuBufferUnmap(c->readback.get());
 
         r.ok = r.mismatches == 0;
         if (!r.ok) {
@@ -152,7 +168,8 @@ void run_self_check(Device& device, std::size_t elements,
         }
         c->finish(r);
     };
-    wgpuBufferMapAsync(readback, WGPUMapMode_Read, 0, static_cast<std::size_t>(bytes), map_cb);
+    wgpuBufferMapAsync(ctx->readback.get(), WGPUMapMode_Read, 0,
+                       static_cast<std::size_t>(bytes), map_cb);
 }
 
 }  // namespace bllm::gpu

@@ -1,6 +1,7 @@
 #include "core/gpu/device.h"
 
-#include <cstring>
+#include <cstdio>
+#include <memory>
 #include <string>
 #include <utility>
 
@@ -29,43 +30,44 @@ const char* backend_name(WGPUBackendType type) {
     }
 }
 
+// WebGPU reports validation and out-of-memory failures here rather than by
+// returning null from most creation calls. Without this they are silent, and
+// a failed pipeline would surface only as wrong output much later.
+void on_uncaptured_error(WGPUDevice const*, WGPUErrorType type,
+                         WGPUStringView message, void*, void*) {
+    std::fprintf(stderr, "[webgpu] uncaptured error (type %d): %s\n",
+                 static_cast<int>(type), to_string(message).c_str());
+}
+
 }  // namespace
 
 // Carries the caller's continuation across the two async hops. Heap allocated
 // because the callbacks outlive the call that started them; freed exactly once
 // on whichever path completes.
-struct Device::PendingRequest {
-    Device* device;
-    RequestCallback callback;
+struct PendingDeviceRequest {
+    std::unique_ptr<Device> device;
+    Device::RequestCallback callback;
     void* userdata;
 
     void fail(const std::string& message) {
-        delete device;
-        callback(nullptr, message.c_str(), userdata);
-        delete this;
+        auto* self = this;
+        self->callback(nullptr, message.c_str(), self->userdata);
+        delete self;
     }
 
     void succeed() {
-        callback(device, nullptr, userdata);
-        delete this;
+        auto* self = this;
+        self->callback(std::move(self->device), nullptr, self->userdata);
+        delete self;
     }
 };
 
-Device::~Device() {
-    // Reverse acquisition order. Each handle is released exactly once; the
-    // class is non-copyable and non-movable so a double release is not
-    // representable.
-    if (queue_ != nullptr) wgpuQueueRelease(queue_);
-    if (device_ != nullptr) wgpuDeviceRelease(device_);
-    if (adapter_ != nullptr) wgpuAdapterRelease(adapter_);
-    if (instance_ != nullptr) wgpuInstanceRelease(instance_);
-}
-
 void Device::request(RequestCallback callback, void* userdata) {
-    auto* pending = new PendingRequest{new Device(), callback, userdata};
+    auto* pending = new PendingDeviceRequest{
+        std::unique_ptr<Device>(new Device()), callback, userdata};
 
-    pending->device->instance_ = wgpuCreateInstance(nullptr);
-    if (pending->device->instance_ == nullptr) {
+    pending->device->instance_.reset(wgpuCreateInstance(nullptr));
+    if (!pending->device->instance_) {
         pending->fail("could not create a WebGPU instance; this browser may not support WebGPU");
         return;
     }
@@ -75,13 +77,13 @@ void Device::request(RequestCallback callback, void* userdata) {
     adapter_cb.userdata1 = pending;
     adapter_cb.callback = [](WGPURequestAdapterStatus status, WGPUAdapter adapter,
                              WGPUStringView message, void* ud1, void*) {
-        auto* p = static_cast<PendingRequest*>(ud1);
+        auto* p = static_cast<PendingDeviceRequest*>(ud1);
         if (status != WGPURequestAdapterStatus_Success || adapter == nullptr) {
             const std::string detail = to_string(message);
             p->fail("no WebGPU adapter available" + (detail.empty() ? "" : ": " + detail));
             return;
         }
-        p->device->adapter_ = adapter;
+        p->device->adapter_.reset(adapter);
 
         WGPUAdapterInfo info = {};
         if (wgpuAdapterGetInfo(adapter, &info) == WGPUStatus_Success) {
@@ -100,26 +102,29 @@ void Device::request(RequestCallback callback, void* userdata) {
                 limits.maxComputeInvocationsPerWorkgroup};
         }
 
+        WGPUDeviceDescriptor device_desc = {};
+        device_desc.uncapturedErrorCallbackInfo.callback = on_uncaptured_error;
+
         WGPURequestDeviceCallbackInfo device_cb = {};
         device_cb.mode = WGPUCallbackMode_AllowSpontaneous;
         device_cb.userdata1 = p;
         device_cb.callback = [](WGPURequestDeviceStatus s, WGPUDevice device,
                                 WGPUStringView msg, void* inner_ud1, void*) {
-            auto* q = static_cast<PendingRequest*>(inner_ud1);
+            auto* q = static_cast<PendingDeviceRequest*>(inner_ud1);
             if (s != WGPURequestDeviceStatus_Success || device == nullptr) {
                 const std::string detail = to_string(msg);
                 q->fail("could not acquire a WebGPU device" +
                         (detail.empty() ? "" : ": " + detail));
                 return;
             }
-            q->device->device_ = device;
-            q->device->queue_ = wgpuDeviceGetQueue(device);
+            q->device->device_.reset(device);
+            q->device->queue_.reset(wgpuDeviceGetQueue(device));
             q->succeed();
         };
-        wgpuAdapterRequestDevice(adapter, nullptr, device_cb);
+        wgpuAdapterRequestDevice(adapter, &device_desc, device_cb);
     };
 
-    wgpuInstanceRequestAdapter(pending->device->instance_, nullptr, adapter_cb);
+    wgpuInstanceRequestAdapter(pending->device->instance_.get(), nullptr, adapter_cb);
 }
 
 }  // namespace bllm::gpu

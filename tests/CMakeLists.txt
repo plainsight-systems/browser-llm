@@ -13,6 +13,7 @@ FetchContent_MakeAvailable(doctest)
 add_executable(browser_llm_tests
     dispatch_math_test.cpp
     shader_embed_test.cpp
+    unique_handle_test.cpp
     main_test.cpp
 )
 
