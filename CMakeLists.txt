@@ -33,6 +33,17 @@ bllm_embed_shaders(
 )
 
 if(EMSCRIPTEN)
+    # These need an implementation of webgpu.h. In the wasm configuration that
+    # comes from --use-port=emdawnwebgpu. Natively it would come from Dawn,
+    # which is not linked yet: Dawn arrives with the first model kernel, where
+    # correctness needs a CPU reference to check against. Until then these
+    # sources build for wasm only, and the native test binary covers the
+    # platform-neutral logic.
+    target_sources(browser_llm_core PRIVATE
+        src/core/gpu/device.cpp
+        src/core/gpu/self_check.cpp
+    )
+
     # -----------------------------------------------------------------------
     # Browser target. The only Emscripten-aware translation unit.
     # -----------------------------------------------------------------------

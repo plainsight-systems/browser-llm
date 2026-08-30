@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>browser-llm — toolchain self-check</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #fbfbfa; --fg: #1a1a19; --dim: #6b6b68;
+    --line: #e0e0dc; --ok: #1a7f4b; --bad: #b3261e; --card: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16161a; --fg: #e8e8e6; --dim: #8f8f8c;
+      --line: #2c2c31; --ok: #4ade80; --bad: #f87171; --card: #1d1d22;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 3rem 1.5rem; background: var(--bg); color: var(--fg);
+    font: 15px/1.6 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+  }
+  main { max-width: 46rem; margin: 0 auto; }
+  h1 { font-size: 1.35rem; margin: 0 0 .25rem; letter-spacing: -0.01em; }
+  .sub { color: var(--dim); margin: 0 0 2rem; }
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 10px; padding: 1.1rem 1.25rem; margin-bottom: 1rem;
+  }
+  h2 {
+    font-size: .75rem; text-transform: uppercase; letter-spacing: .07em;
+    color: var(--dim); margin: 0 0 .8rem; font-weight: 600;
+  }
+  dl { margin: 0; display: grid; grid-template-columns: minmax(0,auto) 1fr; gap: .4rem 1.5rem; }
+  dt { color: var(--dim); }
+  dd {
+    margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: .86rem; overflow-wrap: anywhere;
+  }
+  .status { display: flex; align-items: baseline; gap: .6rem; font-weight: 600; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); } .pending { color: var(--dim); }
+  footer { color: var(--dim); font-size: .82rem; margin-top: 2rem; }
+  a { color: inherit; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .86em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>browser-llm</h1>
+  <p class="sub">Toolchain self-check. This page proves the build pipeline reaches the GPU — it does not run a model.</p>
+
+  <div class="card">
+    <h2>Status</h2>
+    <div class="status"><span id="status" class="pending">starting…</span></div>
+    <p id="detail" class="sub" style="margin:.6rem 0 0"></p>
+  </div>
+
+  <div class="card">
+    <h2>Adapter</h2>
+    <dl id="adapter"><dt>state</dt><dd>not acquired</dd></dl>
+  </div>
+
+  <div class="card">
+    <h2>Limits that constrain this project</h2>
+    <dl id="limits"><dt>state</dt><dd>not queried</dd></dl>
+  </div>
+
+  <footer>
+    Weights are not bundled and nothing is downloaded by this page.
+    Source: <a href="https://github.com/plainsight-systems/browser-llm">plainsight-systems/browser-llm</a>
+  </footer>
+</main>
+<script type="module" src="./app.js"></script>
+</body>
+</html>
