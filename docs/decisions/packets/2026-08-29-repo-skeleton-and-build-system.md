@@ -1,6 +1,6 @@
 # BLLM-001: Repo skeleton and build system
 
-**Status:** implementing
+**Status:** review_requested
 **Change class:** architectural
 
 ## Intent
@@ -177,6 +177,20 @@ the contract. Unit-test surface arrives with BLLM-002 and its GGUF parsing.
   JS-side WebGPU, single-threaded WASM, no bundler, weights fetched at runtime
   rather than committed, and Dawn deferred to the first model kernel.
 - Deviation from the confirmed plan: doctest is pinned via CMake
-  `FetchContent` rather than vendored into `third_party/`. Pinning by tag and
-  hash is at least as deterministic and avoids committing a third-party
-  header. Reversible if a vendored copy is preferred.
+  `FetchContent` at **v2.4.11 → v2.4.12** rather than vendored into
+  `third_party/`. v2.4.11 declares a `cmake_minimum_required` below CMake 4's
+  floor and will not configure at all. Pinning by tag is at least as
+  deterministic as vendoring and avoids committing a third-party header.
+- Toolchain deviation: Docker's registry access is broken on the development
+  machine (the host reaches `auth.docker.io` in 0.2s; the daemon cannot reach
+  it at all). The wasm build was produced with a host emsdk pinned to the same
+  6.0.8 the image provides. CI continues to build in the container, and did so
+  successfully, so the pinned environment is exercised on every push.
+- Verified end to end on 2026-08-29: Chrome on Apple silicon (`apple` /
+  `metal-3`), 4096 elements, 0 mismatches, deployed from CI to GitHub Pages.
+- **Correction discovered during verification.** The design discussion treated
+  `maxStorageBufferBindingSize` 128MB / `maxBufferSize` 256MB as hard caps.
+  They are the spec's guaranteed minimums; this device reports 4096 MiB for
+  both. Weight residency is therefore a portability decision rather than a
+  fixed constraint. Recorded in
+  `docs/research/2026-08-29-webgpu-limits-observed.md` and owed to BLLM-002.

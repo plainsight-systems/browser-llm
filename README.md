@@ -12,12 +12,14 @@ and to keep the execution path inspectable.
 
 ## Maturity
 
-**Early. The build system and testable core exist; no inference does.**
+**Early. The toolchain reaches the GPU; no inference exists.**
 
-As of 2026-08-29 this repository builds natively and runs unit tests. The
-WebAssembly target, the WebGPU device path, and the web page are **not yet
-written** — see [Current state](#current-state) for exactly what is and is not
-present. No model is loaded and no weights are fetched by any code here.
+As of 2026-08-29 this repository builds natively, builds to WebAssembly, and
+deploys a page that acquires a WebGPU device and runs a compute shader. That
+is the whole of it — no model is loaded, no weights are fetched, and nothing
+is inferred. See [Current state](#current-state).
+
+Live: <https://plainsight-systems.github.io/browser-llm/>
 
 ## Repository structure
 
@@ -91,16 +93,17 @@ the premise. Third-party code is for things that are not the demonstration.
 
 | Component | State |
 |---|---|
-| Dual-target CMake build | present, native path verified |
+| Dual-target CMake build | present, both paths verified |
 | `core/gpu/dispatch_math` | present, unit tested |
+| `core/gpu` device, buffer, pipeline | present, wasm build only — native needs Dawn |
 | WGSL shader embedding | present, unit tested including drift detection |
+| `src/wasm/bindings.cpp` | present, sole Emscripten-aware translation unit |
+| `web/` page and worker | present, plain ES modules, no npm |
 | Native test suite (doctest) | present, 10 cases / 24 assertions passing |
 | Boundary invariant checks | present, passing |
-| CI: native build and test | present |
-| `core/gpu` device, buffer, pipeline | **not written** |
-| `src/wasm/bindings.cpp` | **not written** |
-| `web/` page and worker | **not written** |
-| CI: Pages deploy | present but `workflow_dispatch` only, because the wasm target does not build yet |
+| CI: native build and test | present, green |
+| CI: Pages deploy | present, green, deploying |
+| Native GPU tests via Dawn | **not present** — arrives with the first model kernel |
 | Model loading, inference | **not started** — blocked on BLLM-002 |
 
 Tracked in [`docs/decisions/packets/2026-08-29-repo-skeleton-and-build-system.md`](docs/decisions/packets/2026-08-29-repo-skeleton-and-build-system.md).
@@ -126,8 +129,8 @@ the identical environment:
 make wasm
 ```
 
-It currently fails with an explicit message, because the wasm target has not
-been written yet.
+This uses the pinned `emscripten/emsdk:6.0.8` image, the same toolchain CI
+uses. A host emsdk at the identical version works equally well.
 
 ## Targets
 

@@ -79,7 +79,9 @@ Not yet decided. These block the first implementation packet:
 
 ## Research Index
 
-- None yet.
+- `research/2026-08-29-webgpu-limits-observed.md` — observed WebGPU buffer
+  limits are far above the spec's guaranteed minimums on capable hardware.
+  Weight residency is a portability decision, not a fixed constraint.
 
 ## Active Workflow Pointers
 
