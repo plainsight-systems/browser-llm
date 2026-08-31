@@ -79,7 +79,11 @@ Dawn is a large dependency and this is the packet's main risk surface.
   layer being validated. Cost accepted deliberately.
 - **Risk surface:** build time and CI cache behavior (unknown until measured —
   an early task, not an end-of-packet discovery); Dawn version pinning, by
-  commit not tag; and the numerical caveat below.
+  commit not tag; the numerical caveat below; and **event-loop semantics**.
+  Our callbacks currently resolve under the browser's event loop. Native Dawn
+  requires the host to drive event processing explicitly, so assumptions that
+  compile only under emdawnwebgpu will surface here — an early integration
+  task, not a late surprise.
 
 ## What the CI gate can and cannot claim
 
@@ -109,14 +113,27 @@ Both the CPU reference and the GPU kernel consume **the same Q4_0 weights**, so
 quantization error is common-mode and cancels exactly. The only source of
 divergence is f32 accumulation order.
 
-For a dot product of length `K` accumulated in f32, the error bound is
-approximately `K · ε · Σ|aᵢbᵢ|` with `ε ≈ 1.19e-7`. At `K = 1024` that is a
-relative bound near `1.2e-4`.
+The comparison bound must cover **both** computations, because the test
+compares two independently rounded results. A one-sided estimate of a single
+accumulation is not a valid postcondition (I.7).
 
-The test states the bound as a function of `K` and the operand magnitudes, so
-it scales with shape rather than being a constant somebody tuned. **A
-divergence above it is a defect, not float noise** — which is the entire reason
-the bound is derived rather than chosen.
+So: a γ-style bound for the CPU algorithm covering its products *and* additions,
+a second bound for the WGSL algorithm, and the comparison threshold is their
+sum — computed from the actual operands, not a constant.
+
+The GPU side needs the wider bound, because **WGSL does not fix an evaluation
+order**. The specification permits reassociation and fusion (FMA), does not
+specify a rounding direction, and allows flushing eligible subnormal inputs and
+results. The kernel's arithmetic is therefore not a single determined sequence,
+and the bound must reflect that rather than assume ordered accumulation.
+
+The test must also state its handling of cancellation, overflow, subnormals,
+and NaN/infinity, and constrain input ranges so catastrophic cancellation
+cannot make a relative bound meaningless.
+
+An earlier draft gave `K · ε · Σ|aᵢbᵢ|` and promoted that approximation into a
+hard "anything above is a defect" rule. It bounded one accumulation on one
+side, which is the wrong quantity.
 
 **The dequantization step is separately gated bit-exact.** Unpacking a Q4_0
 block is an integer extract and a single multiply by one fp16 scale — no
@@ -136,8 +153,17 @@ production kernel.
       `[1024→151936]`.
 - [ ] Dequantized values match BLLM-002's reference **bit-exactly** via the
       test-only unpack path.
-- [ ] A deliberately corrupted weight block makes the test fail. A gate nobody
-      has seen fail is not evidence.
+- [ ] A **negative control** proves the gate detects a real defect. The naive
+      version does not work: since both sides consume the same Q4_0 bytes,
+      corrupting the shared source is **common-mode and cancels**, and the
+      comparison passes. Even GPU-only corruption can stay under tolerance when
+      the paired activation is near zero.
+
+      So: compute and retain the CPU oracle from **pristine** bytes, mutate
+      **only the uploaded GPU copy**, and choose deterministic scale, nibble and
+      activation values whose analytically predicted output delta provably
+      exceeds the derived bound. Record the negative-control run as a separate
+      artifact, not as a permanently-green test.
 - [ ] The **lane→address mapping is written down** for the kernel's hot loads:
       the byte address touched by lanes 0, 1, 2 and 31 when reading Q4_0
       weights, activations, and the block scale. GPU.2's review model. A Q4_0
@@ -189,9 +215,22 @@ consistent misunderstanding of the format pass at every level.
 - **Platform wrappers touched:** None. The wrapper stays translation-only; this
   packet adds no browser-facing surface.
 
-- **Public interfaces changed:** Introduced: a dispatch entry taking a weight
-  tensor reference (with its quantization parameters, per BLLM-002's
-  invariant), an activation buffer, and output dimensions.
+- **Public interfaces changed:** A **move-only kernel object** owning the
+  pipeline, bind group layout and any reusable bindings, constructed once; and
+  a dispatch call that *borrows* explicit weight, activation, output and
+  workspace buffers and returns a `[[nodiscard]]` typed status.
+
+  An earlier draft named only weights, activation and dimensions — with no
+  output destination, no result type, and no stated owner for pipelines, bind
+  groups or command objects. That made "no per-dispatch allocation"
+  unsupportable: such an API must either allocate internally or rely on ambient
+  state (GPU.9 — steady-state allocation stays outside the hot loop).
+
+  Preconditions are part of the interface (I.5): Q4_0 block divisibility,
+  buffer byte ranges, binding alignment, dimension compatibility, and device
+  limits. Postconditions state what the output buffer contains (I.7). WebGPU
+  validation failures surface as observable errors (E.27), and every resource
+  releases on **every** failure path (R.1, E.25).
 
 - **New files/classes/targets/modules:** `browser_llm_core` gains the kernel
   dispatch in both configurations. A new native-only test target links Dawn.
@@ -199,8 +238,14 @@ consistent misunderstanding of the format pass at every level.
   linked, they compile natively for the first time, closing the source-parity
   gap recorded as residual risk when BLLM-001 was accepted.
 
-- **Dependency edges added or removed:** Dawn, native-only. No new edge in the
-  wasm build. Core still depends on `webgpu.h` alone.
+- **Dependency edges added or removed:** Dawn, native-only — declared on
+  `browser_llm_core`, **not** on the test executable. Core's public headers
+  expose `webgpu.h` types and core compiles natively once Dawn exists, so the
+  native header dependency must be **PUBLIC** on the core target and static-link
+  requirements must propagate. Tests link the core target rather than
+  reconstructing its dependency graph. Attaching Dawn only to the test binary
+  would leave core's include and link needs undeclared and satisfied by
+  accident. No new edge in the wasm build.
 
 - **Ownership/lifetime model:** Unchanged — `UniqueHandle` for every GPU
   resource, ownership flowing through calls as established. Weight buffers are
@@ -231,19 +276,29 @@ consistent misunderstanding of the format pass at every level.
   than measure against. This packet's output *is* the baseline.
 
 - **Baseline measurement:** Established here. Per shape, recording device,
-  backend, dimensions, and the timing boundary used. An unclear boundary
-  produces plausible figures that get believed (GPU.10).
+  backend, dimensions, build configuration, and the timing boundary — decomposed
+  into CPU submission, queue wait, GPU execution and readback rather than one
+  wall-clock figure. An unclear boundary produces plausible numbers that get
+  believed (GPU.10).
 
-- **Readback budget (GPU.1):** GPU.1 requires that a scalar readback inside a
-  hot loop carry a *written reason* and a recorded budget — bytes, measured
-  transfer, measured wait, and steps delayed. The decode loop will read one
-  token back per step, so that budget is owed. The measurement exists
-  (`research/2026-08-31-gpu-readback-round-trip.md`: ~0.5 ms median, ~0.8 ms
-  p95, dominated by the synchronization term exactly as GPU.1 predicts); this
-  packet is where it becomes a recorded budget in GPU.1's form rather than a
-  loose finding. The written reason: at 20–50 tok/s the round trip is 1–3% of
-  the token budget, and avoiding it would require the speculative pipelining
-  whose correctness cost we declined on evidence.
+  Kernel timing comes from the **diagnostic** configuration and is labelled as
+  such; timestamp queries require the `timestamp-query` feature at device
+  acquisition, so an instrumented device is not the device the clean build
+  measures. See `research/2026-08-31-measurement-build-configurations.md`.
+
+- **Readback budget (GPU.1): owed by the decode packet, not this one.** GPU.1
+  requires a hot-loop scalar readback to carry a written reason and a budget of
+  bytes, measured transfer, measured wait, queue or fence waited on, and steps
+  delayed. What we have is combined round-trip latency
+  (`research/2026-08-31-gpu-readback-round-trip.md`) and a projected
+  percentage — not those components, and not measured under real forward-pass
+  load. This packet has no decode loop, so claiming the budget here would be
+  claiming an artifact we do not have for a loop that does not exist. It is
+  recorded as owed by the decode packet.
+
+  What this packet *does* owe: its baseline must separate **CPU submission,
+  queue wait, GPU execution, and readback** (GPU.10). A single wall-clock
+  number per shape cannot tell BLLM-004 which of those to attack.
 
 - **Hot paths touched:** The fused kernel will become the hottest path in the
   system — every projection and the per-token `lm_head`. It is written naive

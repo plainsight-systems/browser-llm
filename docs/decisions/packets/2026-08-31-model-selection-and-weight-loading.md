@@ -34,8 +34,17 @@
     CPU-dequantize-then-upload path would quadruple resident bytes and defeat
     the entire reason for quantization.
   - The GGUF parser treats the file as **untrusted input**. Every offset and
-    length is bounds-checked against the actual buffer before use; a malformed
-    file yields a named error, never a read outside the mapping (SL.con.3).
+    length is bounds-checked, and `offset + length` and shape products use
+    **checked arithmetic** — an overflow must not wrap into an in-range value
+    (SL.con.3, ES.103).
+  - **The parser reads bounded windows, not one span over the file.** An
+    earlier draft said it borrows a single `std::span` over the bytes while
+    also guaranteeing the 420 MB file is never fully resident. Those
+    contradict: a span over the whole file requires the whole file, and a span
+    over a prefix cannot validate a tensor region near the end against
+    `span::size()`. The reader takes an incremental source plus the
+    **authoritative total file length**, validating each region against that
+    length rather than against whatever window is currently mapped.
   - The whole model is never resident in the WASM heap. Bounded chunks are
     uploaded and released. wasm32 has no large address space to reserve, so
     MEM.7's reserve-and-commit strategy is unavailable to us — streaming is the
@@ -142,15 +151,30 @@ quantization-transparent is the design that fails.
       on a fixture block. This is the test oracle for BLLM-003's shader.
 - [ ] Every tensor in the index carries its quantization parameters; a test
       asserts no accessor returns a weight without them.
-- [ ] The tokenizer round-trips a fixture corpus, including multi-byte UTF-8
-      and special tokens.
+- [ ] The tokenizer matches **independently generated fixtures**: exact bytes
+      to exact token-ID sequences and back, with special-token policy,
+      multi-byte UTF-8 and byte-fallback covered, and fixture provenance
+      recorded. Round-trip is an *additional* property, not the oracle —
+      `decode(encode(x)) == x` passes while `encode` emits entirely wrong IDs,
+      since several sequences decode to the same bytes.
 - [ ] Parsed config equals the table above, with `head_dim` asserted as 128
       rather than derived.
-- [ ] Weights upload to GPU buffers **while quantized**; a sampled block reads
-      back byte-identical to the source file.
-- [ ] Packing respects the granted `maxStorageBufferBindingSize`, and a test
-      exercises the planner at the 128 MiB spec-default floor, not only at this
-      machine's granted value.
+- [ ] Weights upload to GPU buffers **while quantized**, and **every resident
+      byte** is verified against the source in a labelled diagnostic pass —
+      hashed chunk-by-chunk, never materialising the whole model. A single
+      sampled block cannot support the intent's byte-identity claim: it passes
+      while another chunk is truncated, written at the wrong offset, or bound
+      to the wrong buffer.
+- [ ] The planner consumes **every granted limit its output depends on**.
+      These are separate WebGPU constraints, and conflating them yields a
+      residency map that uploads fine then cannot be bound by BLLM-003:
+      `maxBufferSize` (buffer creation), `maxStorageBufferBindingSize` (bound
+      range), `minStorageBufferOffsetAlignment` (suballocated offsets),
+      `maxStorageBuffersPerShaderStage` (bindings per shader). `DeviceLimits`
+      carries four fields today and lacks the last two. The plan must
+      distinguish **physical buffers from bindable ranges**, with tests at the
+      128 MiB floor covering allocation size, binding window, alignment,
+      spanning, and binding-count feasibility.
 - [ ] Peak WASM heap during load stays under a stated bound, asserted by
       instrumentation. The bound must be verified against the **real 420 MB
       file**, not only a fixture — a fixture-only assertion proves nothing
@@ -229,8 +253,13 @@ assertion, which fixtures cannot establish.
   `std::span<const std::byte>` and owns nothing; the caller owns the bytes. The
   tensor index holds offsets and lengths, **not pointers**, so it cannot
   outlive its buffer into undefined behaviour. GPU buffers are `UniqueHandle`
-  as everywhere else. Exceptions are off, so errors return as values, following
-  `dispatch_count` (E.25).
+  as everywhere else.
+
+  Exceptions are off, so **E.27** governs error propagation: one systematic
+  `[[nodiscard]]` result type across parsing, config, upload, cache, hash and
+  readback. **E.25 and R.1** govern something different — simulating RAII for
+  cleanup, which is `UniqueHandle`'s job. An earlier draft cited E.25 for both,
+  leaving the error contract underspecified.
 
 - **Test surface independent of UI wrappers:** Everything except the upload
   itself. The residency *planner* is deliberately separated from the *upload*
@@ -259,11 +288,19 @@ assertion, which fixtures cannot establish.
   and SHA-256 over 420 MB are **measured, not budgeted**, in this packet —
   there is no baseline to budget against yet.
 
-- **Baseline measurement:** None exists; this packet establishes it. Recorded
-  measurements must name the device, browser build, granted limits, and whether
-  the file came from network or OPFS — cold and warm differ by the entire
-  download. Timing boundaries must be explicit: a metric that measures the
-  wrong interval produces plausible figures that get believed.
+- **Baseline measurement:** None exists; this packet establishes it. Records
+  name device, browser build, granted limits, **build configuration**, and
+  network versus OPFS — cold and warm differ by the entire download. Timing
+  boundaries must be explicit: a metric measuring the wrong interval produces
+  plausible figures that get believed.
+
+  **Peak-heap instrumentation and clean throughput are separate runs from
+  separate build configurations** (TLM.2, TLM.6). Heap tracking perturbs the
+  transfer numbers, so one execution cannot honestly produce both. This packet
+  adds the `wasm-diag` configuration — same optimisation as `wasm-release`,
+  instrumentation compiled in — per
+  `research/2026-08-31-measurement-build-configurations.md`. No number from it
+  is quotable as throughput.
 
 - **Hot paths touched:** None. This is the bounded init phase; MEM.9's shape
   applies — allocate during load, run the steady state with a fixed footprint.

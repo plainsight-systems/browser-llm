@@ -97,6 +97,10 @@ Not yet decided. These block the first implementation packet:
 
 ## Research Index
 
+- `research/2026-08-31-measurement-build-configurations.md` — three build
+  configurations for performance work. The diagnostic build is Release, not
+  Debug: the axis is instrumentation, not optimisation. Compile-time gate with
+  inline no-op fallbacks so call sites stay type-checked when disabled.
 - `research/2026-08-31-model-port-methodology.md` — method notes from prior
   in-house inference work: build a fixture ladder smallest-primitive-first,
   record provenance, and expect "reusable" ops to silently diverge from a
