@@ -42,6 +42,12 @@
     only option, not a preference.
   - Buffer packing is planned from the **granted** device limits, read after
     acquisition, and works at the 128 MiB spec-default storage-binding floor.
+  - **Upload order is a kernel decision, not a file-order default.** GPU.2
+    requires the lane→address mapping to be settled before tuning, and its
+    remedy for a bad mapping is to transpose *at load time*. The layout chosen
+    here must be the one BLLM-003's kernel wants. If that is not settled when
+    this is implemented, upload in file order and record it as **provisional**
+    — do not treat it as decided.
   - A SHA-256 mismatch fails the load loudly.
 
 ## The decision
@@ -270,6 +276,11 @@ assertion, which fixtures cannot establish.
   against the real file. Weights are **never** copied into a dequantized form
   on the CPU.
 
+  GPU.1 applies to the upload itself: batch unavoidable transfers, prefer one
+  large copy over many small ones. Chunk size is therefore a measured trade-off
+  between peak heap and transfer efficiency, not an arbitrary constant — and
+  the chosen size must be recorded with the number that justified it.
+
 - **Concurrency model:** Single-threaded, unchanged. Fetch and hashing are the
   browser's, in the worker.
 
@@ -294,7 +305,16 @@ assertion, which fixtures cannot establish.
   fixed steady state) frames residency as the init-phase footprint; MEM.7
   (reserve address space, commit on demand) was considered and **does not
   apply** — it assumes a 64-bit address space wasm32 does not provide, which is
-  itself the reason streaming is mandatory rather than preferred.
+  itself the reason streaming is mandatory rather than preferred. GPU.1 (keep
+  data on device; batch transfers) governs upload chunking, and GPU.2
+  (coalesced lane access; transpose at load time) makes the on-device weight
+  layout a decision owed jointly with BLLM-003 rather than a file-order
+  default.
+- Process note: an earlier draft of BLLM-003 recorded that the performance
+  corpus had no GPU material. That was wrong. The MCP server was reading a
+  second checkout two commits behind the one where the GPU category landed, so
+  a refresh re-indexed a repo that had not moved. Both packets were drafted
+  without guidance that existed and was two commands away.
 - Model sizes measured from the Hugging Face API, not estimated: Qwen3-0.6B
   1.50 GB, Llama-3.2-1B 2.47 GB, Qwen3-1.7B 4.06 GB, gemma-4-E2B 10.25 GB
   (bf16 checkpoints).

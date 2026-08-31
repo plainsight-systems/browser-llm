@@ -45,11 +45,16 @@ tests at the model's real shapes; CI wiring.
 
 **Explicitly out:**
 
-- **Optimization.** No tiling, no workgroup tuning, no shared-memory staging.
-  The kernel is naive and correct. This is not deferral-because-hard: the
-  performance gate requires a baseline before optimizing, and this packet
-  creates it. Optimizing here would mean tuning against a number that does not
-  yet exist.
+- **Optimization.** No tiling, no occupancy tuning, no shared-memory staging
+  (GPU.5 — earn it with measured reuse). The kernel is naive and correct. Not
+  deferral-because-hard: the performance gate requires a baseline before
+  optimizing, and this packet creates it (GPU.10).
+
+  **Coalesced access is NOT in this exclusion.** GPU.2 is explicit that lane
+  mapping is decided *before* tuning, and that the fix is often to transpose at
+  load time. Getting it wrong is not a slow kernel to be optimized later — it
+  is a weight layout to be re-uploaded, which reaches back into BLLM-002. So
+  the lane mapping is a design-time deliverable of this packet.
 - Attention, RoPE, RMSNorm, softmax, sampling — later kernels on this harness.
 - Any decode loop or KV cache.
 
@@ -133,6 +138,16 @@ production kernel.
       test-only unpack path.
 - [ ] A deliberately corrupted weight block makes the test fail. A gate nobody
       has seen fail is not evidence.
+- [ ] The **lane→address mapping is written down** for the kernel's hot loads:
+      the byte address touched by lanes 0, 1, 2 and 31 when reading Q4_0
+      weights, activations, and the block scale. GPU.2's review model. A Q4_0
+      block interleaves 32 packed nibbles with one fp16 scale, so the scale
+      load is the obvious divergence from a contiguous pattern and needs a
+      stated answer, not an accident.
+- [ ] The weight layout that mapping implies is **confirmed compatible with
+      BLLM-002's upload order**, or BLLM-002 is amended before it is
+      implemented. Discovering a transpose is needed after the upload path
+      exists means rewriting it (GPU.2: transpose at load time).
 - [ ] The tolerance is computed from `K` and operand magnitudes in the test
       source, not written as a literal.
 - [ ] No `#ifdef` distinguishes native from browser in any WGSL or in
@@ -217,7 +232,18 @@ consistent misunderstanding of the format pass at every level.
 
 - **Baseline measurement:** Established here. Per shape, recording device,
   backend, dimensions, and the timing boundary used. An unclear boundary
-  produces plausible figures that get believed.
+  produces plausible figures that get believed (GPU.10).
+
+- **Readback budget (GPU.1):** GPU.1 requires that a scalar readback inside a
+  hot loop carry a *written reason* and a recorded budget — bytes, measured
+  transfer, measured wait, and steps delayed. The decode loop will read one
+  token back per step, so that budget is owed. The measurement exists
+  (`research/2026-08-31-gpu-readback-round-trip.md`: ~0.5 ms median, ~0.8 ms
+  p95, dominated by the synchronization term exactly as GPU.1 predicts); this
+  packet is where it becomes a recorded budget in GPU.1's form rather than a
+  loose finding. The written reason: at 20–50 tok/s the round trip is 1–3% of
+  the token budget, and avoiding it would require the speculative pipelining
+  whose correctness cost we declined on evidence.
 
 - **Hot paths touched:** The fused kernel will become the hottest path in the
   system — every projection and the per-token `lm_head`. It is written naive
@@ -249,16 +275,18 @@ consistent misunderstanding of the format pass at every level.
   SL.con.3 (bounds errors) for buffer indexing in dispatch; I.7 (state
   postconditions) for the kernel's numerical contract; ES.103 (don't overflow)
   for index arithmetic at the 151,936-wide shape.
-- `cpp-perf-guidelines`: **the corpus has no GPU material available on this
-  server.** Its README advertises a `gpu` category, but the server reports only
-  cache-layout, codegen, concurrency, copy-move, embedded, lifetime, memory,
-  simd and telemetry — the index is behind the repository. The nearest
-  applicable guidance transfers only by analogy: SIMD.5 (gather is a trap;
-  restructure to linear loads) and CACHE.3 (contiguity) both map to coalesced
-  access in a kernel, but nothing in the corpus speaks to workgroup sizing,
-  occupancy or shared memory. **Recorded as a gap:** this packet's performance
-  reasoning rests on measurement rather than citation, and the corpus should
-  gain GPU material before it can gate GPU work properly.
+- `cpp-perf-guidelines`: GPU.1 (keep data on device; every host-device round
+  trip needs a budget), GPU.2 (shape data for coalesced lane access **before**
+  tuning the kernel), GPU.5 (shared memory only when reuse pays), GPU.6 (batch
+  tiny GPU work), GPU.10 (profile with GPU timelines before optimizing).
+  **Correction:** an earlier draft of this packet recorded "the corpus has no
+  GPU material" as an accepted gap. That was wrong. The corpus has a GPU
+  category of 10 guidelines; the MCP server was reading a second checkout at
+  `mcp-servers/data/` sitting two commits behind the one where the category
+  landed, so `update_guidelines` re-indexed a repo that never moved and
+  faithfully reported 77 of 87 guidelines. Diagnosed and fixed by pulling that
+  checkout. The lesson is that a tool's answer is not the territory: the
+  corpus was two commands away and I did not look.
 - Method notes: `research/2026-08-31-model-port-methodology.md` — fixture ladder,
   gate splitting, and the warning against generic ops.
 - BLLM-004 follows: optimize the kernel against this packet's baseline, and add
