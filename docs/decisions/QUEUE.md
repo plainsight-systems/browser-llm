@@ -4,25 +4,13 @@ This file tracks active and accepted work.
 
 ## Active
 
-- None.
+- **BLLM-002: Model selection and weight loading.** Packet:
+  `packets/2026-08-31-model-selection-and-weight-loading.md`. Status: draft,
+  awaiting review before implementation. Decides Qwen3-0.6B / Q4_0 / GGUF and
+  builds the CPU-side loader. No GPU work — every line is natively testable,
+  which is the point of doing it before the kernels.
 
 ## Ready
-
-- **BLLM-002: Model, quantization and blessed targets.** Not yet written.
-  Settles target model, parameter count, quantization format, weight layout,
-  and the performance budget with a baseline.
-
-  Must declare a **limits floor**. The device is granted WebGPU's defaults
-  unless `requiredLimits` asks for more; this repo now asks for the adapter's
-  advertised maxima, which is always satisfiable but means limits **vary per
-  device and are known only after acquisition**. Weight residency must be
-  planned from the granted limits rather than a compile-time constant, and
-  must still degrade sensibly on an adapter that advertises only the defaults.
-  See `research/2026-08-29-webgpu-limits-observed.md`, which records three
-  successive wrong conclusions about this and why each was wrong.
-
-  Change class: architectural. Requires a C++ architecture note and a C++
-  performance note.
 
 - **BLLM-003: Native Dawn for GPU-kernel tests.** Lands with the first model
   kernel — the first point at which a kernel's correctness is not
