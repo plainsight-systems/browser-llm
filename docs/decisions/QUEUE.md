@@ -4,11 +4,13 @@ This file tracks active and accepted work.
 
 ## Active
 
-- **BLLM-002: Model selection and weight loading.** Packet:
+- **BLLM-002: Model selection and weight residency.** Packet:
   `packets/2026-08-31-model-selection-and-weight-loading.md`. Status: draft,
-  awaiting review before implementation. Decides Qwen3-0.6B / Q4_0 / GGUF and
-  builds the CPU-side loader. No GPU work — every line is natively testable,
-  which is the point of doing it before the kernels.
+  awaiting review before implementation. Decides Qwen3-0.6B / Q4_0 / GGUF, and
+  gets the weights onto the GPU **still quantized**, proven byte-identical by
+  readback. Scoped around the highest-risk unknown — packing ~420 MB across
+  buffers under a limit granted at runtime — rather than around what was
+  easiest to test.
 
 ## Ready
 
