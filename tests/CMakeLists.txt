@@ -13,6 +13,7 @@ add_executable(browser_llm_tests
     dispatch_math_test.cpp
     shader_embed_test.cpp
     unique_handle_test.cpp
+    run_guard_test.cpp
     main_test.cpp
 )
 

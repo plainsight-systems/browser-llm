@@ -81,6 +81,7 @@ Native unit tests cover the logic that exists at this stage and no more:
 |---|---|
 | `dispatch_math_test` | Workgroup-count arithmetic: exact multiples, non-multiples, zero elements, and sizes near the `maxComputeWorkgroupsPerDimension` bound. Pure function, exhaustively checkable. |
 | `shader_embed_test` | The embedded shader constant equals the on-disk `.wgsl` byte for byte, so the single-source invariant cannot silently break. |
+| `run_guard_test` | Run serialisation and stale-callback suppression: a second run is refused while one is live, completing twice reports false the second time, and a generation from a timed-out run cannot close a later one. This is the logic that stops a late callback reporting a second result. |
 | `unique_handle_test` | `UniqueHandle` ownership: releases exactly once on destruction, move transfers without double-release, self-move is safe, `reset` releases the prior handle, `release` relinquishes without releasing. This is what makes the RAII claim evidence rather than assertion. |
 | `test_check_boundaries.sh` | Each boundary rule actually fires against real probe files, including a near-collision filename. |
 | `test_codex_review_preflight.sh` | The review script refuses to run when a required MCP server is unreachable. |

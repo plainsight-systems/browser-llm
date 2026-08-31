@@ -5,14 +5,17 @@
 // belongs in src/core.
 
 #include <emscripten.h>
+#include <emscripten/eventloop.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <memory>
 #include <string>
 #include <utility>
 
 #include "core/gpu/device.h"
+#include "core/run_guard.h"
 #include "core/gpu/self_check.h"
 
 namespace {
@@ -21,6 +24,24 @@ namespace {
 // workgroups at the shader's 64-wide group, small enough to stay far inside
 // any device's buffer limits.
 constexpr std::size_t kSelfCheckElements = 4096;
+
+// A device that has not answered in this long is not going to. WebGPU gives
+// no cancellation, so this bounds how long the module can appear busy, not
+// how long the request actually runs.
+constexpr double kRunTimeoutMs = 15000.0;
+
+// Generations ride through WebGPU's void* userdata. A 32-bit generation is
+// used so this holds on wasm32, where a pointer is 4 bytes.
+static_assert(sizeof(std::uint32_t) <= sizeof(void*),
+              "generation must fit in a userdata pointer");
+
+void* to_userdata(std::uint32_t generation) {
+    return reinterpret_cast<void*>(static_cast<std::uintptr_t>(generation));
+}
+
+std::uint32_t to_generation(void* userdata) {
+    return static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(userdata));
+}
 
 // Escapes only what a JSON string requires. Adapter descriptions come from the
 // driver, so they are not assumed to be free of quotes or backslashes.
@@ -67,18 +88,35 @@ void report_failure(const std::string& stage, const std::string& error) {
     bllm_deliver(json.c_str());
 }
 
-// Guards against a second run starting while one is live. A flag only — the
-// device is owned by the call it was handed to, not by this file.
-bool& request_in_flight() {
-    static bool in_flight = false;
-    return in_flight;
+// Serialises runs and identifies late callbacks. Logic lives in core and is
+// tested natively; this file only supplies the clock.
+bllm::RunGuard& guard() {
+    static bllm::RunGuard g;
+    return g;
+}
+
+int& timeout_id() {
+    static int id = 0;
+    return id;
+}
+
+void disarm_timeout() {
+    if (timeout_id() != 0) {
+        emscripten_clear_timeout(timeout_id());
+        timeout_id() = 0;
+    }
 }
 
 // The device arrives inside the result and is released when it goes out of
 // scope here, so this reports the device it actually measured rather than
 // re-reading whatever is current.
-void on_self_check(bllm::gpu::SelfCheckResult result, void*) {
-    request_in_flight() = false;
+void on_self_check(bllm::gpu::SelfCheckResult result, void* userdata) {
+    // A run already closed by the timeout must not report a second result.
+    // The device still arrives here and is released as this returns.
+    if (!guard().complete(to_generation(userdata))) {
+        return;
+    }
+    disarm_timeout();
 
     if (!result.ok) {
         report_failure("self_check", result.error);
@@ -117,15 +155,35 @@ void on_self_check(bllm::gpu::SelfCheckResult result, void*) {
     bllm_deliver(json.c_str());
 }
 
-void on_device(std::unique_ptr<bllm::gpu::Device> device, const char* error, void*) {
+void on_device(std::unique_ptr<bllm::gpu::Device> device, const char* error,
+               void* userdata) {
+    const std::uint32_t generation = to_generation(userdata);
+
     if (device == nullptr) {
-        request_in_flight() = false;
-        report_failure("device", error != nullptr ? error : "unknown error");
+        if (guard().complete(generation)) {
+            disarm_timeout();
+            report_failure("device", error != nullptr ? error : "unknown error");
+        }
+        return;
+    }
+    // A device that arrives after the run timed out is released here rather
+    // than starting work nobody is waiting for.
+    if (!guard().active() || guard().generation() != generation) {
         return;
     }
     // Ownership passes into the check and comes back in the result.
     bllm::gpu::run_self_check(std::move(device), kSelfCheckElements,
-                              on_self_check, nullptr);
+                              on_self_check, to_userdata(generation));
+}
+
+void on_timeout(void* userdata) {
+    timeout_id() = 0;
+    if (!guard().complete(to_generation(userdata))) {
+        return;   // the run already finished; nothing to report
+    }
+    report_failure("timeout", "the GPU did not respond within " +
+                                  std::to_string(static_cast<int>(kRunTimeoutMs / 1000)) +
+                                  " seconds; the request may still be pending");
 }
 
 }  // namespace
@@ -136,12 +194,17 @@ extern "C" {
 EMSCRIPTEN_KEEPALIVE void bllm_run_self_check() {
     // One run at a time. A second would acquire another device while one is
     // still live and report two results the page cannot tell apart.
-    if (request_in_flight()) {
+    const std::uint32_t generation = guard().begin();
+    if (generation == bllm::RunGuard::kNoRun) {
         report_failure("request", "a self-check is already running");
         return;
     }
-    request_in_flight() = true;
-    bllm::gpu::Device::request(on_device, nullptr);
+    // Armed before the request, so a request that never calls back is still
+    // bounded. WebGPU cannot be cancelled, so this frees the module rather
+    // than the GPU.
+    timeout_id() = emscripten_set_timeout(on_timeout, kRunTimeoutMs,
+                                          to_userdata(generation));
+    bllm::gpu::Device::request(on_device, to_userdata(generation));
 }
 
 }  // extern "C"
