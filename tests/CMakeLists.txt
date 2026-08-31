@@ -14,12 +14,15 @@ add_executable(browser_llm_tests
     shader_embed_test.cpp
     unique_handle_test.cpp
     run_guard_test.cpp
+    quant_q4_0_test.cpp
     main_test.cpp
 )
 
 target_link_libraries(browser_llm_tests PRIVATE browser_llm_core doctest::doctest)
 
 # The shader test reads the on-disk .wgsl to compare against the embedded copy.
+target_include_directories(browser_llm_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+
 target_compile_definitions(browser_llm_tests PRIVATE
     BLLM_SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../src/shaders"
 )
