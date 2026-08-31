@@ -97,14 +97,14 @@ Not yet decided. These block the first implementation packet:
 
 ## Research Index
 
-- `research/2026-08-31-vigil-qwen-tower-review.md` — vigil's Qwen tower is
-  Qwen3.5/Qwen3-Next, a different architecture from ours; the transferable part
-  is method, not code. Fixture ladder, provenance, and the warning that
-  "reusable" ops silently diverge. Our gate cannot be byte-equal.
+- `research/2026-08-31-model-port-methodology.md` — method notes from prior
+  in-house inference work: build a fixture ladder smallest-primitive-first,
+  record provenance, and expect "reusable" ops to silently diverge from a
+  model's reference. Our correctness gate cannot be byte-equal.
 - `research/2026-08-31-gpu-readback-round-trip.md` — a serialized GPU round
   trip costs ~0.5 ms median. Read the sampled token back per step; do not build
-  a speculative pipeline. Also carries the lessons taken from vigil that this
-  measurement does not settle.
+  a speculative pipeline. Also carries the related lessons this measurement
+  does not settle.
 - `research/2026-08-29-webgpu-limits-observed.md` — observed WebGPU buffer
   limits are far above the spec's guaranteed minimums on capable hardware.
   Weight residency is a portability decision, not a fixed constraint.
