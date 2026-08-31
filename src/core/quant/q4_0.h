@@ -24,13 +24,6 @@ static_assert(kQ4_0BlockBytes == 18);
 // Quantized values are stored biased; the true value is (nibble - 8) * scale.
 inline constexpr int kQ4_0ZeroPoint = 8;
 
-// A block is 18 bytes, which is neither 4- nor 8-byte aligned. Successive
-// blocks therefore sit at offsets that are not u32 multiples, which a WGSL
-// kernel reading `array<u32>` must account for. Recorded here because it is a
-// property of the format, not of any one consumer.
-static_assert(kQ4_0BlockBytes % 4 != 0,
-              "Q4_0 blocks are not u32-aligned; kernels must not assume otherwise");
-
 // Blocks needed to hold `elements` weights. Q4_0 tensors are always a whole
 // number of blocks; a remainder means the tensor is not Q4_0-shaped.
 [[nodiscard]] constexpr bool is_block_aligned(std::size_t elements) noexcept {

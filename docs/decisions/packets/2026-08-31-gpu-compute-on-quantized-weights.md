@@ -170,6 +170,13 @@ production kernel.
       block interleaves 32 packed nibbles with one fp16 scale, so the scale
       load is the obvious divergence from a contiguous pattern and needs a
       stated answer, not an accident.
+
+      Concretely: an 18-byte block means block `k` begins at byte `18k`, which
+      is 4-byte aligned only for even `k`. A kernel reading `array<u32>`
+      therefore cannot index blocks directly — it must read the containing
+      words and shift, or the host must re-lay the data at upload. Which of
+      those we choose is the decision, and it reaches back into BLLM-002's
+      upload order.
 - [ ] The weight layout that mapping implies is **confirmed compatible with
       BLLM-002's upload order**, or BLLM-002 is amended before it is
       implemented. Discovering a transpose is needed after the upload path
