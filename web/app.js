@@ -37,7 +37,7 @@ if (!('gpu' in navigator)) {
 } else {
   setStatus('acquiring GPU device…', 'pending');
 
-  const worker = new Worker('./worker.js', { type: 'module' });
+  const worker = new Worker('./worker.js' + location.search, { type: 'module' });
 
   worker.addEventListener('message', ({ data }) => {
     if (data.type === 'ready') {
@@ -47,6 +47,26 @@ if (!('gpu' in navigator)) {
     if (data.type !== 'result') return;
 
     const r = data.result;
+    if (r.bench) {
+      const b = r.bench;
+      setStatus('readback measured', 'ok');
+      detailEl.textContent = `${b.iterations} serialized GPU round trips.`;
+      renderPairs(adapterEl, [
+        ['sequential min', `${b.seqMinMs.toFixed(3)} ms`],
+        ['sequential median', `${b.seqMedianMs.toFixed(3)} ms`],
+        ['sequential p95', `${b.seqP95Ms.toFixed(3)} ms`],
+        ['sequential max', `${b.seqMaxMs.toFixed(3)} ms`],
+        ['sequential mean', `${b.seqMeanMs.toFixed(3)} ms`],
+      ]);
+      renderPairs(limitsEl, [
+        ['ceiling if read back per token', `${(1000 / b.seqMedianMs).toFixed(0)} tok/s`],
+        [`batched: ${b.iterations} dispatches, 1 readback`, `${b.batchedTotalMs.toFixed(2)} ms total`],
+        ['batched per dispatch', `${(b.batchedTotalMs / b.iterations).toFixed(4)} ms`],
+        ['cost of serializing', `${(b.seqMedianMs / (b.batchedTotalMs / b.iterations)).toFixed(0)}x`],
+      ]);
+      return;
+    }
+
     if (!r.ok) {
       setStatus('failed', 'bad');
       detailEl.textContent = `${r.stage ?? 'unknown'}: ${r.error ?? 'no detail reported'}`;

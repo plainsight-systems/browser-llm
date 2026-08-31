@@ -15,7 +15,12 @@ globalThis.bllmOnResult = (result) => {
 try {
   const module = await createModule();
   self.postMessage({ type: 'ready' });
-  module._bllm_run_self_check();
+  // ?bench runs the readback measurement spike instead of the self-check.
+  if (self.location.search.includes('bench')) {
+    module._bllm_run_readback_bench();
+  } else {
+    module._bllm_run_self_check();
+  }
 } catch (error) {
   self.postMessage({
     type: 'result',

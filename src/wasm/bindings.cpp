@@ -7,8 +7,10 @@
 #include <emscripten.h>
 #include <emscripten/eventloop.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 #include <cstdio>
 #include <memory>
 #include <string>
@@ -17,6 +19,7 @@
 #include "core/gpu/device.h"
 #include "core/run_guard.h"
 #include "core/gpu/self_check.h"
+#include "core/gpu/readback_bench.h"
 
 namespace {
 
@@ -29,6 +32,9 @@ constexpr std::size_t kSelfCheckElements = 4096;
 // no cancellation, so this bounds how long the module can appear busy, not
 // how long the request actually runs.
 constexpr double kRunTimeoutMs = 15000.0;
+
+// Round trips measured by the spike. Enough for a stable median.
+constexpr std::size_t kBenchIterations = 200;
 
 // Generations ride through WebGPU's void* userdata. A 32-bit generation is
 // used so this holds on wasm32, where a pointer is 4 bytes.
@@ -95,6 +101,11 @@ bllm::RunGuard& guard() {
     return g;
 }
 
+std::uint32_t& pending_generation() {
+    static std::uint32_t g = 0;
+    return g;
+}
+
 int& timeout_id() {
     static int id = 0;
     return id;
@@ -155,6 +166,61 @@ void on_self_check(bllm::gpu::SelfCheckResult result, void* userdata) {
     bllm_deliver(json.c_str());
 }
 
+// --- readback measurement spike -------------------------------------------
+// Answers one question before the decode loop is designed: what does a
+// serialized GPU round trip cost? Run on request only; not on the normal path.
+
+double now_ms() { return emscripten_get_now(); }
+
+void on_bench(bllm::gpu::ReadbackBenchResult result, void*) {
+    if (!guard().complete(pending_generation())) {
+        return;
+    }
+    disarm_timeout();
+
+    if (!result.ok) {
+        report_failure("bench", result.error);
+        return;
+    }
+    auto seq = result.sequential_ms;
+    std::sort(seq.begin(), seq.end());
+    const auto pick = [&seq](double q) {
+        if (seq.empty()) return 0.0;
+        const auto i = static_cast<std::size_t>(q * static_cast<double>(seq.size() - 1));
+        return seq[i];
+    };
+    double total = 0.0;
+    for (const double v : seq) total += v;
+
+    std::string json = "{\"ok\":true,\"bench\":{";
+    json += "\"iterations\":" + std::to_string(result.iterations) + ",";
+    json += "\"seqMinMs\":" + std::to_string(pick(0.0)) + ",";
+    json += "\"seqMedianMs\":" + std::to_string(pick(0.5)) + ",";
+    json += "\"seqP95Ms\":" + std::to_string(pick(0.95)) + ",";
+    json += "\"seqMaxMs\":" + std::to_string(pick(1.0)) + ",";
+    json += "\"seqMeanMs\":" +
+            std::to_string(seq.empty() ? 0.0 : total / static_cast<double>(seq.size())) + ",";
+    json += "\"batchedTotalMs\":" + std::to_string(result.batched_total_ms) + "}}";
+    bllm_deliver(json.c_str());
+}
+
+void on_device_for_bench(std::unique_ptr<bllm::gpu::Device> device, const char* error,
+                         void* userdata) {
+    const std::uint32_t generation = to_generation(userdata);
+    if (device == nullptr) {
+        if (guard().complete(generation)) {
+            disarm_timeout();
+            report_failure("device", error != nullptr ? error : "unknown error");
+        }
+        return;
+    }
+    if (!guard().active() || guard().generation() != generation) {
+        return;
+    }
+    bllm::gpu::run_readback_bench(std::move(device), kBenchIterations, now_ms,
+                                  on_bench, nullptr);
+}
+
 void on_device(std::unique_ptr<bllm::gpu::Device> device, const char* error,
                void* userdata) {
     const std::uint32_t generation = to_generation(userdata);
@@ -202,9 +268,24 @@ EMSCRIPTEN_KEEPALIVE void bllm_run_self_check() {
     // Armed before the request, so a request that never calls back is still
     // bounded. WebGPU cannot be cancelled, so this frees the module rather
     // than the GPU.
+    pending_generation() = generation;
     timeout_id() = emscripten_set_timeout(on_timeout, kRunTimeoutMs,
                                           to_userdata(generation));
     bllm::gpu::Device::request(on_device, to_userdata(generation));
+}
+
+// Measurement spike. Deliberately a separate entry point so the normal path
+// is unchanged and cannot accidentally run it.
+EMSCRIPTEN_KEEPALIVE void bllm_run_readback_bench() {
+    const std::uint32_t generation = guard().begin();
+    if (generation == bllm::RunGuard::kNoRun) {
+        report_failure("request", "a run is already in progress");
+        return;
+    }
+    pending_generation() = generation;
+    timeout_id() = emscripten_set_timeout(on_timeout, kRunTimeoutMs,
+                                          to_userdata(generation));
+    bllm::gpu::Device::request(on_device_for_bench, to_userdata(generation));
 }
 
 }  // extern "C"

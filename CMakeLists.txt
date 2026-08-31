@@ -42,6 +42,7 @@ if(EMSCRIPTEN)
     target_sources(browser_llm_core PRIVATE
         src/core/gpu/device.cpp
         src/core/gpu/self_check.cpp
+        src/core/gpu/readback_bench.cpp
     )
 
     # -----------------------------------------------------------------------

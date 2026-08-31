@@ -97,6 +97,10 @@ Not yet decided. These block the first implementation packet:
 
 ## Research Index
 
+- `research/2026-08-31-gpu-readback-round-trip.md` — a serialized GPU round
+  trip costs ~0.5 ms median. Read the sampled token back per step; do not build
+  a speculative pipeline. Also carries the lessons taken from vigil that this
+  measurement does not settle.
 - `research/2026-08-29-webgpu-limits-observed.md` — observed WebGPU buffer
   limits are far above the spec's guaranteed minimums on capable hardware.
   Weight residency is a portability decision, not a fixed constraint.
