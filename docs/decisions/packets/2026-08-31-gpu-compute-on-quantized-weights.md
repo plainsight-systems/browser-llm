@@ -171,12 +171,17 @@ production kernel.
       load is the obvious divergence from a contiguous pattern and needs a
       stated answer, not an accident.
 
-      Concretely: an 18-byte block means block `k` begins at byte `18k`, which
-      is 4-byte aligned only for even `k`. A kernel reading `array<u32>`
-      therefore cannot index blocks directly — it must read the containing
-      words and shift, or the host must re-lay the data at upload. Which of
-      those we choose is the decision, and it reaches back into BLLM-002's
-      upload order.
+      That choice is now **settled**, and it is the host-side one. BLLM-002
+      de-interleaves each tensor at upload into a `array<u32>` of nibbles
+      (4 words per block, block `k` at word `4k`) and a `array<u32>` of scales
+      (two fp16 per word, read with `unpack2x16float` — core WGSL, no
+      `shader-f16` needed). Both streams are naturally aligned and lane L reads
+      word L, so the kernel never shifts across word boundaries and the mapping
+      is coalesced by construction. Total stays 18 bytes per block, so the
+      alignment is bought with a load-time pass rather than padding.
+
+      The lane-mapping criterion therefore has a predicted answer to check
+      against, not an open question to discover.
 - [ ] The weight layout that mapping implies is **confirmed compatible with
       BLLM-002's upload order**, or BLLM-002 is amended before it is
       implemented. Discovering a transpose is needed after the upload path

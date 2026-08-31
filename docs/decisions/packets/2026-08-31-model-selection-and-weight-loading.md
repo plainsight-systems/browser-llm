@@ -51,12 +51,26 @@
     only option, not a preference.
   - Buffer packing is planned from the **granted** device limits, read after
     acquisition, and works at the 128 MiB spec-default storage-binding floor.
-  - **Upload order is a kernel decision, not a file-order default.** GPU.2
-    requires the lane→address mapping to be settled before tuning, and its
-    remedy for a bad mapping is to transpose *at load time*. The layout chosen
-    here must be the one BLLM-003's kernel wants. If that is not settled when
-    this is implemented, upload in file order and record it as **provisional**
-    — do not treat it as decided.
+  - **Weights are de-interleaved at upload into two aligned streams.** This is
+    decided, not provisional. On disk a Q4_0 block is 18 bytes — a 2-byte fp16
+    scale followed by 16 bytes of nibbles — so block `k` begins at byte `18k`,
+    which is 4-byte aligned only for even `k`. Uploaded verbatim, a kernel
+    reading `array<u32>` would shift across word boundaries on every load.
+
+    Instead the upload splits each tensor into:
+      - **nibbles** as `array<u32>` — 16 bytes is exactly 4 words per block, so
+        block `k` starts at word `4k`, and lane L reads word L (GPU.2);
+      - **scales** as `array<u32>` — two fp16 packed per word, read in-shader
+        with `unpack2x16float`, which is core WGSL and needs no `shader-f16`.
+
+    Total stays **18 bytes per block**, identical to disk: no padding, no
+    alignment waste, no optional feature. The de-interleave is one pass during
+    the bounded init phase (MEM.9), which is exactly GPU.2's "transpose at load
+    time".
+
+    Consequence for the planner: **two bindings per weight tensor**, not one,
+    which doubles the binding-count arithmetic against
+    `maxStorageBuffersPerShaderStage`.
   - A SHA-256 mismatch fails the load loudly.
 
 ## The decision
