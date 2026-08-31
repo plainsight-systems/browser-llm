@@ -23,9 +23,8 @@ Live: <https://plainsight-systems.github.io/browser-llm/>
 
 ## Architecture
 
-[`docs/architecture.md`](docs/architecture.md) — module boundaries, build
-targets, the runtime call sequence, and control flow, as diagrams. It
-documents what exists today, not what is planned.
+[`docs/architecture.md`](docs/architecture.md) — module boundaries and the
+call tree, as diagrams. What exists today, not what is planned.
 
 ## Repository structure
 
