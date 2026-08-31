@@ -5,8 +5,8 @@ This file tracks active and accepted work.
 ## Active
 
 - **BLLM-002: Model selection and weight residency.** Packet:
-  `packets/2026-08-31-model-selection-and-weight-loading.md`. Status: draft,
-  awaiting review before implementation. Decides Qwen3-0.6B / Q4_0 / GGUF, and
+  `packets/2026-08-31-model-selection-and-weight-loading.md`. Status: **approved**
+  2026-08-31, implementing. Decides Qwen3-0.6B / Q4_0 / GGUF, and
   gets the weights onto the GPU **still quantized**, proven byte-identical by
   readback. Scoped around the highest-risk unknown — packing ~420 MB across
   buffers under a limit granted at runtime — rather than around what was
@@ -15,8 +15,8 @@ This file tracks active and accepted work.
 ## Ready
 
 - **BLLM-003: GPU compute on quantized weights, gated in CI.** Packet:
-  `packets/2026-08-31-gpu-compute-on-quantized-weights.md`. Status: draft.
-  Native Dawn (Metal locally, SwiftShader in CI) plus a fused dequant-matmul
+  `packets/2026-08-31-gpu-compute-on-quantized-weights.md`. Status: **approved**
+  2026-08-31, queued behind BLLM-002. Native Dawn (Metal locally, SwiftShader in CI) plus a fused dequant-matmul
   kernel, verified against a CPU reference at the model's real shapes. One
   packet because none of the three is useful alone. Also closes BLLM-001's
   accepted residual: with Dawn linked, `device.cpp` and `self_check.cpp`

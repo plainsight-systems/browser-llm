@@ -1,6 +1,6 @@
 # BLLM-003: GPU compute on quantized weights, gated in CI
 
-**Status:** draft
+**Status:** approved
 **Change class:** architectural (includes a cross-cutting dependency change)
 
 ## Intent

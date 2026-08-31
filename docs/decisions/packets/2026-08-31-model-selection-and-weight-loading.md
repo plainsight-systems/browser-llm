@@ -1,6 +1,6 @@
 # BLLM-002: Model selection and weight residency
 
-**Status:** draft
+**Status:** approved
 **Change class:** architectural
 
 ## Intent
