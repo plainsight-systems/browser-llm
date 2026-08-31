@@ -22,31 +22,41 @@ WGPUStringView view(std::string_view s) {
 // Everything the readback callback needs once the work has been submitted.
 // Heap allocated: it outlives the call that created it.
 struct ReadbackContext {
+    std::unique_ptr<Device> device;   // kept alive until the readback resolves
     Buffer readback;
     std::vector<float> expected;
     SelfCheckCallback callback;
     void* userdata;
 
     void finish(SelfCheckResult result) {
-        callback(result, userdata);
+        result.device = std::move(device);
+        callback(std::move(result), userdata);
         delete this;   // releases `readback` via its destructor
     }
 };
 
-void fail(SelfCheckCallback callback, void* userdata, std::string message) {
+// Returns the device with the failure, so the caller's ownership is restored
+// on every exit rather than only the successful one.
+void fail(std::unique_ptr<Device> device, SelfCheckCallback callback,
+          void* userdata, std::string message) {
     SelfCheckResult r;
     r.error = std::move(message);
-    callback(r, userdata);
+    r.device = std::move(device);
+    callback(std::move(r), userdata);
 }
 
 }  // namespace
 
-void run_self_check(Device& device, std::size_t elements,
+void run_self_check(std::unique_ptr<Device> device, std::size_t elements,
                     SelfCheckCallback callback, void* userdata) {
+    if (device == nullptr) {
+        fail(nullptr, callback, userdata, "no device supplied");
+        return;
+    }
     const auto dispatch = dispatch_count(
-        elements, kWorkgroupSize, device.limits().max_compute_workgroups_per_dimension);
+        elements, kWorkgroupSize, device->limits().max_compute_workgroups_per_dimension);
     if (dispatch.status != DispatchStatus::Ok) {
-        fail(callback, userdata,
+        fail(std::move(device), callback, userdata,
              dispatch.status == DispatchStatus::InvalidWorkgroupSize
                  ? "invalid workgroup size"
                  : "element count exceeds this device's dispatch limit");
@@ -61,7 +71,7 @@ void run_self_check(Device& device, std::size_t elements,
     }
     const std::uint64_t bytes = static_cast<std::uint64_t>(elements) * sizeof(float);
 
-    WGPUDevice dev = device.handle();
+    WGPUDevice dev = device->handle();
 
     // wgpuDeviceCreateBuffer is the one creation call the header declares
     // nullable, so allocation failure is a contract outcome and is checked.
@@ -77,14 +87,14 @@ void run_self_check(Device& device, std::size_t elements,
     Buffer out_buf = make_buffer(WGPUBufferUsage_Storage | WGPUBufferUsage_CopySrc);
     Buffer readback = make_buffer(WGPUBufferUsage_MapRead | WGPUBufferUsage_CopyDst);
     if (!lhs_buf || !rhs_buf || !out_buf || !readback) {
-        fail(callback, userdata,
+        fail(std::move(device), callback, userdata,
              "GPU buffer allocation failed; the device could not provide " +
                  std::to_string(bytes * 4) + " bytes");
         return;
     }
 
-    wgpuQueueWriteBuffer(device.queue(), lhs_buf.get(), 0, lhs.data(), bytes);
-    wgpuQueueWriteBuffer(device.queue(), rhs_buf.get(), 0, rhs.data(), bytes);
+    wgpuQueueWriteBuffer(device->queue(), lhs_buf.get(), 0, lhs.data(), bytes);
+    wgpuQueueWriteBuffer(device->queue(), rhs_buf.get(), 0, rhs.data(), bytes);
 
     WGPUShaderSourceWGSL wgsl = {};
     wgsl.chain.sType = WGPUSType_ShaderSourceWGSL;
@@ -125,13 +135,13 @@ void run_self_check(Device& device, std::size_t elements,
                                          readback.get(), 0, bytes);
     CommandBuffer commands(wgpuCommandEncoderFinish(encoder.get(), nullptr));
     WGPUCommandBuffer raw_commands = commands.get();
-    wgpuQueueSubmit(device.queue(), 1, &raw_commands);
+    wgpuQueueSubmit(device->queue(), 1, &raw_commands);
 
     // Ownership of the readback buffer moves into the callback context; every
     // other handle is released here by going out of scope. The submitted
     // commands hold their own references until they retire.
-    auto* ctx = new ReadbackContext{std::move(readback), std::move(expected),
-                                    callback, userdata};
+    auto* ctx = new ReadbackContext{std::move(device), std::move(readback),
+                                    std::move(expected), callback, userdata};
 
     WGPUBufferMapCallbackInfo map_cb = {};
     map_cb.mode = WGPUCallbackMode_AllowSpontaneous;
@@ -143,14 +153,14 @@ void run_self_check(Device& device, std::size_t elements,
 
         if (status != WGPUMapAsyncStatus_Success) {
             r.error = "could not map the readback buffer";
-            c->finish(r);
+            c->finish(std::move(r));
             return;
         }
         const auto byte_count = c->expected.size() * sizeof(float);
         const void* mapped = wgpuBufferGetConstMappedRange(c->readback.get(), 0, byte_count);
         if (mapped == nullptr) {
             r.error = "readback buffer mapped but produced no range";
-            c->finish(r);
+            c->finish(std::move(r));
             return;
         }
 
@@ -166,7 +176,7 @@ void run_self_check(Device& device, std::size_t elements,
         if (!r.ok) {
             r.error = "GPU result did not match the CPU computation";
         }
-        c->finish(r);
+        c->finish(std::move(r));
     };
     wgpuBufferMapAsync(ctx->readback.get(), WGPUMapMode_Read, 0,
                        static_cast<std::size_t>(bytes), map_cb);

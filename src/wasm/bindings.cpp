@@ -6,6 +6,7 @@
 
 #include <emscripten.h>
 
+#include <cstddef>
 #include <cstdio>
 #include <memory>
 #include <string>
@@ -15,6 +16,11 @@
 #include "core/gpu/self_check.h"
 
 namespace {
+
+// Element count for the toolchain self-check. Large enough to span many
+// workgroups at the shader's 64-wide group, small enough to stay far inside
+// any device's buffer limits.
+constexpr std::size_t kSelfCheckElements = 4096;
 
 // Escapes only what a JSON string requires. Adapter descriptions come from the
 // driver, so they are not assumed to be free of quotes or backslashes.
@@ -61,27 +67,28 @@ void report_failure(const std::string& stage, const std::string& error) {
     bllm_deliver(json.c_str());
 }
 
-// Construct-on-first-use rather than a namespace-scope global (R.6, I.2,
-// LIFE.6). The device outlives the request that created it because the page
-// keeps using it; ownership is explicit and single.
-std::unique_ptr<bllm::gpu::Device>& active_device() {
-    static std::unique_ptr<bllm::gpu::Device> device;
-    return device;
-}
-
+// Guards against a second run starting while one is live. A flag only — the
+// device is owned by the call it was handed to, not by this file.
 bool& request_in_flight() {
     static bool in_flight = false;
     return in_flight;
 }
 
-void on_self_check(const bllm::gpu::SelfCheckResult& result, void*) {
+// The device arrives inside the result and is released when it goes out of
+// scope here, so this reports the device it actually measured rather than
+// re-reading whatever is current.
+void on_self_check(bllm::gpu::SelfCheckResult result, void*) {
     request_in_flight() = false;
 
     if (!result.ok) {
         report_failure("self_check", result.error);
         return;
     }
-    const auto& device = *active_device();
+    if (result.device == nullptr) {
+        report_failure("self_check", "internal: result carried no device");
+        return;
+    }
+    const auto& device = *result.device;
     const auto& info = device.adapter_info();
     const auto& limits = device.limits();
     const auto& maxima = device.adapter_maxima();
@@ -116,9 +123,9 @@ void on_device(std::unique_ptr<bllm::gpu::Device> device, const char* error, voi
         report_failure("device", error != nullptr ? error : "unknown error");
         return;
     }
-    // Replacing any previous device destroys it here rather than leaking it.
-    active_device() = std::move(device);
-    bllm::gpu::run_self_check(*active_device(), 4096, on_self_check, nullptr);
+    // Ownership passes into the check and comes back in the result.
+    bllm::gpu::run_self_check(std::move(device), kSelfCheckElements,
+                              on_self_check, nullptr);
 }
 
 }  // namespace
@@ -127,8 +134,8 @@ extern "C" {
 
 // Entry point called from the worker once the module is instantiated.
 EMSCRIPTEN_KEEPALIVE void bllm_run_self_check() {
-    // Re-entry would overwrite the device while a readback still referenced
-    // it. Refuse explicitly rather than racing.
+    // One run at a time. A second would acquire another device while one is
+    // still live and report two results the page cannot tell apart.
     if (request_in_flight()) {
         report_failure("request", "a self-check is already running");
         return;
