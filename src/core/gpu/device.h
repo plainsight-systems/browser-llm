@@ -40,6 +40,11 @@ struct AdapterInfo {
 // the callee cannot forget to destroy it (I.11, R.20). On failure the pointer
 // is null and `error` describes why. Exactly one of those states is delivered,
 // exactly once.
+//
+// Contract:
+//   - `callback` must not be null. It is invoked unconditionally.
+//   - `error` is valid only for the duration of the callback. Copy it to keep
+//     it; it points into a temporary that dies when the callback returns.
 class Device {
 public:
     using RequestCallback = void (*)(std::unique_ptr<Device> device,

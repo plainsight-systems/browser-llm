@@ -33,6 +33,9 @@ struct SelfCheckResult {
 //
 // Takes ownership of the device for the duration and returns it in the result,
 // so the device cannot be destroyed while a readback is still pending.
+//
+// Contract: `callback` must not be null. It is invoked exactly once, on every
+// path including the failures, and always carries the device back.
 using SelfCheckCallback = void (*)(SelfCheckResult result, void* userdata);
 
 void run_self_check(std::unique_ptr<Device> device, std::size_t elements,

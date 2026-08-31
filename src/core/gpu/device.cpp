@@ -44,6 +44,13 @@ void on_uncaptured_error(WGPUDevice const*, WGPUErrorType type,
 // Carries the caller's continuation across the two async hops. Heap allocated
 // because the callbacks outlive the call that started them; freed exactly once
 // on whichever path completes.
+//
+// The `delete this` below is deliberate rather than an escape from the
+// UniqueHandle system. Ownership genuinely moves forward along the chain: the
+// adapter callback must NOT destroy this object, because the device request it
+// starts still needs it. Reclaiming into a unique_ptr at each callback entry
+// would destroy it one hop too early. Only the terminal paths -- fail() and
+// succeed() -- own the end of the chain, and each is reached exactly once.
 struct PendingDeviceRequest {
     std::unique_ptr<Device> device;
     WGPULimits adapter_limits = {};

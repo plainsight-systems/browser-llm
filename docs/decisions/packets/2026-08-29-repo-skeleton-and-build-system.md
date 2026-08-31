@@ -1,6 +1,6 @@
 # BLLM-001: Repo skeleton and build system
 
-**Status:** review_requested
+**Status:** accepted
 **Change class:** architectural
 
 ## Intent
@@ -226,6 +226,42 @@ because "checked and found nothing, for this reason" is the artifact.
 ≠ implementer for material changes. It should be repeated by a different
 identity before acceptance; a self-audit is least likely to catch a conceptual
 error its author already made.
+
+## Acceptance (2026-08-31)
+
+Accepted after two independent reviews by a separate identity
+(`gpt-5.6-sol` via `scripts/codex-review.sh`), both returning
+`changes_requested`, and both sets of findings worked.
+
+| Review | Guideline audit | Findings | State |
+|---|---|---|---|
+| 1st, 2026-08-30 | **NOT PERFORMED** — `get_guideline` denied by approval policy | 1 P1, 4 P2, 1 P3 | all worked |
+| 2nd, 2026-08-30 | Complete — 16 `cpp-guidelines` + 3 `cpp-performance` lookups, no environment failure | 1 P1, 5 P2, 1 P3 | worked, one residual below |
+
+The second review's P1 was the sharpest finding of the packet: `Device::limits()`
+reported adapter maxima while acquisition requested none, so dispatch was sized
+against capacity the device did not have. It also exposed that a "correction" I
+had recorded was itself wrong. Both are in
+`docs/research/2026-08-29-webgpu-limits-observed.md`.
+
+**Accepted residual risk:**
+
+- **No native GPU test.** `device.cpp` and `self_check.cpp` compile only under
+  Emscripten; the GPU path is verified by the page's readback assertion alone.
+  Closing this is BLLM-003, which lands with the first model kernel — the first
+  point at which a kernel's correctness is not self-evident.
+- **`delete this` in the continuation chains.** Reviewed and kept: ownership
+  genuinely moves forward across hops, so reclaiming into a `unique_ptr` at each
+  callback entry would destroy the context one hop early. Documented in
+  `device.cpp` so it is not re-raised as drift.
+- **Second review's fixes were not themselves re-reviewed.** A third pass would
+  have diminishing returns against the cost; accepted deliberately rather than
+  overlooked.
+
+Verification at acceptance: wasm builds clean, 25 native test cases / 74
+assertions pass, four structural guards fire against real probe fixtures, both
+CI workflows green, and the deployed page reports 4,096 elements with 0
+mismatches.
 
 ## Records
 

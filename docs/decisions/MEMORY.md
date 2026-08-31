@@ -16,10 +16,11 @@ A self-built inference harness that runs an open-weight model entirely in the
 browser: C++ compiled to WebAssembly, with compute executed on WebGPU. No
 server-side inference, no remote model execution.
 
-Status as of 2026-08-30: the toolchain reaches the GPU. The dual-target build,
+Status as of 2026-08-31: the toolchain reaches the GPU. The dual-target build,
 platform-neutral core, WebGPU device path, wasm bindings and a static page all
 exist, and CI deploys the page. No model is loaded and nothing is inferred.
-BLLM-001 is `changes_requested` after independent review.
+BLLM-001 is **accepted**. BLLM-002 — model, quantization and the limits floor —
+is next.
 
 ## Inherited Governance
 
@@ -42,6 +43,20 @@ inherited and both gates bind:
 - `cpp_performance_review.md`
 
 ## Locked Decisions
+
+Decided 2026-08-31, on acceptance of BLLM-001:
+
+- **The GPU is reached through the `webgpu.h` C API**, not from JavaScript, so
+  the same code can later link native Dawn for deterministic kernel tests.
+- **Single-threaded, no pthreads.** GitHub Pages cannot set COOP/COEP, so
+  `SharedArrayBuffer` is unavailable. The harness runs in a plain Web Worker.
+- **The device is asked for the adapter's advertised maxima** via
+  `requiredLimits` rather than accepting WebGPU's defaults. Always
+  satisfiable, so it costs no portability — but limits therefore vary per
+  device and are known only after acquisition.
+- **Async runs are serialised and generation-stamped** (`core/run_guard`).
+  WebGPU cannot be cancelled, so a late callback must be identifiable as late
+  rather than allowed to report a second result.
 
 Decided 2026-08-28 during repo bootstrap:
 
