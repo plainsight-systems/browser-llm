@@ -14,11 +14,14 @@ This file tracks active and accepted work.
 
 ## Ready
 
-- **BLLM-003: Native Dawn for GPU-kernel tests.** Lands with the first model
-  kernel — the first point at which a kernel's correctness is not
-  self-evident and needs a CPU reference oracle. Until then `device.cpp` and
-  `self_check.cpp` compile for wasm only, and the GPU path is verified solely
-  by the page's readback assertion.
+- **BLLM-003: GPU compute on quantized weights, gated in CI.** Packet:
+  `packets/2026-08-31-gpu-compute-on-quantized-weights.md`. Status: draft.
+  Native Dawn (Metal locally, SwiftShader in CI) plus a fused dequant-matmul
+  kernel, verified against a CPU reference at the model's real shapes. One
+  packet because none of the three is useful alone. Also closes BLLM-001's
+  accepted residual: with Dawn linked, `device.cpp` and `self_check.cpp`
+  compile natively for the first time. Excludes optimization — the performance
+  gate needs the baseline this packet creates.
 
 ## Accepted
 
