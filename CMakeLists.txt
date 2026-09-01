@@ -18,9 +18,21 @@ include(EmbedShaders)
 # Invariant: nothing here may include <emscripten.h> or anything under
 # src/wasm/ or web/. tools/check_boundaries.sh enforces this in CI.
 # ---------------------------------------------------------------------------
+# Diagnostic instrumentation is compiled out unless explicitly requested. See
+# docs/research/2026-08-31-measurement-build-configurations.md — the axis is
+# instrumentation, not optimisation, so a diagnostic build is still Release.
+option(BLLM_ENABLE_DIAGNOSTICS
+       "Compile diagnostic instrumentation into the build (perturbs timing)" OFF)
+
 add_library(browser_llm_core STATIC
     src/core/gpu/dispatch_math.cpp
 )
+
+if(BLLM_ENABLE_DIAGNOSTICS)
+    target_compile_definitions(browser_llm_core PUBLIC BLLM_DIAGNOSTICS_ENABLED=1)
+    message(STATUS
+        "browser-llm: diagnostics ENABLED — timings from this build are not quotable")
+endif()
 
 target_include_directories(browser_llm_core PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
@@ -42,8 +54,13 @@ if(EMSCRIPTEN)
     target_sources(browser_llm_core PRIVATE
         src/core/gpu/device.cpp
         src/core/gpu/self_check.cpp
-        src/core/gpu/readback_bench.cpp
     )
+
+    # Not merely preprocessed away — not compiled at all in a clean build, so
+    # the symbol cannot reach the shipped module.
+    if(BLLM_ENABLE_DIAGNOSTICS)
+        target_sources(browser_llm_core PRIVATE src/core/gpu/readback_bench.cpp)
+    endif()
 
     # -----------------------------------------------------------------------
     # Browser target. The only Emscripten-aware translation unit.

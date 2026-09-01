@@ -3,7 +3,7 @@
 
 EMSDK_IMAGE := emscripten/emsdk:6.0.8
 
-.PHONY: test check wasm dist serve clean
+.PHONY: test check wasm wasm-diag dist serve clean
 
 ## Native build + unit tests. No browser, no GPU.
 test:
@@ -15,8 +15,15 @@ test:
 check:
 	./tools/check_boundaries.sh
 	./tools/check_diagrams.py
+	./tools/check_diagnostics_excluded.sh
 	./tests/test_check_boundaries.sh
 	./tests/test_codex_review_preflight.sh
+
+## Diagnostic wasm build: same optimisation, instrumentation compiled in.
+## Timings from this build are diagnostic and are not quotable as throughput.
+wasm-diag:
+	docker run --rm -v "$(CURDIR)":/src -w /src $(EMSDK_IMAGE) \
+		sh -c "emcmake cmake --preset wasm-diag && cmake --build --preset wasm-diag"
 
 ## WebAssembly build, inside the pinned toolchain image.
 wasm:

@@ -35,6 +35,9 @@ jobs:
           emcmake cmake --preset wasm-release
           cmake --build --preset wasm-release
 
+      - name: Diagnostics excluded from the shipped module
+        run: ./tools/check_diagnostics_excluded.sh
+
       - name: Assemble dist
         run: |
           mkdir -p dist

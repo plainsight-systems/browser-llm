@@ -19,7 +19,10 @@
 #include "core/gpu/device.h"
 #include "core/run_guard.h"
 #include "core/gpu/self_check.h"
+#include "core/diagnostics.h"
+#if BLLM_DIAGNOSTICS_ENABLED
 #include "core/gpu/readback_bench.h"
+#endif
 
 namespace {
 
@@ -170,6 +173,7 @@ void on_self_check(bllm::gpu::SelfCheckResult result, void* userdata) {
     bllm_deliver(json.c_str());
 }
 
+#if BLLM_DIAGNOSTICS_ENABLED
 // --- readback measurement spike -------------------------------------------
 // Answers one question before the decode loop is designed: what does a
 // serialized GPU round trip cost? Run on request only; not on the normal path.
@@ -225,6 +229,8 @@ void on_device_for_bench(std::unique_ptr<bllm::gpu::Device> device, const char* 
                                   on_bench, nullptr);
 }
 
+#endif  // BLLM_DIAGNOSTICS_ENABLED
+
 void on_device(std::unique_ptr<bllm::gpu::Device> device, const char* error,
                void* userdata) {
     const std::uint32_t generation = to_generation(userdata);
@@ -278,8 +284,9 @@ EMSCRIPTEN_KEEPALIVE void bllm_run_self_check() {
     bllm::gpu::Device::request(on_device, to_userdata(generation));
 }
 
-// Measurement spike. Deliberately a separate entry point so the normal path
-// is unchanged and cannot accidentally run it.
+#if BLLM_DIAGNOSTICS_ENABLED
+// Measurement spike. Present only in a diagnostic build; the clean build does
+// not compile it, so the symbol is absent from the shipped module.
 EMSCRIPTEN_KEEPALIVE void bllm_run_readback_bench() {
     const std::uint32_t generation = guard().begin();
     if (generation == bllm::RunGuard::kNoRun) {
@@ -291,6 +298,7 @@ EMSCRIPTEN_KEEPALIVE void bllm_run_readback_bench() {
                                           to_userdata(generation));
     bllm::gpu::Device::request(on_device_for_bench, to_userdata(generation));
 }
+#endif  // BLLM_DIAGNOSTICS_ENABLED
 
 }  // extern "C"
 
