@@ -15,6 +15,9 @@ add_executable(browser_llm_tests
     unique_handle_test.cpp
     run_guard_test.cpp
     quant_q4_0_test.cpp
+    gguf_checked_test.cpp
+    gguf_parse_test.cpp
+    gguf_malformed_test.cpp
     main_test.cpp
 )
 
@@ -25,6 +28,7 @@ target_include_directories(browser_llm_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR
 
 target_compile_definitions(browser_llm_tests PRIVATE
     BLLM_SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../src/shaders"
+    BLLM_GGUF_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/gguf"
 )
 
 add_test(NAME browser_llm_tests COMMAND browser_llm_tests)

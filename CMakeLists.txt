@@ -25,6 +25,7 @@ option(BLLM_ENABLE_DIAGNOSTICS
        "Compile diagnostic instrumentation into the build (perturbs timing)" OFF)
 
 add_library(browser_llm_core STATIC
+    src/core/gguf/reader.cpp
     src/core/gpu/dispatch_math.cpp
 )
 
