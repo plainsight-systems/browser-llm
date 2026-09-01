@@ -38,6 +38,36 @@ That is what the harness now does. The alternatives:
 - **Ask for the adapter's maxima** (chosen) — best available per device, no
   acquisition failures, at the cost of limits that differ between machines.
 
+## Two more limits, measured 2026-08-31
+
+The four limits first recorded here were not the whole surface. Two more
+constrain the residency plan, and both are small enough to shape kernel design:
+
+| Limit | Spec default | Granted here |
+|---|---|---|
+| `maxStorageBuffersPerShaderStage` | 8 | **10** |
+| `minStorageBufferOffsetAlignment` | 256 | **256** |
+
+**Ten bindings is a hard, small budget.** Weights are uploaded de-interleaved —
+a nibble stream and a scale stream — so **each weight tensor costs two
+bindings**. A single shader can therefore see at most four weight tensors once
+activations, output and a params buffer are bound. One kernel cannot hold a
+whole decoder layer's projections; the forward pass must be several dispatches,
+and that is a structural consequence rather than a tuning choice. On a
+minimum-spec device the budget is 8, so three weight tensors.
+
+**256-byte binding alignment does not divide an 18-byte block.** If several
+tensors share one physical buffer and are bound as sub-ranges, every sub-range
+must begin on a 256-byte boundary, so padding between tensors is unavoidable.
+`lcm(18, 256)` is 2304 bytes — 128 blocks — so a tensor whose block count is
+not a multiple of 128 leaves a gap. The planner must budget that padding rather
+than discover it when a binding is rejected.
+
+Note the asymmetry: `maxBufferSize` was granted at 16× the default, while
+`maxStorageBuffersPerShaderStage` came back at 10 against a default of 8.
+Requesting the adapter's maxima buys enormous headroom on some limits and
+almost none on others.
+
 ## Consequence for BLLM-002
 
 Weight residency is sized against a number that **varies per device** and is

@@ -93,6 +93,8 @@ if (!('gpu' in navigator)) {
       ['maxStorageBufferBindingSize (adapter could grant)', mib(r.adapterMaxima.maxStorageBufferBindingSize)],
       ['maxComputeWorkgroupsPerDimension', Number(r.limits.maxComputeWorkgroupsPerDimension).toLocaleString()],
       ['maxComputeInvocationsPerWorkgroup', Number(r.limits.maxComputeInvocationsPerWorkgroup).toLocaleString()],
+      ['maxStorageBuffersPerShaderStage', Number(r.limits.maxStorageBuffersPerShaderStage).toLocaleString()],
+      ['minStorageBufferOffsetAlignment', `${Number(r.limits.minStorageBufferOffsetAlignment).toLocaleString()} bytes`],
     ]);
   });
 

@@ -8,13 +8,27 @@
 
 namespace bllm::gpu {
 
-// The four limits that constrain how model weights can be laid out on the GPU.
-// Recorded so a later performance baseline can name the device it was taken on.
+// The limits that constrain how model weights can be laid out on the GPU, and
+// how many of them a shader can see at once.
+//
+// These are four separate WebGPU constraints, not one. Conflating them yields
+// a residency plan that uploads successfully and then cannot be bound:
+//
+//   max_buffer_size                       caps a physical buffer
+//   max_storage_buffer_binding_size       caps a *bound range* within one
+//   min_storage_buffer_offset_alignment   constrains suballocated offsets
+//   max_storage_buffers_per_shader_stage  caps bindings visible to one shader
+//
+// The last matters more than it looks: weights are uploaded de-interleaved as
+// a nibble stream and a scale stream, so each weight tensor costs *two*
+// bindings, not one.
 struct DeviceLimits {
     std::uint64_t max_buffer_size = 0;
     std::uint64_t max_storage_buffer_binding_size = 0;
     std::uint32_t max_compute_workgroups_per_dimension = 0;
     std::uint32_t max_compute_invocations_per_workgroup = 0;
+    std::uint32_t max_storage_buffers_per_shader_stage = 0;
+    std::uint32_t min_storage_buffer_offset_alignment = 0;
 };
 
 struct AdapterInfo {

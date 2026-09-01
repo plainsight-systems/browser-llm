@@ -118,7 +118,9 @@ void Device::request(RequestCallback callback, void* userdata) {
         p->device->adapter_maxima_ = DeviceLimits{
             adapter_limits.maxBufferSize, adapter_limits.maxStorageBufferBindingSize,
             adapter_limits.maxComputeWorkgroupsPerDimension,
-            adapter_limits.maxComputeInvocationsPerWorkgroup};
+            adapter_limits.maxComputeInvocationsPerWorkgroup,
+            adapter_limits.maxStorageBuffersPerShaderStage,
+            adapter_limits.minStorageBufferOffsetAlignment};
 
         // Ask for what this adapter says it can give, rather than accepting
         // WebGPU's defaults. Requesting an adapter's own advertised maxima is
@@ -162,7 +164,9 @@ void Device::request(RequestCallback callback, void* userdata) {
             q->device->limits_ = DeviceLimits{
                 device_limits.maxBufferSize, device_limits.maxStorageBufferBindingSize,
                 device_limits.maxComputeWorkgroupsPerDimension,
-                device_limits.maxComputeInvocationsPerWorkgroup};
+                device_limits.maxComputeInvocationsPerWorkgroup,
+                device_limits.maxStorageBuffersPerShaderStage,
+                device_limits.minStorageBufferOffsetAlignment};
             q->succeed();
         };
         wgpuAdapterRequestDevice(adapter, &device_desc, device_cb);

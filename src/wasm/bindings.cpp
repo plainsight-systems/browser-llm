@@ -156,7 +156,11 @@ void on_self_check(bllm::gpu::SelfCheckResult result, void* userdata) {
     json += "\"maxComputeWorkgroupsPerDimension\":" +
             std::to_string(limits.max_compute_workgroups_per_dimension) + ",";
     json += "\"maxComputeInvocationsPerWorkgroup\":" +
-            std::to_string(limits.max_compute_invocations_per_workgroup) + "},";
+            std::to_string(limits.max_compute_invocations_per_workgroup) + ",";
+    json += "\"maxStorageBuffersPerShaderStage\":" +
+            std::to_string(limits.max_storage_buffers_per_shader_stage) + ",";
+    json += "\"minStorageBufferOffsetAlignment\":" +
+            std::to_string(limits.min_storage_buffer_offset_alignment) + "},";
     json += "\"adapterMaxima\":{";
     json += "\"maxBufferSize\":" + std::to_string(maxima.max_buffer_size) + ",";
     json += "\"maxStorageBufferBindingSize\":" +
