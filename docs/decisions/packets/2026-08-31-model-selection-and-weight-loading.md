@@ -107,11 +107,30 @@ is resident bytes — 26B parameters must be resident to route 3.8B of work.
 Llama-3.2-1B was runner-up: one fewer kernel, ~280 MB more download. Every
 kernel written here transfers unchanged to either.
 
-**Limits floor: none above the WebGPU defaults.** The harness requests the
-adapter's advertised maxima, which is always satisfiable and so costs no
-portability — but means limits vary per device and are known only after
-acquisition. Packing must therefore work at the 128 MiB default and use more
-when granted.
+**Limits floor: the WebGPU defaults, requested explicitly.** The harness states
+what it requires and asks for exactly that (WASM.10). It does **not** request
+the adapter's advertised maxima — doing so converts an explicit capability
+contract into an implicit one, encoding the development machine's GPU into the
+design and failing elsewhere untraceably. Adapter maxima are reported as
+diagnostics and never planned against.
+
+The defaults cost us nothing, which is why this is the right floor rather than
+merely the safe one:
+
+| Limit | Default | What we need |
+|---|---|---|
+| `maxStorageBufferBindingSize` | 128 MiB | 74.2 MiB — the embedding's nibble stream, the largest single binding |
+| `maxBufferSize` | 256 MiB | 320 MiB of Q4_0 weights across two suballocated buffers |
+| `maxStorageBuffersPerShaderStage` | 8 | 4 per fused dequant-matmul, so two weight tensors per dispatch |
+
+Every tensor fits; nothing else is within an order of magnitude of the limit.
+Raising the floor would exclude conformant devices to buy deeper kernel fusion
+we cannot yet measure the value of. If a baseline later shows dispatch count
+dominates, raising it becomes a stated decision backed by a number.
+
+Because we require the defaults, the harness runs at them on **every** machine
+including capable ones — so the configuration under test is the configuration
+some device will grant exactly, rather than one only reachable in CI.
 
 ## Scope
 

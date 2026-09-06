@@ -1,5 +1,7 @@
 #include "core/gpu/device.h"
 
+#include "core/gpu/device_requirements.h"
+
 #include <cstdio>
 #include <memory>
 #include <string>
@@ -39,6 +41,19 @@ void on_uncaptured_error(WGPUDevice const*, WGPUErrorType type,
                  static_cast<int>(type), to_string(message).c_str());
 }
 
+// True when every limit the harness requires was actually granted.
+[[nodiscard]] bool meets_requirements(const DeviceLimits& granted) noexcept {
+    return granted.max_buffer_size >= kRequirements.max_buffer_size
+        && granted.max_storage_buffer_binding_size >=
+               kRequirements.max_storage_buffer_binding_size
+        && granted.max_storage_buffers_per_shader_stage >=
+               kRequirements.max_storage_buffers_per_shader_stage
+        && granted.max_compute_invocations_per_workgroup >=
+               kRequirements.max_compute_invocations_per_workgroup
+        && granted.max_compute_workgroups_per_dimension >=
+               kRequirements.max_compute_workgroups_per_dimension;
+}
+
 }  // namespace
 
 // Carries the caller's continuation across the two async hops. Heap allocated
@@ -54,6 +69,7 @@ void on_uncaptured_error(WGPUDevice const*, WGPUErrorType type,
 struct PendingDeviceRequest {
     std::unique_ptr<Device> device;
     WGPULimits adapter_limits = {};
+    WGPULimits required_limits = {};
     Device::RequestCallback callback;
     void* userdata;
 
@@ -71,8 +87,15 @@ struct PendingDeviceRequest {
 };
 
 void Device::request(RequestCallback callback, void* userdata) {
+    // Designated initialisers: positional init here silently misaligned when a
+    // field was added, and the compiler only caught it because the types
+    // happened to disagree.
     auto* pending = new PendingDeviceRequest{
-        std::unique_ptr<Device>(new Device()), {}, callback, userdata};
+        .device = std::unique_ptr<Device>(new Device()),
+        .adapter_limits = {},
+        .required_limits = {},
+        .callback = callback,
+        .userdata = userdata};
 
     pending->device->instance_.reset(wgpuCreateInstance(nullptr));
     if (!pending->device->instance_) {
@@ -105,8 +128,10 @@ void Device::request(RequestCallback callback, void* userdata) {
             wgpuAdapterInfoFreeMembers(info);
         }
 
-        // Adapter maxima: what could be granted if requested. Informational.
-        // Recorded separately because it is NOT what validation enforces.
+        // Adapter maxima are DIAGNOSTICS. They are recorded and reported, and
+        // deliberately not used as the request: promoting whatever this
+        // machine advertises into the requirement encodes its GPU into the
+        // contract and fails elsewhere untraceably (WASM.10).
         // Stored on the pending request, not the stack: the device request is
         // asynchronous and the descriptor points at this until it completes.
         WGPULimits& adapter_limits = p->adapter_limits;
@@ -122,16 +147,23 @@ void Device::request(RequestCallback callback, void* userdata) {
             adapter_limits.maxStorageBuffersPerShaderStage,
             adapter_limits.minStorageBufferOffsetAlignment};
 
-        // Ask for what this adapter says it can give, rather than accepting
-        // WebGPU's defaults. Requesting an adapter's own advertised maxima is
-        // always satisfiable, so this raises the ceiling on capable hardware
-        // without narrowing portability: a weaker adapter simply advertises,
-        // and is granted, less.
-        //
-        // WGPULimits is initialised from the adapter query above.
+        // Request exactly what the harness requires — no more, no less
+        // (WASM.10). Every field left UNDEFINED takes the spec default, so
+        // only the limits we have a stated need for appear here.
+        WGPULimits& required = p->required_limits;
+        required = WGPU_LIMITS_INIT;
+        required.maxBufferSize = kRequirements.max_buffer_size;
+        required.maxStorageBufferBindingSize = kRequirements.max_storage_buffer_binding_size;
+        required.maxStorageBuffersPerShaderStage =
+            kRequirements.max_storage_buffers_per_shader_stage;
+        required.maxComputeInvocationsPerWorkgroup =
+            kRequirements.max_compute_invocations_per_workgroup;
+        required.maxComputeWorkgroupsPerDimension =
+            kRequirements.max_compute_workgroups_per_dimension;
+
         WGPUDeviceDescriptor device_desc = {};
         device_desc.uncapturedErrorCallbackInfo.callback = on_uncaptured_error;
-        device_desc.requiredLimits = &adapter_limits;
+        device_desc.requiredLimits = &required;
 
         WGPURequestDeviceCallbackInfo device_cb = {};
         device_cb.mode = WGPUCallbackMode_AllowSpontaneous;
@@ -167,6 +199,16 @@ void Device::request(RequestCallback callback, void* userdata) {
                 device_limits.maxComputeInvocationsPerWorkgroup,
                 device_limits.maxStorageBuffersPerShaderStage,
                 device_limits.minStorageBufferOffsetAlignment};
+
+            // A conforming implementation cannot grant less than was required,
+            // so this should be unreachable. Checked anyway: silently planning
+            // against capacity we were not given is the failure mode this whole
+            // arrangement exists to prevent, and it would be invisible.
+            if (!meets_requirements(q->device->limits_)) {
+                q->fail("device granted less than the harness requires; "
+                        "the request succeeded but the limits do not satisfy it");
+                return;
+            }
             q->succeed();
         };
         wgpuAdapterRequestDevice(adapter, &device_desc, device_cb);

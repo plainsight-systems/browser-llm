@@ -84,7 +84,17 @@ if(EMSCRIPTEN)
         -sMODULARIZE=1
         -sEXPORT_ES6=1
         -sENVIRONMENT=web,worker
+        # WASM.1: growth is a FALLBACK, not a default. It converts a
+        # deterministic out-of-memory at startup into a nondeterministic one
+        # under load. It is kept for now because the loader's real peak is not
+        # yet measured — BLLM-002 owes that number, and -sINITIAL_HEAP should
+        # be set from it rather than from a figure chosen for comfort.
+        #
+        # MAXIMUM_MEMORY bounds the damage meanwhile and makes an out-of-memory
+        # reproducible. The default is 2GB, which is a ceiling inherited rather
+        # than chosen.
         -sALLOW_MEMORY_GROWTH=1
+        -sMAXIMUM_MEMORY=536870912
         -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']
         # Deliberately absent: -pthread. GitHub Pages cannot set COOP/COEP,
         # so SharedArrayBuffer is unavailable and pthreads cannot be used.

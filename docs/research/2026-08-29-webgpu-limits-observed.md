@@ -48,6 +48,14 @@ constrain the residency plan, and both are small enough to shape kernel design:
 | `maxStorageBuffersPerShaderStage` | 8 | **10** |
 | `minStorageBufferOffsetAlignment` | 256 | **256** |
 
+**Superseded 2026-08-31:** the values below were measured while the harness
+requested the adapter's advertised maxima. It no longer does — WASM.10 names
+that as the standard error, since it makes the contract implicit and dependent
+on the development machine. The harness now requires the WebGPU defaults
+explicitly and is granted 8 bindings and 128 MiB bindings on every device. The
+observations remain valid as *adapter diagnostics*; they are no longer what the
+harness plans against.
+
 **Ten bindings is a hard, small budget.** Weights are uploaded de-interleaved —
 a nibble stream and a scale stream — so **each weight tensor costs two
 bindings**. A single shader can therefore see at most four weight tensors once
