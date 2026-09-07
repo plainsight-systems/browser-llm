@@ -25,8 +25,13 @@
 - **Expected behavior changes:** The page gains a load phase — fetch with
   progress, SHA-256 verification, OPFS cache — then reports the parsed model
   summary and a **residency map**: how many buffers, their sizes, which limits
-  bound the packing, and confirmation that a sampled block reads back
-  byte-identical. Still no inference and no token generated.
+  bound the packing, and confirmation that **every resident byte** reads back
+  identical to its source. Still no inference and no token generated.
+
+  An earlier draft of this line said "a sampled block". WASM.9 names that
+  directly: a sampled verification passes while another chunk is truncated or
+  written to the wrong offset. Acceptance criterion 7 always required every
+  byte; the intent now matches it rather than promising less.
 
 - **Guaranteed invariants/contracts:**
   - **Weights reach the GPU quantized.** The CPU never materialises a
@@ -46,9 +51,17 @@
     **authoritative total file length**, validating each region against that
     length rather than against whatever window is currently mapped.
   - The whole model is never resident in the WASM heap. Bounded chunks are
-    uploaded and released. wasm32 has no large address space to reserve, so
-    MEM.7's reserve-and-commit strategy is unavailable to us — streaming is the
-    only option, not a preference.
+    uploaded and released, so **peak residency is a function of chunk size, not
+    of file size** (WASM.9). Linear memory is one contiguous allocation we are
+    trying to keep small (WASM.1), and wasm32 has no large address space to
+    reserve, so MEM.7's reserve-and-commit strategy is unavailable — streaming
+    is the only option, not a preference.
+  - **The load path returns to the event loop between chunks** (WASM.3). Fetch,
+    hashing and upload are asynchronous browser operations. A blocking C++ loop
+    over chunks would require Asyncify, whose cost WASM.3 says not to buy, and
+    would freeze the worker for the length of a 420 MB download. The C++ side is
+    therefore a step function driven from JS, not a `load()` that runs to
+    completion.
   - Buffer packing is planned from the **granted** device limits, read after
     acquisition, and works at the 128 MiB spec-default storage-binding floor.
   - **Weights are de-interleaved at upload into two aligned streams.** This is
@@ -75,8 +88,33 @@
 
 ## The decision
 
-**Model: Qwen3-0.6B. Quantization: Q4_0. Container: GGUF. Targets: Chrome and
-Edge desktop.**
+**Model: Qwen3-0.6B. Quantization: Q4_0. Container: GGUF.**
+
+**Target matrix** (WASM.14 — an unstated matrix defaults to "the machine on my
+desk"), weakest row first, because the weakest row constrains every sizing
+decision:
+
+| Target | WebGPU | Cross-origin isolated | Heap budget |
+|---|---|---|---|
+| `desktop-chromium-floor` — Chrome/Edge stable, integrated GPU | at the spec defaults | **no** — GitHub Pages cannot set COOP/COEP | **owed by criterion 9** |
+| `desktop-chromium-dev` — this development machine | above the defaults | no | not a budget |
+
+Mobile and Safari are **excluded as a stated decision**, not by omission: a
+420 MB download against a mobile heap ceiling is not something this packet can
+honestly claim, and Safari's three-tier engine and WebGPU support would each
+need their own measurement. WASM.14 permits narrowing the matrix and forbids
+leaving it unstated.
+
+The floor row's heap budget is left **owed rather than guessed**. WASM.14 is
+explicit that any figure not traceable to a specification default or our own
+measurement is unverified, and no vendor publishes a per-device heap ceiling.
+Criterion 9 produces the number; `-sINITIAL_HEAP` is then set from it (WASM.1),
+not from a round value that happened to work here.
+
+Because the floor row is not cross-origin isolated, `performance.now()` resolves
+to **100 µs** and `SharedArrayBuffer` is unavailable — the same constraint that
+already forces the single-threaded worker. Both belong in every measurement
+record (WASM.11).
 
 Read from the model's `config.json`, not assumed:
 
@@ -108,7 +146,9 @@ Llama-3.2-1B was runner-up: one fewer kernel, ~280 MB more download. Every
 kernel written here transfers unchanged to either.
 
 **Limits floor: the WebGPU defaults, requested explicitly.** The harness states
-what it requires and asks for exactly that (WASM.10). It does **not** request
+what it requires and asks for exactly that (WASM.10, and WASM.14's "verify
+against the WebGPU defaults, not the limits granted on your hardware"). It does
+**not** request
 the adapter's advertised maxima — doing so converts an explicit capability
 contract into an implicit one, encoding the development machine's GPU into the
 design and failing elsewhere untraceably. Adapter maxima are reported as
@@ -175,47 +215,145 @@ quantization-transparent is the design that fails.
 
 ## Acceptance Criteria
 
-- [ ] A GGUF file parses to a tensor index and metadata map, verified against
-      committed fixtures.
-- [ ] Malformed inputs fail with named errors and read nothing out of bounds:
-      truncated header, tensor offset past EOF, length overflowing the file,
-      bad magic, unknown version, tensor count that cannot fit.
-- [ ] Q4_0 dequantization matches independently computed values **bit-exactly**
-      on a fixture block. This is the test oracle for BLLM-003's shader.
-- [ ] Every tensor in the index carries its quantization parameters; a test
-      asserts no accessor returns a weight without them.
-- [ ] The tokenizer matches **independently generated fixtures**: exact bytes
-      to exact token-ID sequences and back, with special-token policy,
+Each criterion names the guidelines that constrain it. A citation here is a
+constraint on *how* the criterion may be satisfied, not decoration: where a
+guideline and the criterion disagree, the criterion is wrong.
+
+- [ ] **(1) GGUF parse.** A GGUF file parses to a tensor index and metadata map,
+      verified against committed fixtures.
+      → `SL.con.3`, `ES.103` (no out-of-bounds, no overflow); `P.11`
+      (encapsulate the messy construct — one reader, not offset arithmetic
+      scattered across callers); `WASM.9` ("never assume the whole asset is
+      addressable — validate against the authoritative total size, not against
+      whatever window is currently mapped"), which is the rule the `ByteSource`
+      seam exists to satisfy.
+
+- [ ] **(2) Malformed inputs** fail with named errors and read nothing out of
+      bounds: truncated header, tensor offset past EOF, length overflowing the
+      file, bad magic, unknown version, tensor count that cannot fit.
+      → `WASM.9` ("use checked arithmetic on offsets and sizes — `offset +
+      length` on a 32-bit size type can wrap into an in-range value; treat
+      downloaded data as untrusted"). On wasm32 this is not hypothetical, which
+      is why `range_within` is written as subtraction. `E.27` governs the error
+      contract with exceptions off; `SL.con.3` and `ES.103` the arithmetic.
+
+- [ ] **(3) Q4_0 dequantization** matches independently computed values
+      **bit-exactly** on a fixture block. This is the test oracle for BLLM-003's
+      shader.
+      → `TLM.6` (a self-test is a correctness gate, not a benchmark): this
+      criterion buys correctness and must never be quoted as a performance
+      figure. The CPU dequantizer stays in `tests/support/`, never in `core/`,
+      so the no-CPU-dequantization invariant is enforced by location.
+
+- [ ] **(4) Quantization parameters are inseparable.** Every tensor in the index
+      carries them; a test asserts no accessor returns a weight without them.
+      → `C.40`/`C.41` (a class with an invariant defines a constructor; a
+      constructor creates a *fully* initialized object) and `NR.5` (no two-phase
+      initialization). A `TensorEntry` that can exist without its type is the
+      quantized-embedding hazard above, expressed as a type.
+
+- [ ] **(5) Tokenizer** matches **independently generated fixtures**: exact
+      bytes to exact token-ID sequences and back, with special-token policy,
       multi-byte UTF-8 and byte-fallback covered, and fixture provenance
       recorded. Round-trip is an *additional* property, not the oracle —
       `decode(encode(x)) == x` passes while `encode` emits entirely wrong IDs,
       since several sequences decode to the same bytes.
-- [ ] Parsed config equals the table above, with `head_dim` asserted as 128
-      rather than derived.
-- [ ] Weights upload to GPU buffers **while quantized**, and **every resident
-      byte** is verified against the source in a labelled diagnostic pass —
-      hashed chunk-by-chunk, never materialising the whole model. A single
-      sampled block cannot support the intent's byte-identity claim: it passes
-      while another chunk is truncated, written at the wrong offset, or bound
-      to the wrong buffer.
-- [ ] The planner consumes **every granted limit its output depends on**.
+      → `CACHE.3` (contiguous storage; pointer-chasing pays a cache miss per
+      node): a 151,936-entry vocabulary belongs in flat contiguous storage, not
+      `std::map`. `WASM.4` (WebAssembly type-checks every indirect call): no
+      virtual dispatch inside the per-token loop.
+
+- [ ] **(6) Parsed config** equals the table above, with `head_dim` asserted as
+      128 rather than derived.
+      → `E.5` in the form available to us: exceptions are off, so the invariant
+      cannot be established by a throwing constructor — it is established by a
+      factory returning a `[[nodiscard]]` result (`E.27`). `NR.5` forbids the
+      alternative of default-constructing a `Config` and filling it field by
+      field, which is exactly how a missing `head_dim` becomes a silent 64.
+
+- [ ] **(7) Weights upload while quantized**, and **every resident byte** is
+      verified against the source in a labelled diagnostic pass — hashed
+      chunk-by-chunk, never materialising the whole model. A single sampled
+      block cannot support the byte-identity claim: it passes while another
+      chunk is truncated, written at the wrong offset, or bound to the wrong
+      buffer.
+      → `WASM.9` states this as a caveat in the corpus's own words: "a sampled
+      verification proves very little… verify every byte, in a diagnostic pass,
+      or do not claim integrity." Also `GPU.1` (batch unavoidable transfers),
+      `GPU.2` (the de-interleave is "transpose at load time"), `MEM.9` (this is
+      the bounded init phase), and `WASM.2` — each boundary crossing carries a
+      whole chunk, a *phase per crossing*, never a block or a tensor.
+
+- [ ] **(8) The planner consumes every granted limit its output depends on.**
       These are separate WebGPU constraints, and conflating them yields a
       residency map that uploads fine then cannot be bound by BLLM-003:
       `maxBufferSize` (buffer creation), `maxStorageBufferBindingSize` (bound
       range), `minStorageBufferOffsetAlignment` (suballocated offsets),
-      `maxStorageBuffersPerShaderStage` (bindings per shader). `DeviceLimits`
-      carries four fields today and lacks the last two. The plan must
+      `maxStorageBuffersPerShaderStage` (bindings per shader). The plan must
       distinguish **physical buffers from bindable ranges**, with tests at the
       128 MiB floor covering allocation size, binding window, alignment,
       spanning, and binding-count feasibility.
-- [ ] Peak WASM heap during load stays under a stated bound, asserted by
+      → `WASM.10` and `WASM.14` (plan against the defaults, never against what
+      this adapter granted); `I.5` (state preconditions — the planner's inputs
+      are limits, passed in, never read from an ambient device). `DeviceLimits`
+      gained the two missing fields in `device_requirements.h`; the planner
+      consumes all four.
+
+- [ ] **(9) Peak WASM heap** during load stays under a stated bound, asserted by
       instrumentation. The bound must be verified against the **real 420 MB
-      file**, not only a fixture — a fixture-only assertion proves nothing
-      about the streaming path.
-- [ ] SHA-256 mismatch aborts the load with a distinct, user-visible error.
-- [ ] The page reports architecture, layer count, tensor count, quantization,
-      and the residency map.
-- [ ] Everything except upload and readback passes natively in CI.
+      file**, not only a fixture — a fixture-only assertion proves nothing about
+      the streaming path.
+      → `WASM.9`'s `ResidencyAssertion` shape exactly: asset bytes, peak heap,
+      chunk size, with the peak required to track chunk size rather than asset
+      size. `WASM.1`: the measured peak is what `-sINITIAL_HEAP` is then set
+      from, and this packet owes that setting. `WASM.14`: the bound belongs to
+      the floor row of the target matrix, not to this machine. `TLM.2`/`TLM.6`:
+      heap tracking is its own channel and its run is not a throughput run.
+      `WASM.11`: the record states clock resolution, `crossOriginIsolated`,
+      DevTools state and discarded warm-up, or the number is not quotable.
+
+- [ ] **(10) SHA-256 mismatch** aborts the load with a distinct, user-visible
+      error.
+      → `E.27` (systematic error codes) and the operator profile §3.3 — the
+      error path must not resemble the success path. A corrupted download that
+      loads anyway is the §3.1 facade in its purest form.
+
+- [ ] **(11) The page reports** architecture, layer count, tensor count,
+      quantization, and the residency map.
+      → `WASM.2`: one crossing carrying the whole summary as a
+      `(pointer, length)` pair, not an exported getter per field. The crossing
+      count for reporting is a constant, and must stay one.
+
+- [ ] **(12) Everything except upload and readback passes natively in CI.**
+      → `WASM.12` (keep the compute core natively buildable so it can be
+      profiled properly). The planner is separated from the upload for exactly
+      this reason: the packing arithmetic is the riskiest code here and it must
+      not be reachable only through a browser.
+
+### Consulted and deliberately not applied
+
+Recorded so a later reader can tell a considered omission from a gap.
+
+- **`WASM.6` (128-bit wasm SIMD).** The de-interleave is a byte shuffle over
+  ~420 MB and is a genuine SIMD candidate. Not taken: this packet establishes
+  the baseline and explicitly excludes optimization, so vectorising here would
+  be tuning against no number. It becomes a stated decision once criterion 9's
+  measurement exists.
+- **`WASM.13` (a build per feature set).** One feature set — no `shader-f16`,
+  no threads, no SIMD — so there is nothing to select between. The
+  de-interleaved layout was chosen precisely so no optional feature is needed.
+- **`WASM.5` (cross-origin isolation).** Already decided against the project:
+  GitHub Pages cannot set COOP/COEP. Recorded in the target matrix as a
+  property of the floor row rather than re-litigated here.
+- **`WASM.7`/`WASM.8` (startup budget, module size).** This packet does not
+  change the module's size or its instantiation path. They bind BLLM-003, which
+  adds shaders.
+- **`MEM.7` (reserve address space, commit on demand).** Considered and
+  inapplicable — it assumes a 64-bit address space wasm32 does not provide,
+  which is itself why streaming is mandatory rather than preferred.
+- **`WASM.4` beyond the tokenizer.** `ByteSource` is virtual and called once per
+  chunk, so the indirect-call cost amortises over megabytes. Named here so a
+  later reader does not "fix" a seam that is deliberate.
 
 ## Verification Plan
 
@@ -327,6 +465,15 @@ assertion, which fixtures cannot establish.
   boundaries must be explicit: a metric measuring the wrong interval produces
   plausible figures that get believed.
 
+  **WASM.11 adds four fields the earlier draft omitted**, and without them a
+  browser number means nothing: measured clock resolution (the floor row is not
+  cross-origin isolated, so expect 100 µs), `crossOriginIsolated` read at
+  runtime rather than assumed, whether DevTools was open (if it was, the figure
+  is not quotable at all — Chrome tiers the code down), and how many warm-up
+  iterations were discarded. Upload and SHA-256 over 420 MB are far above the
+  clock quantum, so the clamp does not distort them — but the resolution is
+  still recorded, because the *next* thing measured may not be.
+
   **Peak-heap instrumentation and clean throughput are separate runs from
   separate build configurations** (TLM.2, TLM.6). Heap tracking perturbs the
   transfer numbers, so one execution cannot honestly produce both. This packet
@@ -334,6 +481,12 @@ assertion, which fixtures cannot establish.
   instrumentation compiled in — per
   `research/2026-08-31-measurement-build-configurations.md`. No number from it
   is quotable as throughput.
+
+  **TLM.8** governs the other half: the compile-out claim is an aspiration until
+  the linked artifact confirms it. `tools/check_diagnostics_excluded.sh` already
+  scans the shipped module; it must be extended to the heap-tracking and
+  upload-timing symbols this packet adds, or `wasm-release` silently becomes
+  `wasm-diag`.
 
 - **Hot paths touched:** None. This is the bounded init phase; MEM.9's shape
   applies — allocate during load, run the steady state with a fixed footprint.
@@ -351,8 +504,19 @@ assertion, which fixtures cannot establish.
   between peak heap and transfer efficiency, not an arbitrary constant — and
   the chosen size must be recorded with the number that justified it.
 
+- **JS/wasm boundary budget (WASM.2):** Crossings during load are
+  `ceil(model_bytes / chunk_bytes)` — proportional to model size, which WASM.2
+  says needs a written reason. The reason is WASM.9: a single crossing carrying
+  the whole model is the residency failure this packet exists to prevent. Each
+  crossing moves a **phase** — one whole chunk as a `(pointer, length)` pair —
+  never a block, a tensor or a field. Chunk size is therefore the single knob
+  trading crossing count against peak heap, and criterion 9 measures both ends
+  of it. Reporting (criterion 11) is a constant number of crossings and must
+  stay so.
+
 - **Concurrency model:** Single-threaded, unchanged. Fetch and hashing are the
-  browser's, in the worker.
+  browser's, in the worker, and the C++ side returns to the event loop between
+  chunks rather than blocking (WASM.3).
 
 - **Edge AI runtime/backend/configuration:** None. No inference runtime exists
   and none will be adopted.
@@ -380,6 +544,27 @@ assertion, which fixtures cannot establish.
   (coalesced lane access; transpose at load time) makes the on-device weight
   layout a decision owed jointly with BLLM-003 rather than a file-order
   default.
+- **Full-corpus audit, 2026-09-06** — after the `wasm` category landed, both
+  servers were re-queried against every step of this packet and the citations
+  above were added per criterion. Four changes were substantive, not
+  annotation:
+
+  | Finding | Guideline | Change |
+  |---|---|---|
+  | Intent promised a **sampled** readback while criterion 7 required every byte | `WASM.9` caveat | Intent corrected; the packet no longer promises less than it tests |
+  | No target matrix and no minimum device — the heap bound would have come from this machine | `WASM.14` | Matrix added, weakest row first, with mobile/Safari excluded as a stated decision and the floor row's heap budget marked *owed* rather than guessed |
+  | The load path's obligation to yield to the event loop was unstated, leaving Asyncify as an unexamined option | `WASM.3` | Added as an invariant: the C++ side is a step function driven from JS |
+  | Measurement records named five conditions but not the four that make a browser number meaningful | `WASM.11` | Clock resolution, `crossOriginIsolated`, DevTools state and discarded warm-up added |
+
+  Two smaller gaps were closed the same way: the JS/wasm crossing budget is now
+  written down (`WASM.2` requires a reason for a content-proportional crossing
+  count, and this one has one), and `TLM.8`'s artifact scan is named as the
+  proof obligation for the new `wasm-diag` split rather than assumed.
+
+  `WASM.6` (SIMD for the de-interleave) is the one live candidate the audit
+  found and deliberately did not take — recorded under "consulted and
+  deliberately not applied" so it is a decision rather than an oversight.
+
 - Process note: an earlier draft of BLLM-003 recorded that the performance
   corpus had no GPU material. That was wrong. The MCP server was reading a
   second checkout two commits behind the one where the GPU category landed, so
