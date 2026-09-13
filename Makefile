@@ -1,5 +1,21 @@
-# Thin task wrapper. Every target is a one-liner you could run by hand; this
-# exists so local and CI invoke identical commands.
+# Thin task wrapper. Every target is a one-liner you could run by hand.
+#
+# On the wasm targets, local and CI build the same thing with the same preset
+# and the same pinned toolchain image. They differ trivially in who supplies
+# the container: CI's job already runs inside the emsdk image and invokes
+# cmake directly, while these targets wrap the identical commands in
+# `docker run` to put the same image around them locally.
+#
+# Two divergences that are NOT trivial, recorded so the line above is not read
+# more broadly than it is meant:
+#
+#   - `make test` configures native-debug; CI (test.yml) tests native-release.
+#     Different optimisation levels, so the two can genuinely disagree.
+#   - `make check` runs six guards; CI runs three, split across test.yml and
+#     pages.yml. The rest are local-only.
+#
+# Both are stated rather than fixed. Closing them is a CI change, not a
+# comment.
 
 EMSDK_IMAGE := emscripten/emsdk:6.0.8
 # Where the repo is mounted inside the image. Fixed rather than $(CURDIR)
