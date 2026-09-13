@@ -215,25 +215,29 @@ ReadError Reader::parse() {
     tensors_.clear();
     tensors_.reserve(static_cast<std::size_t>(tensor_count));
     for (std::uint64_t i = 0; i < tensor_count; ++i) {
-        TensorEntry t;
-        if (const auto e = take_string(t.name); e != ReadError::Ok) return e;
+        // Fields are read into locals and the entry is constructed once, at
+        // the end, complete. TensorEntry has no default constructor precisely
+        // so a half-built entry cannot exist to be pushed by mistake.
+        std::string name;
+        if (const auto e = take_string(name); e != ReadError::Ok) return e;
 
         for (const auto& existing : tensors_) {
-            if (existing.name == t.name) return ReadError::DuplicateTensorName;
+            if (existing.name == name) return ReadError::DuplicateTensorName;
         }
 
-        if (const auto e = take_u32(t.dimension_count); e != ReadError::Ok) return e;
-        if (t.dimension_count > kMaxDimensions) return ReadError::TooManyDimensions;
+        TensorShape shape;
+        if (const auto e = take_u32(shape.dimension_count); e != ReadError::Ok) return e;
+        if (shape.dimension_count > kMaxDimensions) return ReadError::TooManyDimensions;
 
-        t.element_count = 1;
-        for (std::uint32_t d = 0; d < t.dimension_count; ++d) {
+        shape.element_count = 1;
+        for (std::uint32_t d = 0; d < shape.dimension_count; ++d) {
             std::uint64_t ne = 0;
             if (const auto e = take_u64(ne); e != ReadError::Ok) return e;
             // Stored as int64 on disk; a negative value arrives with the top
             // bit set and would otherwise become an enormous positive extent.
             if ((ne >> 63) != 0) return ReadError::NegativeDimension;
-            t.dimensions[d] = ne;
-            if (!checked_mul(t.element_count, ne, t.element_count)) {
+            shape.dimensions[d] = ne;
+            if (!checked_mul(shape.element_count, ne, shape.element_count)) {
                 return ReadError::ElementCountOverflow;
             }
         }
@@ -243,16 +247,17 @@ ReadError Reader::parse() {
         if (raw_tensor_type >= static_cast<std::uint32_t>(TensorType::Count)) {
             return ReadError::UnknownTensorType;
         }
-        t.type = static_cast<TensorType>(raw_tensor_type);
+        const auto type = static_cast<TensorType>(raw_tensor_type);
 
-        std::uint64_t relative_offset = 0;
-        if (const auto e = take_u64(relative_offset); e != ReadError::Ok) return e;
-        t.data_offset = relative_offset;   // made absolute below
+        ByteRange data;
+        // Relative to the tensor data region; made absolute in the pass below,
+        // once data_start_ is known.
+        if (const auto e = take_u64(data.offset); e != ReadError::Ok) return e;
 
-        if (!bytes_for_elements(t.type, t.element_count, t.data_length)) {
+        if (!bytes_for_elements(type, shape.element_count, data.length)) {
             return ReadError::UnsupportedTensorType;
         }
-        tensors_.push_back(std::move(t));
+        tensors_.emplace_back(std::move(name), type, shape, data);
     }
 
     // Tensor data begins at the next alignment boundary after the index.

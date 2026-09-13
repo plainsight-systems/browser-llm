@@ -2,6 +2,8 @@
 
 #include <cstdint>
 #include <string>
+#include <type_traits>
+#include <utility>
 #include <string_view>
 #include <vector>
 
@@ -84,6 +86,20 @@ enum class ReadError : std::uint32_t {
     return "unrecognised error";
 }
 
+// A tensor's extent, grouped so it cannot be passed to a constructor in
+// pieces or misordered against the byte range.
+struct TensorShape {
+    std::uint32_t dimension_count = 0;
+    std::uint64_t dimensions[kMaxDimensions] = {1, 1, 1, 1};
+    std::uint64_t element_count = 0;
+};
+
+// A byte region within the file.
+struct ByteRange {
+    std::uint64_t offset = 0;
+    std::uint64_t length = 0;
+};
+
 // One tensor's entry in the index. Holds offsets and lengths, never pointers,
 // so it cannot outlive a buffer into undefined behaviour.
 //
@@ -92,19 +108,49 @@ enum class ReadError : std::uint32_t {
 // it. A design where the loader "handles quantization" and consumers see plain
 // bytes is the design that silently produces uninterpretable values.
 struct TensorEntry {
-    std::string name;
-    TensorType type = TensorType::F32;
-    std::uint32_t dimension_count = 0;
-    std::uint64_t dimensions[kMaxDimensions] = {1, 1, 1, 1};
+    // There is no default constructor, and `type` has no default value.
+    //
+    // A default-constructed entry would be a zero-length F32 tensor: a record
+    // that looks valid, reports is_quantized() == false, and is wrong. The
+    // type must be supplied to build the object at all, rather than assigned
+    // afterwards by a step somebody can forget (C.41, NR.5).
+    //
+    // The parameters are four mutually non-confusable types. A flat
+    // constructor would take four interchangeable std::uint64_t values, which
+    // trades one silent-misinitialization defect for a worse one.
+    TensorEntry() = delete;
 
-    std::uint64_t element_count = 0;
-    // Absolute byte range within the file — already validated as inside it.
-    std::uint64_t data_offset = 0;
-    std::uint64_t data_length = 0;
+    TensorEntry(std::string tensor_name, TensorType tensor_type,
+                const TensorShape& shape, const ByteRange& data)
+        : name(std::move(tensor_name)),
+          type(tensor_type),
+          dimension_count(shape.dimension_count),
+          dimensions{shape.dimensions[0], shape.dimensions[1],
+                     shape.dimensions[2], shape.dimensions[3]},
+          element_count(shape.element_count),
+          data_offset(data.offset),
+          data_length(data.length) {}
+
+    std::string name;
+    TensorType type;
+    std::uint32_t dimension_count;
+    std::uint64_t dimensions[kMaxDimensions];
+
+    std::uint64_t element_count;
+    // Byte range within the file. Relative to the tensor data region while the
+    // index is being read; absolute — and validated as inside the file — once
+    // Reader::parse returns Ok.
+    std::uint64_t data_offset;
+    std::uint64_t data_length;
 
     [[nodiscard]] bool is_quantized() const noexcept {
         return type != TensorType::F32 && type != TensorType::F16;
     }
 };
+
+// The invariant, asserted rather than described. If someone restores a default
+// this fails at compile time, in this file, next to the reason.
+static_assert(!std::is_default_constructible_v<TensorEntry>,
+              "a TensorEntry without a type is the defect this type prevents");
 
 }  // namespace bllm::gguf
