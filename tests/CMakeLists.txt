@@ -17,6 +17,7 @@ add_executable(browser_llm_tests
     quant_q4_0_test.cpp
     gguf_checked_test.cpp
     gguf_parse_test.cpp
+    gguf_quant_params_test.cpp
     gguf_malformed_test.cpp
     main_test.cpp
 )
