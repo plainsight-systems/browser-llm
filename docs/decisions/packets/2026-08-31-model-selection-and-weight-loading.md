@@ -245,12 +245,28 @@ guideline and the criterion disagree, the criterion is wrong.
       figure. The CPU dequantizer stays in `tests/support/`, never in `core/`,
       so the no-CPU-dequantization invariant is enforced by location.
 
-- [ ] **(4) Quantization parameters are inseparable.** Every tensor in the index
-      carries them; a test asserts no accessor returns a weight without them.
+- [~] **(4) Quantization parameters are inseparable.** Two clauses with
+      different natures, tracked separately because bundling them hid that only
+      one was ever testable at this stage.
       → `C.40`/`C.41` (a class with an invariant defines a constructor; a
       constructor creates a *fully* initialized object) and `NR.5` (no two-phase
       initialization). A `TensorEntry` that can exist without its type is the
       quantized-embedding hazard above, expressed as a type.
+
+      - **(4a) Every tensor in the index carries its type — done.**
+        `gguf_quant_params_test.cpp` quantifies over the whole index rather than
+        spot-checking positions, and fixture `unsupported_tensor_type` closes
+        the one path by which an entry could have been admitted with a type the
+        harness cannot size. `TensorEntry` now has no default constructor and no
+        default `type`, so the invariant holds by construction rather than by
+        comment — verified by mutation, and by the old default-then-fill pattern
+        becoming a compile error.
+      - **(4b) No accessor returns a weight without them — open, and not
+        blocked by difficulty.** There is no accessor returning weight bytes
+        yet; `residency::upload` does not exist. It is also not a property a
+        runtime test can establish by calling something. It is satisfied at the
+        consumer seam, by `upload` taking type-and-bytes as one indivisible
+        argument, and it is verified there — not here.
 
 - [ ] **(5) Tokenizer** matches **independently generated fixtures**: exact
       bytes to exact token-ID sequences and back, with special-token policy,
