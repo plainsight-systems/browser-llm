@@ -1,34 +1,23 @@
 #include <doctest/doctest.h>
 
 #include <cstddef>
-#include <fstream>
 #include <string>
 #include <vector>
 
 #include "core/gguf/reader.h"
+#include "support/gguf_fixture.h"
 
 using namespace bllm::gguf;
 
 namespace {
 
-std::vector<std::byte> load(const std::string& name) {
-    const std::string path = std::string(BLLM_GGUF_FIXTURE_DIR) + "/" + name + ".gguf";
-    std::ifstream in(path, std::ios::binary);
-    REQUIRE_MESSAGE(in.is_open(), "missing fixture: " << path);
-    std::vector<char> raw((std::istreambuf_iterator<char>(in)),
-                          std::istreambuf_iterator<char>());
-    std::vector<std::byte> out(raw.size());
-    for (std::size_t i = 0; i < raw.size(); ++i) {
-        out[i] = static_cast<std::byte>(static_cast<unsigned char>(raw[i]));
-    }
-    return out;
-}
+using bllm::testing::load_gguf_fixture;
 
 // Parses a fixture and returns the error, keeping the reader alive for
 // inspection via the callback.
 template <typename F>
 ReadError with_reader(const std::string& name, F&& inspect) {
-    const auto bytes = load(name);
+    const auto bytes = load_gguf_fixture(name);
     MemoryByteSource source{bytes};
     Reader reader{source};
     const auto err = reader.parse();
@@ -92,7 +81,7 @@ TEST_CASE("declared alignment is honoured and tensor data starts inside the file
 }
 
 TEST_CASE("tensor offsets are absolute and every region lies inside the file") {
-    const auto bytes = load("valid");
+    const auto bytes = load_gguf_fixture("valid");
     MemoryByteSource source{bytes};
     Reader reader{source};
     REQUIRE(reader.parse() == ReadError::Ok);

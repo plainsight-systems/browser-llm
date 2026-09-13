@@ -1,12 +1,12 @@
 #include <doctest/doctest.h>
 
 #include <cstddef>
-#include <fstream>
 #include <string>
 #include <algorithm>
 #include <vector>
 
 #include "core/gguf/reader.h"
+#include "support/gguf_fixture.h"
 
 // The file arrives from a CDN. These are the tests that matter: each case must
 // produce a NAMED error and must not read outside the buffer.
@@ -19,15 +19,7 @@ using namespace bllm::gguf;
 namespace {
 
 ReadError parse_fixture(const std::string& name) {
-    const std::string path = std::string(BLLM_GGUF_FIXTURE_DIR) + "/" + name + ".gguf";
-    std::ifstream in(path, std::ios::binary);
-    REQUIRE_MESSAGE(in.is_open(), "missing fixture: " << path);
-    std::vector<char> raw((std::istreambuf_iterator<char>(in)),
-                          std::istreambuf_iterator<char>());
-    std::vector<std::byte> bytes(raw.size());
-    for (std::size_t i = 0; i < raw.size(); ++i) {
-        bytes[i] = static_cast<std::byte>(static_cast<unsigned char>(raw[i]));
-    }
+    const auto bytes = bllm::testing::load_gguf_fixture(name);
     MemoryByteSource source{bytes};
     Reader reader{source};
     return reader.parse();
@@ -80,15 +72,7 @@ TEST_CASE("every truncation of a valid file fails, none read out of bounds") {
     // Cuts the valid fixture at every length. Any prefix is malformed; the
     // reader must say so rather than walk past the end. This is the case a
     // fixed set of hand-made fixtures cannot cover.
-    const std::string path = std::string(BLLM_GGUF_FIXTURE_DIR) + "/valid.gguf";
-    std::ifstream in(path, std::ios::binary);
-    REQUIRE(in.is_open());
-    std::vector<char> raw((std::istreambuf_iterator<char>(in)),
-                          std::istreambuf_iterator<char>());
-    std::vector<std::byte> full(raw.size());
-    for (std::size_t i = 0; i < raw.size(); ++i) {
-        full[i] = static_cast<std::byte>(static_cast<unsigned char>(raw[i]));
-    }
+    const auto full = bllm::testing::load_gguf_fixture("valid");
 
     // Where the last declared byte of tensor data sits. A cut at or beyond it
     // removes only trailing padding, which is not part of any declared region
