@@ -2,6 +2,12 @@
 # exists so local and CI invoke identical commands.
 
 EMSDK_IMAGE := emscripten/emsdk:6.0.8
+# Where the repo is mounted inside the image. Fixed rather than $(CURDIR)
+# on purpose: a constant mount point keeps artifacts identical across
+# machines, where the host's own path would bake a home directory into the
+# build. The cost is that a host-toolchain build configured in the same
+# directory is incompatible -- see tools/ensure_container_cache.sh.
+CONTAINER_SRC := /src
 
 .PHONY: test check wasm wasm-diag dist serve clean
 
@@ -18,16 +24,19 @@ check:
 	./tools/check_diagnostics_excluded.sh
 	./tests/test_check_boundaries.sh
 	./tests/test_codex_review_preflight.sh
+	./tests/test_ensure_container_cache.sh
 
 ## Diagnostic wasm build: same optimisation, instrumentation compiled in.
 ## Timings from this build are diagnostic and are not quotable as throughput.
 wasm-diag:
-	docker run --rm -v "$(CURDIR)":/src -w /src $(EMSDK_IMAGE) \
+	./tools/ensure_container_cache.sh build/wasm-diag $(CONTAINER_SRC)
+	docker run --rm -v "$(CURDIR)":$(CONTAINER_SRC) -w $(CONTAINER_SRC) $(EMSDK_IMAGE) \
 		sh -c "emcmake cmake --preset wasm-diag && cmake --build --preset wasm-diag"
 
 ## WebAssembly build, inside the pinned toolchain image.
 wasm:
-	docker run --rm -v "$(CURDIR)":/src -w /src $(EMSDK_IMAGE) \
+	./tools/ensure_container_cache.sh build/wasm-release $(CONTAINER_SRC)
+	docker run --rm -v "$(CURDIR)":$(CONTAINER_SRC) -w $(CONTAINER_SRC) $(EMSDK_IMAGE) \
 		sh -c "emcmake cmake --preset wasm-release && cmake --build --preset wasm-release"
 
 ## Assemble the deployable static site.
