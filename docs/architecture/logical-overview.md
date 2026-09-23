@@ -157,6 +157,39 @@ The gates and the dequantization dispatch must consult **one** capability
 table. Two lists will diverge, and a picker that reports "compatible" for a
 model that then fails to load is worse than no picker.
 
+## Platform constraints
+
+Four properties of the target shape everything above. They are constraints, not
+preferences, and each one closes off an option that would otherwise look
+reasonable.
+
+**The GPU is reached through `webgpu.h`, not JavaScript.** In the browser,
+`--use-port=emdawnwebgpu` implements that C API on top of the browser's WebGPU.
+Natively, the same API is implemented by Dawn — the same engine Chrome uses,
+with the same Tint shader compiler. So identical kernel code can run under a
+native test binary and in a browser, and native tests exercise the real stack
+rather than a mock. Driving WebGPU from JavaScript would put the forward pass
+on the wrong side of the WASM boundary.
+
+**No threads.** GitHub Pages cannot set `Cross-Origin-Opener-Policy` or
+`Cross-Origin-Embedder-Policy`, so `SharedArrayBuffer` is unavailable and
+pthreads cannot be used. The same absence of cross-origin isolation clamps
+`performance.now()` to 100 µs, which constrains how anything here can be
+measured. Responsiveness comes from a plain Web Worker, which needs no shared
+memory — acceptable because the GPU does the compute while WASM parses,
+tokenizes, dispatches and samples.
+
+**Weights are not in this repository and cannot be.** GitHub caps files at
+100 MB and Pages does not serve Git LFS, against a several-hundred-megabyte
+quantized model. They are fetched on first run, verified, and cached in OPFS.
+The code is self-contained; the weights are not.
+
+**No inference dependencies.** No llama.cpp, no ggml, no ONNX Runtime, no npm,
+no bundler. Vendoring an inference stack would defeat the premise. Third-party
+code is for things that are not the demonstration — which is why the chat
+template, a full Jinja2 dialect, is rendered by a library on the JavaScript
+side rather than reimplemented in C++.
+
 ## Facts this rests on
 
 Read from GGUF headers by range request on 2026-09-23.
