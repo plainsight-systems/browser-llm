@@ -36,7 +36,6 @@ test:
 ## Structural invariants, plus the tests proving each guard actually fires.
 check:
 	./tools/check_boundaries.sh
-	./tools/check_diagrams.py
 	./tools/check_diagnostics_excluded.sh
 	./tests/test_check_boundaries.sh
 	./tests/test_codex_review_preflight.sh

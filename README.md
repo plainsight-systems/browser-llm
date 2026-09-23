@@ -23,8 +23,6 @@ Live: <https://plainsight-systems.github.io/browser-llm/>
 
 ## Architecture
 
-[`docs/architecture.md`](docs/architecture.md) — module boundaries and the
-call tree, as diagrams. What exists today, not what is planned.
 
 ## Repository structure
 

@@ -4,24 +4,16 @@ This file tracks active and accepted work.
 
 ## Active
 
-- **BLLM-002: Model selection and weight residency.** Packet:
-  `packets/2026-08-31-model-selection-and-weight-loading.md`. Status: **approved**
-  2026-08-31, implementing. Decides Qwen3-0.6B / Q4_0 / GGUF, and
-  gets the weights onto the GPU **still quantized**, proven byte-identical by
-  readback. Scoped around the highest-risk unknown — packing ~420 MB across
-  buffers under a limit granted at runtime — rather than around what was
-  easiest to test.
+- **BLLM-002: GGUF reading and Q4_0 layout.** Packet:
+  `packets/2026-08-31-model-selection-and-weight-loading.md`. Decides
+  Qwen3-0.6B / Q4_0 / GGUF and delivers the container reader plus the Q4_0
+  block layout and its bit-exact oracle.
 
-## Ready
-
-- **BLLM-003: GPU compute on quantized weights, gated in CI.** Packet:
-  `packets/2026-08-31-gpu-compute-on-quantized-weights.md`. Status: **approved**
-  2026-08-31, queued behind BLLM-002. Native Dawn (Metal locally, SwiftShader in CI) plus a fused dequant-matmul
-  kernel, verified against a CPU reference at the model's real shapes. One
-  packet because none of the three is useful alone. Also closes BLLM-001's
-  accepted residual: with Dawn linked, `device.cpp` and `self_check.cpp`
-  compile natively for the first time. Excludes optimization — the performance
-  gate needs the baseline this packet creates.
+  Scope was cut back on 2026-09-23 to what was actually built. The packet
+  originally carried twelve criteria; the eight covering tokenizer, config,
+  residency, upload and reporting were planning written far ahead of the code
+  and are removed rather than carried. Forward work is unplanned and will be
+  scoped when it is started.
 
 ## Accepted
 

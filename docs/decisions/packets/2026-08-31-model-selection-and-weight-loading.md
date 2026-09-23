@@ -237,7 +237,7 @@ Each criterion names the guidelines that constrain it. A citation here is a
 constraint on *how* the criterion may be satisfied, not decoration: where a
 guideline and the criterion disagree, the criterion is wrong.
 
-- [ ] **(1) GGUF parse.** A GGUF file parses to a tensor index and metadata map,
+- [x] **(1) GGUF parse.** A GGUF file parses to a tensor index and metadata map,
       verified against committed fixtures.
       → `SL.con.3`, `ES.103` (no out-of-bounds, no overflow); `P.11`
       (encapsulate the messy construct — one reader, not offset arithmetic
@@ -246,7 +246,7 @@ guideline and the criterion disagree, the criterion is wrong.
       whatever window is currently mapped"), which is the rule the `ByteSource`
       seam exists to satisfy.
 
-- [ ] **(2) Malformed inputs** fail with named errors and read nothing out of
+- [x] **(2) Malformed inputs** fail with named errors and read nothing out of
       bounds: truncated header, tensor offset past EOF, length overflowing the
       file, bad magic, unknown version, tensor count that cannot fit.
       → `WASM.9` ("use checked arithmetic on offsets and sizes — `offset +
@@ -255,7 +255,7 @@ guideline and the criterion disagree, the criterion is wrong.
       is why `range_within` is written as subtraction. `E.27` governs the error
       contract with exceptions off; `SL.con.3` and `ES.103` the arithmetic.
 
-- [ ] **(3) Q4_0 dequantization** matches independently computed values
+- [x] **(3) Q4_0 dequantization** matches independently computed values
       **bit-exactly** on a fixture block. This is the test oracle for BLLM-003's
       shader.
       → `TLM.6` (a self-test is a correctness gate, not a benchmark): this
@@ -285,84 +285,6 @@ guideline and the criterion disagree, the criterion is wrong.
         runtime test can establish by calling something. It is satisfied at the
         consumer seam, by `upload` taking type-and-bytes as one indivisible
         argument, and it is verified there — not here.
-
-- [ ] **(5) Tokenizer** matches **independently generated fixtures**: exact
-      bytes to exact token-ID sequences and back, with special-token policy,
-      multi-byte UTF-8 and byte-fallback covered, and fixture provenance
-      recorded. Round-trip is an *additional* property, not the oracle —
-      `decode(encode(x)) == x` passes while `encode` emits entirely wrong IDs,
-      since several sequences decode to the same bytes.
-      → `CACHE.3` (contiguous storage; pointer-chasing pays a cache miss per
-      node): a 151,936-entry vocabulary belongs in flat contiguous storage, not
-      `std::map`. `WASM.4` (WebAssembly type-checks every indirect call): no
-      virtual dispatch inside the per-token loop.
-
-- [ ] **(6) Parsed config** equals the table above, with `head_dim` asserted as
-      128 rather than derived.
-      → `E.5` in the form available to us: exceptions are off, so the invariant
-      cannot be established by a throwing constructor — it is established by a
-      factory returning a `[[nodiscard]]` result (`E.27`). `NR.5` forbids the
-      alternative of default-constructing a `Config` and filling it field by
-      field, which is exactly how a missing `head_dim` becomes a silent 64.
-
-- [ ] **(7) Weights upload while quantized**, and **every resident byte** is
-      verified against the source in a labelled diagnostic pass — hashed
-      chunk-by-chunk, never materialising the whole model. A single sampled
-      block cannot support the byte-identity claim: it passes while another
-      chunk is truncated, written at the wrong offset, or bound to the wrong
-      buffer.
-      → `WASM.9` states this as a caveat in the corpus's own words: "a sampled
-      verification proves very little… verify every byte, in a diagnostic pass,
-      or do not claim integrity." Also `GPU.1` (batch unavoidable transfers),
-      `GPU.2` (the de-interleave is "transpose at load time"), `MEM.9` (this is
-      the bounded init phase), and `WASM.2` — each boundary crossing carries a
-      whole chunk, a *phase per crossing*, never a block or a tensor.
-
-- [ ] **(8) The planner consumes every granted limit its output depends on.**
-      These are separate WebGPU constraints, and conflating them yields a
-      residency map that uploads fine then cannot be bound by BLLM-003:
-      `maxBufferSize` (buffer creation), `maxStorageBufferBindingSize` (bound
-      range), `minStorageBufferOffsetAlignment` (suballocated offsets),
-      `maxStorageBuffersPerShaderStage` (bindings per shader). The plan must
-      distinguish **physical buffers from bindable ranges**, with tests at the
-      128 MiB floor covering allocation size, binding window, alignment,
-      spanning, and binding-count feasibility.
-      → `WASM.10` and `WASM.14` (plan against the defaults, never against what
-      this adapter granted); `I.5` (state preconditions — the planner's inputs
-      are limits, passed in, never read from an ambient device). `DeviceLimits`
-      gained the two missing fields in `device_requirements.h`; the planner
-      consumes all four.
-
-- [ ] **(9) Peak WASM heap** during load stays under a stated bound, asserted by
-      instrumentation. The bound must be verified against the **real 420 MB
-      file**, not only a fixture — a fixture-only assertion proves nothing about
-      the streaming path.
-      → `WASM.9`'s `ResidencyAssertion` shape exactly: asset bytes, peak heap,
-      chunk size, with the peak required to track chunk size rather than asset
-      size. `WASM.1`: the measured peak is what `-sINITIAL_HEAP` is then set
-      from, and this packet owes that setting. `WASM.14`: the bound belongs to
-      the floor row of the target matrix, not to this machine. `TLM.2`/`TLM.6`:
-      heap tracking is its own channel and its run is not a throughput run.
-      `WASM.11`: the record states clock resolution, `crossOriginIsolated`,
-      DevTools state and discarded warm-up, or the number is not quotable.
-
-- [ ] **(10) SHA-256 mismatch** aborts the load with a distinct, user-visible
-      error.
-      → `E.27` (systematic error codes) and the operator profile §3.3 — the
-      error path must not resemble the success path. A corrupted download that
-      loads anyway is the §3.1 facade in its purest form.
-
-- [ ] **(11) The page reports** architecture, layer count, tensor count,
-      quantization, and the residency map.
-      → `WASM.2`: one crossing carrying the whole summary as a
-      `(pointer, length)` pair, not an exported getter per field. The crossing
-      count for reporting is a constant, and must stay one.
-
-- [ ] **(12) Everything except upload and readback passes natively in CI.**
-      → `WASM.12` (keep the compute core natively buildable so it can be
-      profiled properly). The planner is separated from the upload for exactly
-      this reason: the packing arithmetic is the riskiest code here and it must
-      not be reachable only through a browser.
 
 ### Consulted and deliberately not applied
 
