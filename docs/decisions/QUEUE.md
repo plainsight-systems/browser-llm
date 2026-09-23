@@ -24,7 +24,7 @@ This file tracks active and accepted work.
   bindings, and a static page deployed by CI. Two independent reviews by a
   separate identity, both `changes_requested`, both sets of findings worked.
   Residual risk is recorded in the packet's acceptance section — chiefly that
-  no native GPU test exists until BLLM-003.
+  no native GPU test exists, and none will until Dawn is linked.
 
 ## Parking Lot
 
