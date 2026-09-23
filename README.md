@@ -23,6 +23,10 @@ Live: <https://plainsight-systems.github.io/browser-llm/>
 
 ## Architecture
 
+[`docs/architecture/logical-overview.md`](docs/architecture/logical-overview.md)
+— what the harness does, and the four points where it varies by model family.
+Logical only: no file layout, no interfaces. Every figure in it was read from a
+real GGUF header rather than estimated.
 
 ## Repository structure
 
