@@ -13,7 +13,7 @@
 - **Why the change is necessary:** Weight residency is the highest-risk unknown
   in the project. ~420 MB of weights must land across many buffers, under a
   storage-binding limit that is granted at runtime and varies per device, on a
-  platform whose address space is 32-bit. Every kernel decision downstream —
+  platform where we have chosen a 32-bit address space. Every kernel decision downstream —
   bind group layout, dequant shader shape, attention tiling — depends on how
   the weights are laid out. Deferring it until the kernels exist would mean
   debugging residency and shaders together.
@@ -53,9 +53,27 @@
   - The whole model is never resident in the WASM heap. Bounded chunks are
     uploaded and released, so **peak residency is a function of chunk size, not
     of file size** (WASM.9). Linear memory is one contiguous allocation we are
-    trying to keep small (WASM.1), and wasm32 has no large address space to
-    reserve, so MEM.7's reserve-and-commit strategy is unavailable — streaming
-    is the only option, not a preference.
+    trying to keep small (WASM.1).
+
+    **Streaming is a choice, not a constraint.** An earlier draft argued it was
+    forced: wasm32 caps linear memory at 4 GB, so MEM.7's reserve-and-commit
+    strategy was unavailable and streaming was "the only option". That premise
+    expired. WebAssembly Memory64 shipped in Chrome M133 and Firefox and was
+    standardised in WebAssembly 3.0 on 2026-06-13; the web cap is now ~16 GB,
+    and a 420 MB model would fit in linear memory with room to spare.
+
+    We stay on wasm32 deliberately. Memory64 costs roughly 10% throughput, and
+    it buys us nothing: the weights' destination is a set of GPU buffers, so
+    the heap they would occupy on the way is pure overhead no matter how large
+    it is permitted to be. Streaming is what we would choose on a 64-bit heap
+    too — which is what the reference implementations do. LlamaWeb, whose
+    Emscripten-plus-WGSL structure is close to ours, states the same rule
+    independently: weights are downloaded and *never materialised in the
+    WebAssembly heap*.
+
+    The distinction is not pedantic. "We had no choice" is a claim a reader can
+    falsify in one search; "we knew the option and declined it for a measured
+    reason" is the one that holds.
   - **The load path returns to the event loop between chunks** (WASM.3). Fetch,
     hashing and upload are asynchronous browser operations. A blocking C++ loop
     over chunks would require Asyncify, whose cost WASM.3 says not to buy, and
@@ -365,8 +383,11 @@ Recorded so a later reader can tell a considered omission from a gap.
   change the module's size or its instantiation path. They bind BLLM-003, which
   adds shaders.
 - **`MEM.7` (reserve address space, commit on demand).** Considered and
-  inapplicable — it assumes a 64-bit address space wasm32 does not provide,
-  which is itself why streaming is mandatory rather than preferred.
+  **declined**, which is different from inapplicable. Memory64 makes a 64-bit
+  heap available to us; we do not take it, because reserving address space for
+  bytes whose destination is a GPU buffer optimises a stage that should not
+  exist. The guideline fits a workload that keeps its data in the heap. Ours
+  does not.
 - **`WASM.4` beyond the tokenizer.** `ByteSource` is virtual and called once per
   chunk, so the indirect-call cost amortises over megabytes. Named here so a
   later reader does not "fix" a seam that is deliberate.
@@ -509,11 +530,12 @@ assertion, which fixtures cannot establish.
   Weight residency established here *is* that fixed footprint.
 
 - **Allocation/copy/serialization behaviour:** The binding constraint. A 420 MB
-  model must not be resident in the WASM heap, and wasm32 offers no large
-  address space to reserve, so MEM.7's reserve-and-commit approach is
-  unavailable. Chunks are uploaded and released; peak heap is asserted by test
-  against the real file. Weights are **never** copied into a dequantized form
-  on the CPU.
+  model must not be resident in the WASM heap — not because it could not fit
+  (Memory64 would permit it) but because the heap is a waypoint on the route to
+  a GPU buffer, and a waypoint that holds the whole payload is the residency
+  failure WASM.9 describes. Chunks are uploaded and released; peak heap is
+  asserted by test against the real file. Weights are **never** copied into a
+  dequantized form on the CPU.
 
   GPU.1 applies to the upload itself: batch unavoidable transfers, prefer one
   large copy over many small ones. Chunk size is therefore a measured trade-off
@@ -553,9 +575,9 @@ assertion, which fixtures cannot establish.
   parser contract, since the file arrives from a CDN; E.25 governs error
   returns with exceptions off. `cpp-perf-guidelines`: MEM.9 (allocate at init,
   fixed steady state) frames residency as the init-phase footprint; MEM.7
-  (reserve address space, commit on demand) was considered and **does not
-  apply** — it assumes a 64-bit address space wasm32 does not provide, which is
-  itself the reason streaming is mandatory rather than preferred. GPU.1 (keep
+  (reserve address space, commit on demand) was considered and **declined** —
+  see the invariant above for why the original "wasm32 makes it impossible"
+  reasoning expired and what replaced it. GPU.1 (keep
   data on device; batch transfers) governs upload chunking, and GPU.2
   (coalesced lane access; transpose at load time) makes the on-device weight
   layout a decision owed jointly with BLLM-003 rather than a file-order
@@ -580,6 +602,21 @@ assertion, which fixtures cannot establish.
   `WASM.6` (SIMD for the de-interleave) is the one live candidate the audit
   found and deliberately did not take — recorded under "consulted and
   deliberately not applied" so it is a decision rather than an oversight.
+
+- **Premise correction, 2026-09-23.** This packet asserted in four places that
+  wasm32's 32-bit address space made streaming mandatory. WebAssembly Memory64
+  shipped in Chrome M133 and Firefox and was standardised in WebAssembly 3.0 on
+  2026-06-13 (~16 GB cap on the web, ~10% throughput cost), so the premise was
+  false by the time the packet was approved and none of us checked. The design
+  is unchanged and the conclusion is unchanged; what changed is that streaming
+  is now recorded as a decision with a reason rather than a constraint with no
+  alternative. One use of wasm32 survives untouched — criterion 2's note that
+  offset overflow "is not hypothetical on wasm32" is still true, because we are
+  still building wasm32; we simply are no longer forced to.
+
+  Found while researching published browser-inference throughput, not by
+  reviewing the packet. A premise stated five times and checked zero is the
+  shape of error this repo should expect to make again.
 
 - Process note: an earlier draft of BLLM-003 recorded that the performance
   corpus had no GPU material. That was wrong. The MCP server was reading a
