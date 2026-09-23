@@ -55,6 +55,10 @@ Start here:
 the KV cache is family-agnostic, and the platform constraints that shape all of
 it. Every figure in it was read from a real GGUF header rather than estimated.
 
+Then [`docs/architecture/change-axes.md`](docs/architecture/change-axes.md) —
+the nine reasons any file here changes, and the rule that decides where code
+goes: one translation unit, one reason to change.
+
 ## Governance
 
 Entry point: [`docs/decisions/MEMORY.md`](docs/decisions/MEMORY.md).

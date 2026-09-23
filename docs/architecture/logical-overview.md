@@ -3,7 +3,8 @@
 What the harness does, and where it varies by model family.
 
 This is the **logical** view: phases, responsibilities, and fork points. It
-names no files, no types, and no interfaces — mapping this onto the repo is a
+names no files, no types, and no interfaces. The rules that turn these boxes
+into files are in [`change-axes.md`](change-axes.md); the mapping itself is a
 separate document, written when the mapping is real. A previous architecture
 document drifted because it described a design that was never built; this one
 is kept to claims that can be checked against a model file.
