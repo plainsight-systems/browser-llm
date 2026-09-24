@@ -11,104 +11,124 @@ files. It does not list the files; that is the mapping, written next.
 
 | Axis | Triggered by | May change |
 |---|---|---|
-| **A** | a new model family | graph, tokenizer algorithm, activation |
-| **B** | a new quantization format | its pack and unpack |
+| **A** | a new architecture | its graph and its load transforms |
+| **B** | a new weight format | its pack and unpack |
 | **C** | a GGUF format revision, or our parse contract | reader, its types, its errors |
 | **D** | the WebGPU surface, or granted device limits | device, planner, buffer writer |
-| **E** | optimizing one kernel in one regime | that kernel only |
-| **F** | sampling policy | sampler |
-| **G** | cache or context policy | cache, prefix diff |
+| **E** | a new or optimized kernel, in one regime | that kernel only |
+| **F** | a new sampling method | the sampler |
+| **G** | a new cache or context mechanism | cache, prefix diff |
 | **H** | product and interface | the JavaScript presentation layer |
 | **I** | **what the code implements** | one capability table |
 | **J** | **a model is measured** | its entry in the curated list |
+| **K** | a new tokenization algorithm or pre-tokenizer | that algorithm, or that pre-tokenizer's split pattern |
 
 Every file maps to exactly one row. Two rows means it splits. Two files that
 always change together means they merge — unless they cannot, for a reason
 recorded below.
 
-Most of these were found by reading two real model files rather than by
-reasoning about the design, which is why the list is short and concrete. See
-the provenance table in the logical overview.
+The axes were found by reading real model files and then generalized. The files
+are evidence; the axes do not depend on them.
 
-**B covers writing as well as reading.** Axis B was originally "unpack",
-because weights are only ever read. A quantized KV cache would be the first
-thing the harness *writes* in a quantized format, so B owns both directions —
-and a q8_0 cache reuses the same Q8_0 format knowledge that Gemma's embedding
-already requires. Which format the cache uses is not B's business; that is
-per-model policy, on J.
+**Mechanism is code; the values it runs with are policy.** F and G change when
+a *method* is added — a new way to sample, a new way to manage the cache. The
+settings a particular model runs with — its temperature, its cache precision —
+change when that model is measured, which is J. Keeping them apart means
+measuring a model never looks like a code change.
+
+**Architecture and tokenizer are separate axes.** Adding an architecture that
+reuses an existing tokenizer touches no tokenizer; adding a tokenizer under an
+existing architecture touches no graph. That is the test below, and it is why
+K is not part of A. An earlier version of this table lumped them, because the
+first two models examined happened to differ in both — which is exactly the
+coincidence the test exists to catch.
+
+**B covers writing as well as reading.** Weights are only ever read, so B began
+as "unpack". A quantized cache would be the first thing the harness *writes* in
+a quantized format, and it reuses the format knowledge of any weight stored in
+the same format. B owns both directions. Which format the cache uses is not B's
+business; that is policy, on J.
 
 ## E is a family, not an axis
 
-Optimizing the matmul is not the same reason as optimizing the norm, and
-optimizing decode's matmul is not the same reason as optimizing prefill's.
-Decode multiplies a matrix by a vector and is bound by weight bandwidth;
-prefill multiplies a matrix by a block and is bound by arithmetic. They want
-different tiling, so the axis is parameterized by kernel *and* regime:
-E(gemv), E(gemm), E(attn, decode), E(attn, prefill), E(norm), E(rope),
-E(gather), E(act). One file each.
+Optimizing one kernel is not the same reason as optimizing another, and
+optimizing a kernel for decode is not the same reason as optimizing it for
+prefill. Decode multiplies a matrix by a vector and is bound by weight
+bandwidth; prefill multiplies a matrix by a block and is bound by arithmetic.
+They want different tiling. So E is parameterized by kernel *and* regime —
+E(matmul, decode), E(matmul, prefill), E(attention, decode),
+E(attention, prefill) — plus one per kernel whose form does not depend on
+regime.
 
-The test is mechanical: **a GEMV optimization must produce a diff that touches
-no other kernel** — including GEMM. If it does, something is shared that should
-not be.
+Kernels include every operation that differs in kind. Each activation, each
+norm type and each position encoding is its own kernel (principle 6 in the
+logical overview), dispatched by whichever graph needs it. None belongs to an
+architecture.
+
+The test is mechanical: **optimizing a kernel for one regime must produce a
+diff that touches no other kernel** — including the same kernel's other regime.
+If it does, something is shared that should not be.
 
 Three things would recouple them silently:
 
 | Shared thing | If it lives inside kernels | Belongs to |
 |---|---|---|
-| the unpack function | every kernel changes when a quantization type is added | axis B, its own file |
+| the unpack function | every kernel changes when a weight format is added | axis B, its own file |
 | bind-group and parameter convention | changing argument order touches all of them | one interface file |
 | dispatch geometry arithmetic | retuning workgroup counts touches all of them | its own file |
-
-The third is already done correctly: `core/gpu/dispatch_math` is shared, small,
-separately tested, and owned by no kernel.
 
 Workgroup size is the opposite case. It belongs **per kernel**, because the
 right value differs per kernel; a shared constant would put all of them back on
 one axis.
 
-They are equal in structure and unequal in value. In decode, GEMV is 197 of
-the ~295 dispatches per token and effectively all of the weight bandwidth; in
-prefill, GEMM dominates in the same way. So most of these files are correctness
-surface, and the two matmul regimes are the performance surface.
+The kernels are equal in structure and unequal in value. In decode the
+projections are most of the dispatches and nearly all of the weight bandwidth —
+for Qwen3-0.6B, 197 of about 295 dispatches per token — and in prefill the
+same holds for their block form. Most kernel files are correctness surface; the
+two matmul regimes are the performance surface.
 
 ## The boxes that are already one axis
 
 `Gates` (I — it applies the table, it does not contain criteria), `Jinja` (H —
-it renders a template it does not interpret), `Graph` (A — one per family), and
-each kernel (E).
+it renders a template it does not interpret), `Graph` (A — one per
+architecture), `Tokenize` (K — one per tokenization algorithm, with pre-tokenizer split
+patterns selected by name), and each kernel
+(E).
 
 ## The boxes that are compound
 
 | Box | Axes it mixes | Splits into |
 |---|---|---|
-| **Upload** | D, B, D, A | planner · unpack · buffer writer · family load transform |
+| **Upload** | D, B, D, A | planner · unpack · buffer writer · the architecture's load transforms |
 | **Fetch** | H, G | transport with progress · OPFS cache |
-| **Sample and emit** | F, A, H | sampler · detokenize · emit |
+| **Sample and emit** | F, K, H | sampler · detokenize · emit |
 | **Diff and KV cache** | G, D | prefix diff · cache resources |
 | **Pick** | H, J | picker interface · the curated list, which is measured policy |
 
-**Diff and KV cache** is the split worth insisting on. `longest_common_prefix(old, new)
-→ length` is a pure function over two integer sequences: no GPU, no model, no
-file, no browser. The cache is buffers and counters. Fused, the most
-correctness-critical logic in the chat loop becomes reachable only through a
-device.
+**Diff and KV cache** is the split worth insisting on.
+`longest_common_prefix(old, new) → length` is a pure function over two integer
+sequences: no GPU, no model, no file, no browser. The cache is buffers and
+counters. Fused, the most correctness-critical logic in the chat loop becomes
+reachable only through a device.
 
-**Upload** carries a family hook. Gemma's norm weights are stored as `w` and
-used as `1 + w`; folding the constant in at upload keeps the norm kernel
-uniform. That transform is family knowledge, so the family owns it and upload
-invokes it — upload does not learn which families need what.
+**Upload applies load transforms but does not own them.** An architecture whose
+weights are stored in a convention the uniform kernels do not expect — a norm
+offset, a permutation — supplies a transform, and upload invokes it. Upload
+never learns which architectures need what. Gemma's norm weights, stored as `w`
+and used as `1 + w`, are one example.
 
-**Upload** is also the one that carries the most risk if left whole. The planner is
-pure arithmetic over a tensor index and a limit set, and preflight depends on
-running it before any weight byte is fetched. Fusing it with the writer would
-make the compatibility gate impossible.
+**Upload** is also the box that carries the most risk if left whole. The
+planner is pure arithmetic over a tensor index and a limit set, and preflight
+depends on running it before any weight byte is fetched. Fusing it with the
+writer would make the compatibility gate impossible.
 
 ## Cases that look wrong and are not
 
 **The capability table has one owner and several readers.** The picker's gates,
-the unpack dispatch, and the graph selector all consult it. That is not a
-violation: the table changes for exactly one reason, and its readers do not
-change when it does. Adding Q4_1 means one new unpack file and one new row.
+the unpack dispatch, the tokenizer selector and the graph selector all consult
+it. That is not a violation: the table changes for exactly one reason, and its
+readers do not change when it does. Adding a weight format means one new
+unpack file and one new row.
 
 This is also what keeps the picker honest. If the gates and the loader consult
 two lists, the lists will diverge, and a picker reporting "compatible" for a
@@ -117,11 +137,18 @@ enforcement; review is not.
 
 **The capability table and the curated list are two files, not one.** Both
 describe what the harness can run, which makes merging them tempting. But the
-capability table changes when code is written — a new unpack, a new tokenizer —
-and the curated list changes when a model is measured: its KV precision, its
-sampling settings per mode, whether it has a thinking toggle. Different
-reasons, different files. Merging them would make measuring a model look like a
-code change, and adding a format look like a policy change.
+capability table changes when code is written — a new unpack, a new
+tokenizer or pre-tokenizer, a new graph — and the curated list changes when a model is measured: its cache
+precision, its sampling settings, the controls it offers. Different reasons,
+different files. Merging them would make measuring a model look like a code
+change, and adding a format look like a policy change.
+
+**Enumerating a format is not implementing it.** A type that lists every value
+the file format defines — every weight format GGUF can name, with its block
+size — is format knowledge, and changes only when the format does. Which of
+those values the harness can run is the capability table's business. A reader
+that knows the size of a format it cannot unpack is not claiming to support it;
+it needs that size to validate the file, and to name the tensor it will reject.
 
 **A kernel is one responsibility expressed as two files.** The WGSL and its C++
 launcher change together — retile the shader and the dispatch geometry moves
@@ -129,23 +156,6 @@ with it. The strict rule says merge them; they are different languages, so the
 coupling is a language artifact rather than a design choice. They stay a
 co-located pair, and nothing should be introduced between them to make the
 separation look intentional.
-
-## Where the code violates this today
-
-`bytes_for_elements` in `core/gguf/reader.cpp` switches on `TensorType` and
-returns `false` for anything outside {F32, F16, Q4_0}. That `default` branch is
-the capability table, living inside the GGUF reader.
-
-So adding Q4_1 edits the reader: a file on axis C changing for an axis I
-reason. It also reaches into `quant::` for block constants, which makes the
-container parser depend on quantization details it has no business knowing.
-
-`core/gguf/types.h` is *not* a violation, which is worth recording because it
-looks like one. Magic, version, limits, `ValueType`, `TensorType`, `ReadError`,
-and the parse output types are all descriptions of the GGUF format. They change
-for one reason. `TensorType` enumerating quantized formats is format
-knowledge — *which* of them we implement is the capability table's business,
-and lives elsewhere.
 
 ## How to apply this
 
@@ -158,4 +168,6 @@ tend to accumulate.
 
 The decisive question for a split is not "are these different concerns" —
 that is unfalsifiable — but "can I name a change that touches one and not the
-other." If not, they are one file.
+other." If not, they are one file. And when the only evidence that two things
+change together is that the examples at hand happened to differ in both, look
+for an example where they do not.
