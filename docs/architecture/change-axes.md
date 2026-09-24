@@ -22,6 +22,8 @@ files. It does not list the files; that is the mapping, written next.
 | **I** | **what the code implements** | one capability table |
 | **J** | **a model is measured** | its entry in the curated list |
 | **K** | a new tokenization algorithm or pre-tokenizer | that algorithm, or that pre-tokenizer's split pattern |
+| **L** | a browser network or storage API, or how we download | fetch transport, OPFS model cache |
+| **M** | a new stage in the generation loop | the runtime that sequences diff, prefill, decode and sample |
 
 Every file maps to exactly one row. Two rows means it splits. Two files that
 always change together means they merge — unless they cannot, for a reason
@@ -100,7 +102,7 @@ patterns selected by name), and each kernel
 | Box | Axes it mixes | Splits into |
 |---|---|---|
 | **Upload** | D, B, D, A | planner · unpack · buffer writer · the architecture's load transforms |
-| **Fetch** | H, G | transport with progress · OPFS cache |
+| **Fetch** | L, L | transport · OPFS model cache — network and storage change independently |
 | **Sample and emit** | F, K, H | sampler · detokenize · emit |
 | **Diff and KV cache** | G, D | prefix diff · cache resources |
 | **Pick** | H, J | picker interface · the curated list, which is measured policy |
