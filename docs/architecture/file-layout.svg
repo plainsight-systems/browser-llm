@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="775" viewBox="0 0 680 775" role="img">
+<title>File layout and boundaries</title>
+<desc>Three layers: JavaScript files in web/, the boundary between worker.js and bindings.cpp, and the C++ core in src/core/, whose modules each change on one axis and depend on a band of contract headers. Modules that hold GPU objects have dashed borders.</desc>
+<style>
+  .th { font: 500 14px -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Helvetica, Arial, sans-serif; fill: #2C2C2A; }
+  .ts { font: 400 12px -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Helvetica, Arial, sans-serif; fill: #5F5E5A; }
+  .bg { fill: #FFFFFF; }
+  .frame { fill: none; stroke: #B4B2A9; stroke-width: 1; stroke-dasharray: 4 4; }
+  rect { stroke-width: 1; }
+  .gray rect   { fill: #F1EFE8; stroke: #888780; } .gray .th   { fill: #2C2C2A; } .gray .ts   { fill: #5F5E5A; }
+  .purple rect { fill: #EEEDFE; stroke: #534AB7; } .purple .th { fill: #3C3489; } .purple .ts { fill: #534AB7; }
+  .coral rect  { fill: #FAECE7; stroke: #D85A30; } .coral .th  { fill: #712B13; } .coral .ts  { fill: #993C1D; }
+  .gpu rect { stroke-dasharray: 4 3; }
+  .arr { stroke: #888780; stroke-width: 1.5; fill: none; }
+</style>
+<defs><marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#888780" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<rect class="bg" x="0" y="0" width="680" height="775"/>
+<rect class="frame" x="40" y="20" width="600" height="138" rx="8"/>
+<text class="th" x="56" y="40">web/ — JavaScript</text>
+<g class="gray"><rect x="52" y="52" width="180" height="44" rx="4"/><text class="th" x="142" y="71" text-anchor="middle">picker.js</text><text class="ts" x="142" y="87" text-anchor="middle">H · choose a model</text></g>
+<g class="gray"><rect x="250" y="52" width="180" height="44" rx="4"/><text class="th" x="340" y="71" text-anchor="middle">models.json</text><text class="ts" x="340" y="87" text-anchor="middle">J · measured policy</text></g>
+<g class="gray"><rect x="448" y="52" width="180" height="44" rx="4"/><text class="th" x="538" y="71" text-anchor="middle">template.js</text><text class="ts" x="538" y="87" text-anchor="middle">H · render chat template</text></g>
+<g class="gray"><rect x="52" y="104" width="180" height="44" rx="4"/><text class="th" x="142" y="123" text-anchor="middle">chat.js</text><text class="ts" x="142" y="139" text-anchor="middle">H · conversation, streaming</text></g>
+<g class="gray"><rect x="250" y="104" width="180" height="44" rx="4"/><text class="th" x="340" y="123" text-anchor="middle">fetch.js</text><text class="ts" x="340" y="139" text-anchor="middle">L · range and stream</text></g>
+<g class="gray"><rect x="448" y="104" width="180" height="44" rx="4"/><text class="th" x="538" y="123" text-anchor="middle">opfs.js</text><text class="ts" x="538" y="139" text-anchor="middle">L · model file cache</text></g>
+<line class="arr" x1="340" y1="158" x2="340" y2="178" marker-end="url(#a)"/>
+<g class="coral"><rect x="40" y="180" width="600" height="52" rx="4"/><text class="th" x="340" y="199" text-anchor="middle">The boundary: worker.js ⇄ bindings.cpp</text><text class="ts" x="340" y="215" text-anchor="middle">preflight · load · generate · cancel</text></g>
+<line class="arr" x1="340" y1="232" x2="340" y2="252" marker-end="url(#a)"/>
+<rect class="frame" x="40" y="254" width="600" height="256" rx="8"/>
+<text class="th" x="56" y="274">src/core/ — C++, builds and tests natively</text>
+<g class="gray"><rect x="52" y="286" width="104" height="44" rx="4"/><text class="th" x="104" y="305" text-anchor="middle">gguf/</text><text class="ts" x="104" y="321" text-anchor="middle">C · reader</text></g>
+<g class="gray"><rect x="170" y="286" width="104" height="44" rx="4"/><text class="th" x="222" y="305" text-anchor="middle">capability/</text><text class="ts" x="222" y="321" text-anchor="middle">I · one table</text></g>
+<g class="gray"><rect x="288" y="286" width="104" height="44" rx="4"/><text class="th" x="340" y="305" text-anchor="middle">preflight/</text><text class="ts" x="340" y="321" text-anchor="middle">I · four gates</text></g>
+<g class="gray"><rect x="406" y="286" width="104" height="44" rx="4"/><text class="th" x="458" y="305" text-anchor="middle">arch/*</text><text class="ts" x="458" y="321" text-anchor="middle">A · per arch</text></g>
+<g class="gray"><rect x="524" y="286" width="104" height="44" rx="4"/><text class="th" x="576" y="305" text-anchor="middle">formats/*</text><text class="ts" x="576" y="321" text-anchor="middle">B · per format</text></g>
+<g class="gray"><rect x="52" y="342" width="180" height="44" rx="4"/><text class="th" x="142" y="361" text-anchor="middle">residency/plan</text><text class="ts" x="142" y="377" text-anchor="middle">D · pure, no GPU</text></g>
+<g class="gray gpu"><rect x="250" y="342" width="180" height="44" rx="4"/><text class="th" x="340" y="361" text-anchor="middle">residency/upload</text><text class="ts" x="340" y="377" text-anchor="middle">D · owns every buffer</text></g>
+<g class="gray gpu"><rect x="448" y="342" width="180" height="44" rx="4"/><text class="th" x="538" y="361" text-anchor="middle">gpu/</text><text class="ts" x="538" y="377" text-anchor="middle">D · device, dispatch</text></g>
+<g class="gray"><rect x="52" y="398" width="135" height="44" rx="4"/><text class="th" x="119.5" y="417" text-anchor="middle">tokenizer/*</text><text class="ts" x="119.5" y="433" text-anchor="middle">K · per algorithm</text></g>
+<g class="gray"><rect x="199" y="398" width="135" height="44" rx="4"/><text class="th" x="266.5" y="417" text-anchor="middle">pretokenize</text><text class="ts" x="266.5" y="433" text-anchor="middle">K · split patterns</text></g>
+<g class="gray"><rect x="346" y="398" width="135" height="44" rx="4"/><text class="th" x="413.5" y="417" text-anchor="middle">cache/prefix</text><text class="ts" x="413.5" y="433" text-anchor="middle">G · pure diff</text></g>
+<g class="gray"><rect x="493" y="398" width="135" height="44" rx="4"/><text class="th" x="560.5" y="417" text-anchor="middle">cache/kv</text><text class="ts" x="560.5" y="433" text-anchor="middle">G · bookkeeping</text></g>
+<g class="gray gpu"><rect x="52" y="454" width="180" height="44" rx="4"/><text class="th" x="142" y="473" text-anchor="middle">kernels/*</text><text class="ts" x="142" y="489" text-anchor="middle">E · per kernel × regime</text></g>
+<g class="gray"><rect x="250" y="454" width="180" height="44" rx="4"/><text class="th" x="340" y="473" text-anchor="middle">sampler/</text><text class="ts" x="340" y="489" text-anchor="middle">F · top-k candidates</text></g>
+<g class="gray"><rect x="448" y="454" width="180" height="44" rx="4"/><text class="th" x="538" y="473" text-anchor="middle">runtime/</text><text class="ts" x="538" y="489" text-anchor="middle">M · the turn loop</text></g>
+<line class="arr" x1="340" y1="510" x2="340" y2="530" marker-end="url(#a)"/>
+<rect class="frame" x="40" y="532" width="600" height="196" rx="8"/>
+<text class="th" x="56" y="552">Contract headers — no axis; modules depend on these</text>
+<g class="purple"><rect x="52" y="564" width="180" height="44" rx="4"/><text class="th" x="142" y="583" text-anchor="middle">gguf/byte_source.h</text><text class="ts" x="142" y="599" text-anchor="middle">1 · byte source</text></g>
+<g class="purple"><rect x="250" y="564" width="180" height="44" rx="4"/><text class="th" x="340" y="583" text-anchor="middle">gguf/index.h</text><text class="ts" x="340" y="599" text-anchor="middle">2 · tensor index</text></g>
+<g class="purple"><rect x="448" y="564" width="180" height="44" rx="4"/><text class="th" x="538" y="583" text-anchor="middle">model/</text><text class="ts" x="538" y="599" text-anchor="middle">4 · model description</text></g>
+<g class="purple"><rect x="52" y="618" width="180" height="44" rx="4"/><text class="th" x="142" y="637" text-anchor="middle">weight_view.h</text><text class="ts" x="142" y="653" text-anchor="middle">6 · weight view</text></g>
+<g class="purple"><rect x="250" y="618" width="180" height="44" rx="4"/><text class="th" x="340" y="637" text-anchor="middle">kernels/interface.h</text><text class="ts" x="340" y="653" text-anchor="middle">7 · kernel launch</text></g>
+<g class="purple"><rect x="448" y="618" width="180" height="44" rx="4"/><text class="th" x="538" y="637" text-anchor="middle">tokenizer.h</text><text class="ts" x="538" y="653" text-anchor="middle">9 · tokenizer</text></g>
+<g class="purple"><rect x="52" y="672" width="180" height="44" rx="4"/><text class="th" x="142" y="691" text-anchor="middle">policy/</text><text class="ts" x="142" y="707" text-anchor="middle">12 · policy</text></g>
+<g class="purple"><rect x="250" y="672" width="180" height="44" rx="4"/><text class="th" x="340" y="691" text-anchor="middle">arch/architecture.h</text><text class="ts" x="340" y="707" text-anchor="middle">what an arch supplies</text></g>
+<g class="purple"><rect x="448" y="672" width="180" height="44" rx="4"/><text class="th" x="538" y="691" text-anchor="middle">formats/format.h</text><text class="ts" x="538" y="707" text-anchor="middle">what a format supplies</text></g>
+<g class="gray"><rect x="40" y="738" width="12" height="12" rx="2"/></g><text class="ts" x="58" y="748">module, one axis</text>
+<g class="purple"><rect x="180" y="738" width="12" height="12" rx="2"/></g><text class="ts" x="198" y="748">contract, no axis</text>
+<g class="coral"><rect x="330" y="738" width="12" height="12" rx="2"/></g><text class="ts" x="348" y="748">boundary</text>
+<g class="gray gpu"><rect x="420" y="738" width="12" height="12" rx="2"/></g><text class="ts" x="438" y="748">holds GPU objects</text>
+</svg>

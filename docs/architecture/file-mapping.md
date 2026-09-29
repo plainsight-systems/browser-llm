@@ -16,6 +16,15 @@ them.
 - **C++ core, `src/core/`** — everything from the file header onward. Never
   aware it is in a browser; builds and tests natively.
 
+![File layout: JavaScript, the boundary, the C++ modules, and the contract headers they depend on](file-layout.svg)
+
+Dependencies point downward only: JavaScript to the boundary, the boundary to
+the C++ modules, the modules to the contract headers. Nothing in `src/core/`
+includes from `web/` or `src/wasm/`, and `tools/check_boundaries.sh` enforces
+it. A directory marked `*` holds one subdirectory per implementation, each
+listed in the capability table. Contracts 3, 5, 8 and 10 are stated in their
+module's own header, and contract 11 in the two boundary files.
+
 ## Modules
 
 | Module | Axis | Owns |
