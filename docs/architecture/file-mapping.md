@@ -191,9 +191,11 @@ Four rules hold for every contract:
     crossing per streamed token (WASM.2).
 12. **Policy** — `core/policy`. A model's measured configuration from
     `web/models.json`: cache precision, sampling settings per mode, and the
-    template variables it exposes. Cache precision crosses at load. Sampling
+    template variables it exposes, and the memory budget. WebGPU does not
+    report device memory, so the budget is measured per model like everything
+    else here. Cache precision and the budget cross at load. Sampling
     settings depend on the turn's mode, so they cross with each generate,
     together with the seed. Template variables never leave JavaScript. An
     unmeasured model receives the defaults defined in `core/policy`. The context
-    offered is not policy; it is derived from the file, the device budget and
+    offered is not policy; it is derived from the file, the memory budget and
     the cache precision.

@@ -18,8 +18,9 @@ namespace bllm::residency {
 // place in them, out. No GPU, no fetch, no browser. Gate 4 runs it before any
 // weight byte is downloaded, and upload carries it out afterwards.
 //
-//   - Every tensor and the KV cache are placed. The cache is sized from the
-//     model description and the cache precision in policy.
+//   - Every tensor and the KV cache are placed, within the memory budget in
+//     policy. The cache is sized from the model description and the cache
+//     precision in policy.
 //   - Limits are the ones the device granted, never the adapter's advertised
 //     maxima (WASM.10). Packing works at WebGPU's default limits.
 //   - A tensor larger than one storage binding is split by rows.
@@ -31,13 +32,13 @@ namespace bllm::residency {
 //     sharing that has not been confirmed. A candidate is placed in a buffer
 //     of its own, which upload does not create when the match is confirmed.
 
-// The limits the device was granted, and the bytes the plan may place on it.
-// WebGPU does not report device memory, so the budget is an input.
+// The limits the device was granted. How many bytes the plan may place on the
+// device is not among them — WebGPU does not report device memory — and comes
+// from load policy instead.
 struct DeviceLimits {
     std::uint64_t max_buffer_size;
     std::uint64_t max_storage_binding_size;
     std::uint32_t storage_offset_alignment;
-    std::uint64_t memory_budget;
 };
 
 struct PlannedBuffer {

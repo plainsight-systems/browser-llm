@@ -10,13 +10,13 @@ namespace bllm::policy {
 // values change when a model is measured (axis J); this header changes only
 // when what can be configured changes.
 //
-// Two parts cross the boundary at different times. Cache precision is fixed at
-// load. Sampling settings depend on the mode a turn runs in, such as thinking
-// or not, so the JavaScript side resolves them for the turn and passes them
-// with each generate, together with the seed.
+// Two parts cross the boundary at different times. Cache precision and the
+// memory budget are fixed at load. Sampling settings depend on the mode a turn
+// runs in, such as thinking or not, so the JavaScript side resolves them for
+// the turn and passes them with each generate, together with the seed.
 //
 // An unmeasured model runs on the defaults below and is shown as unmeasured.
-// The context offered is not policy: it is derived from the file, the device
+// The context offered is not policy: it is derived from the file, the memory
 // budget and the cache precision.
 
 enum class CachePrecision {
@@ -27,6 +27,12 @@ enum class CachePrecision {
 
 struct LoadPolicy {
     CachePrecision cache_precision = CachePrecision::F16;
+    // Bytes the harness may place on the device: weights, cache and
+    // activations. WebGPU does not report device memory, so this is measured
+    // per model on the devices it is listed for. The default covers a model of
+    // about 1 GB with a working cache; a larger unmeasured model is rejected
+    // by the fit gate, by name, rather than attempted.
+    std::uint64_t memory_budget = 2ull * 1024 * 1024 * 1024;
 };
 
 // Defaults are llama.cpp's, the most widely exercised settings for models

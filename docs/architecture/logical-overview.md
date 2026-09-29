@@ -262,12 +262,12 @@ variables, such as a thinking mode, and some expose none. A control that exists
 for one model and not another is policy, not code.
 
 **Context offered** is derived, not chosen: the smaller of the file's declared
-context and the device budget divided by KV bytes per token at the chosen
+context and the memory budget divided by KV bytes per token at the chosen
 precision.
 
 **Where policy lives.** The curated model list is a list of measured
-configurations — file, hash, cache precision, sampling per mode, affordances —
-not a list of URLs. It changes when a model is measured. The capability table
+configurations — file, hash, cache precision, memory budget, sampling per
+mode, affordances — not a list of URLs. It changes when a model is measured. The capability table
 changes when code is written. Different reasons, so they are two things. A
 model loaded from a pasted URL gets defaults and is shown as unmeasured;
 presenting an untested model as tuned would claim something nobody checked.

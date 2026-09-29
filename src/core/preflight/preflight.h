@@ -19,7 +19,7 @@ namespace bllm::preflight {
 //   3. Tokenizer — the capability table has the algorithm, and the
 //      pre-tokenizer when the algorithm needs one.
 //   4. Device fit — the residency plan succeeds within the granted limits and
-//      the memory budget.
+//      the memory budget in load policy.
 //
 // A rejection names what failed: the architecture, each unsupported format
 // with the first tensor that uses it, the tokenizer or pre-tokenizer, or bytes
