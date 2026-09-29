@@ -50,11 +50,10 @@ bllm_embed_shaders(
 
 if(EMSCRIPTEN)
     # These need an implementation of webgpu.h. In the wasm configuration that
-    # comes from --use-port=emdawnwebgpu. Natively it would come from Dawn,
-    # which is not linked yet: Dawn arrives with the first model kernel, where
-    # correctness needs a CPU reference to check against. Until then these
-    # sources build for wasm only, and the native test binary covers the
-    # platform-neutral logic.
+    # comes from --use-port=emdawnwebgpu. The native configuration does not
+    # link Dawn, the other implementation, because nothing it builds needs a
+    # GPU: these sources build for wasm only, and the native test binary
+    # covers the platform-neutral logic.
     target_sources(browser_llm_core PRIVATE
         src/core/gpu/device.cpp
         src/core/gpu/self_check.cpp
@@ -69,15 +68,6 @@ if(EMSCRIPTEN)
     # -----------------------------------------------------------------------
     # Browser target. The only Emscripten-aware translation unit.
     # -----------------------------------------------------------------------
-    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/wasm/bindings.cpp")
-        message(FATAL_ERROR
-            "src/wasm/bindings.cpp does not exist yet.\n"
-            "BLLM-001 is still implementing: the WebGPU device path has not "
-            "been written, because it has not yet been compiled against a real "
-            "Emscripten toolchain. See "
-            "docs/decisions/packets/2026-08-29-repo-skeleton-and-build-system.md")
-    endif()
-
     add_executable(browser_llm src/wasm/bindings.cpp)
     target_link_libraries(browser_llm PRIVATE browser_llm_core)
 
@@ -89,11 +79,11 @@ if(EMSCRIPTEN)
         -sENVIRONMENT=web,worker
         # WASM.1: growth is a FALLBACK, not a default. It converts a
         # deterministic out-of-memory at startup into a nondeterministic one
-        # under load. It is kept for now because the loader's real peak is not
-        # yet measured — BLLM-002 owes that number, and -sINITIAL_HEAP should
-        # be set from it rather than from a figure chosen for comfort.
+        # under load. It is enabled because -sINITIAL_HEAP is sized only from
+        # the loader's measured peak, never from a figure chosen for comfort,
+        # and no measured peak exists to size it from.
         #
-        # MAXIMUM_MEMORY bounds the damage meanwhile and makes an out-of-memory
+        # MAXIMUM_MEMORY bounds the damage and makes an out-of-memory
         # reproducible. The default is 2GB, which is a ceiling inherited rather
         # than chosen.
         -sALLOW_MEMORY_GROWTH=1
