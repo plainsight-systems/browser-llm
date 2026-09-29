@@ -58,3 +58,31 @@ TEST_CASE("an unsupported format is reported once, counting every tensor that us
     CHECK(has_rejection(verdict, preflight::Gate::Formats,
                         "format Q4_0 is not supported (2 tensors, first first.weight)"));
 }
+
+TEST_CASE("a file that names no architecture, or names it wrongly, says which") {
+    using preflight::Gate;
+    CHECK(has_rejection(preflight_fixture("no_architecture"), Gate::Architecture,
+                        "the file does not declare general.architecture"));
+    CHECK(has_rejection(preflight_fixture("architecture_not_string"), Gate::Architecture,
+                        "general.architecture is not a string"));
+}
+
+TEST_CASE("the tokenizer and the pre-tokenizer are judged separately, each by name") {
+    using preflight::Gate;
+    const auto verdict = preflight_fixture("tokenizer_named");
+    CHECK(has_rejection(verdict, Gate::Tokenizer, "tokenizer \"gpt2\" is not supported"));
+    CHECK(has_rejection(verdict, Gate::Tokenizer, "pre-tokenizer \"qwen2\" is not supported"));
+}
+
+TEST_CASE("every rejection names its gate and says something") {
+    for (const char* name : {"valid", "no_architecture", "architecture_not_string",
+                             "tokenizer_named", "shared_format"}) {
+        CAPTURE(name);
+        const auto verdict = preflight_fixture(name);
+        CHECK_FALSE(verdict.accepted());
+        for (const auto& r : verdict.rejections) {
+            CHECK_FALSE(r.detail.empty());
+            CHECK(preflight::to_string(r.gate) != "unknown");
+        }
+    }
+}

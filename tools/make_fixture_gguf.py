@@ -94,6 +94,11 @@ def _with_tensor_offset(bogus_offset: int) -> bytes:
     return body + data + b"\0" * ((-len(data)) % 32)
 
 
+def _one_tensor_with(*metadata):
+    """A one-tensor file carrying exactly the given metadata, for the gates."""
+    return build([(b"t", [4], T_F32, b"\0" * 16)], metadata=list(metadata))
+
+
 def _tensors_at(*placements, alignment=32):
     """A file whose tensors sit at chosen relative offsets: (name, offset)."""
     data = q4_0_blocks(1)
@@ -185,6 +190,15 @@ CASES = {
     # The format's limit on a name is 64 bytes: exactly that is fine.
     "tensor_name_64_bytes": lambda: build([(b"n" * 64, [4], T_F32, b"\0" * 16)]),
     "tensor_name_65_bytes": lambda: build([(b"n" * 65, [4], T_F32, b"\0" * 16)]),
+    # For the preflight gates: files that are valid GGUF but name their
+    # architecture and tokenizer in the ways a gate must report.
+    "no_architecture": lambda: _one_tensor_with(),
+    "architecture_not_string": lambda: _one_tensor_with(
+        kv(b"general.architecture", U32, struct.pack("<I", 3))),
+    "tokenizer_named": lambda: _one_tensor_with(
+        kv(b"general.architecture", STRING, gstr(b"qwen3")),
+        kv(b"tokenizer.ggml.model", STRING, gstr(b"gpt2")),
+        kv(b"tokenizer.ggml.pre", STRING, gstr(b"qwen2"))),
     "nested_array": lambda: build(
         [], metadata=[kv(b"bad", ARRAY, struct.pack("<IQ", ARRAY, 1))]
     ),
