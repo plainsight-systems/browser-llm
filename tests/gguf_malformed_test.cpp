@@ -36,7 +36,9 @@ TEST_CASE("malformed inputs each fail with their own named error") {
     CHECK(read_fixture("bad_version") == ReadError::UnsupportedVersion);
     CHECK(read_fixture("truncated_header") == ReadError::ShortRead);
     CHECK(read_fixture("tensor_count_too_large") == ReadError::CountTooLarge);
-    CHECK(read_fixture("metadata_count_lies") == ReadError::ShortRead);
+    // Claims five keys; what follows the header is zero padding, which reads
+    // as an empty key and is refused there, before the file runs out.
+    CHECK(read_fixture("metadata_count_lies") == ReadError::EmptyKey);
     CHECK(read_fixture("negative_dimension") == ReadError::NegativeDimension);
     CHECK(read_fixture("unknown_tensor_type") == ReadError::UnknownTensorType);
     CHECK(read_fixture("not_block_aligned") == ReadError::RowNotWholeBlocks);
@@ -48,6 +50,18 @@ TEST_CASE("malformed inputs each fail with their own named error") {
     CHECK(read_fixture("data_truncated") == ReadError::TensorDataOutOfBounds);
     // The wrap case: absolute offset arithmetic must be refused, not computed.
     CHECK(read_fixture("offset_overflow") == ReadError::OffsetOverflow);
+}
+
+TEST_CASE("rules the format states are enforced, not defaulted around") {
+    // Each was accepted silently before: a bad alignment fell back to 32, and
+    // the rest were never checked.
+    CHECK(read_fixture("alignment_wrong_type") == ReadError::BadAlignment);
+    CHECK(read_fixture("alignment_not_power_of_two") == ReadError::BadAlignment);
+    CHECK(read_fixture("misaligned_tensor_offset") == ReadError::MisalignedTensorData);
+    CHECK(read_fixture("overlapping_tensor_data") == ReadError::OverlappingTensorData);
+    CHECK(read_fixture("empty_metadata_key") == ReadError::EmptyKey);
+    CHECK(read_fixture("duplicate_metadata_key") == ReadError::DuplicateMetadataKey);
+    CHECK(read_fixture("tensor_name_65_bytes") == ReadError::TensorNameTooLong);
 }
 
 TEST_CASE("an empty file fails rather than reading anything") {

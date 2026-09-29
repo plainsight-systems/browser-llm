@@ -45,15 +45,51 @@ namespace {
     return static_cast<std::int64_t>(raw << shift) >> shift;
 }
 
-// Sorts the names rather than comparing each with every other: a file may
-// declare up to kMaxTensorCount tensors, and a quadratic check would let a
-// hostile one stall the reader.
-[[nodiscard]] bool has_duplicate_name(const std::vector<TensorEntry>& tensors) {
-    std::vector<std::string_view> names;
-    names.reserve(tensors.size());
-    for (const TensorEntry& t : tensors) names.push_back(t.name);
-    std::sort(names.begin(), names.end());
-    return std::adjacent_find(names.begin(), names.end()) != names.end();
+// True when some value appears twice. Sorts rather than comparing each value
+// with every other: a file may declare up to 2^20 tensors or keys, and a
+// quadratic check would let a hostile one stall the reader.
+[[nodiscard]] bool has_duplicate(std::vector<std::string_view> values) {
+    std::sort(values.begin(), values.end());
+    return std::adjacent_find(values.begin(), values.end()) != values.end();
+}
+
+template <typename Entry, typename Field>
+[[nodiscard]] std::vector<std::string_view> views_of(const std::vector<Entry>& entries, Field field) {
+    std::vector<std::string_view> views;
+    views.reserve(entries.size());
+    for (const Entry& e : entries) views.push_back(e.*field);
+    return views;
+}
+
+// The alignment tensor data follows: general.alignment when the file declares
+// it, the format's default when it does not. A declared value that is not a
+// power-of-two uint32 is an error, not a reason to fall back; ggml's reader
+// rejects the same files.
+[[nodiscard]] ReadError resolve_alignment(const std::vector<MetadataEntry>& metadata,
+                                          std::uint64_t& out) {
+    out = kDefaultAlignment;
+    for (const MetadataEntry& e : metadata) {
+        if (e.key != "general.alignment") continue;
+        if (e.type != ValueType::UInt32) return ReadError::BadAlignment;
+        const std::uint64_t value = std::get<std::uint64_t>(e.value);
+        if (value == 0 || (value & (value - 1)) != 0) return ReadError::BadAlignment;
+        out = value;
+    }
+    return ReadError::Ok;
+}
+
+// True when two tensors' byte ranges intersect. Precondition: every range is
+// inside the file, so no end wraps.
+[[nodiscard]] bool has_overlap(const std::vector<TensorEntry>& tensors) {
+    std::vector<ByteRange> ranges;
+    ranges.reserve(tensors.size());
+    for (const TensorEntry& t : tensors) ranges.push_back({t.data_offset, t.data_length});
+    std::sort(ranges.begin(), ranges.end(),
+              [](const ByteRange& a, const ByteRange& b) { return a.offset < b.offset; });
+    for (std::size_t i = 1; i < ranges.size(); ++i) {
+        if (ranges[i].offset < ranges[i - 1].offset + ranges[i - 1].length) return true;
+    }
+    return false;
 }
 
 // Walks the file front to back with a cursor. Each take_* advances the cursor
@@ -68,8 +104,8 @@ public:
     [[nodiscard]] ReadError take_string_at(std::uint64_t element, std::string& out);
 
     [[nodiscard]] std::uint64_t bytes_needed() const noexcept { return bytes_needed_; }
-    [[nodiscard]] std::vector<TensorEntry> take_tensors() { return std::move(tensors_); }
-    [[nodiscard]] std::vector<MetadataEntry> take_metadata() { return std::move(metadata_); }
+    [[nodiscard]] std::vector<TensorEntry> release_tensors() { return std::move(tensors_); }
+    [[nodiscard]] std::vector<MetadataEntry> release_metadata() { return std::move(metadata_); }
 
 private:
     [[nodiscard]] ReadError take(std::span<std::byte> out);
@@ -80,6 +116,9 @@ private:
     [[nodiscard]] ReadError take_value(MetadataEntry& entry);
     [[nodiscard]] ReadError take_array(ArrayLocation& out);
     [[nodiscard]] ReadError take_tensor();
+    [[nodiscard]] ReadError take_metadata(std::uint64_t count);
+    [[nodiscard]] ReadError take_tensors(std::uint64_t count);
+    [[nodiscard]] ReadError place_tensor_data(std::uint64_t alignment);
 
     ByteSource& source_;
     std::uint64_t cursor_ = 0;
@@ -225,6 +264,7 @@ ReadError Reader::take_tensor() {
     // half-built entry cannot exist to be pushed by mistake.
     std::string name;
     if (const auto e = take_string(name); e != ReadError::Ok) return e;
+    if (name.size() > kMaxTensorNameLength) return ReadError::TensorNameTooLong;
 
     TensorShape shape;
     std::uint64_t dimension_count = 0;
@@ -266,6 +306,54 @@ ReadError Reader::take_tensor() {
     return ReadError::Ok;
 }
 
+ReadError Reader::take_metadata(std::uint64_t count) {
+    metadata_.reserve(static_cast<std::size_t>(count));
+    for (std::uint64_t i = 0; i < count; ++i) {
+        MetadataEntry entry{};
+        if (const auto e = take_string(entry.key); e != ReadError::Ok) return e;
+        if (entry.key.empty()) return ReadError::EmptyKey;
+        std::uint64_t raw_type = 0;
+        if (const auto e = take_uint(4, raw_type); e != ReadError::Ok) return e;
+        if (!known_value_type(static_cast<std::uint32_t>(raw_type))) return ReadError::UnknownValueType;
+        entry.type = static_cast<ValueType>(raw_type);
+        if (const auto e = take_value(entry); e != ReadError::Ok) return e;
+        metadata_.push_back(std::move(entry));
+    }
+    if (has_duplicate(views_of(metadata_, &MetadataEntry::key))) return ReadError::DuplicateMetadataKey;
+    return ReadError::Ok;
+}
+
+ReadError Reader::take_tensors(std::uint64_t count) {
+    tensors_.reserve(static_cast<std::size_t>(count));
+    for (std::uint64_t i = 0; i < count; ++i) {
+        if (const auto e = take_tensor(); e != ReadError::Ok) return e;
+    }
+    if (has_duplicate(views_of(tensors_, &TensorEntry::name))) return ReadError::DuplicateTensorName;
+    return ReadError::Ok;
+}
+
+// Tensor data begins at the next alignment boundary after the index. Each
+// offset must be a multiple of the alignment (the spec's rule), is made
+// absolute, and must lie inside the file without overlapping another.
+ReadError Reader::place_tensor_data(std::uint64_t alignment) {
+    std::uint64_t data_start = 0;
+    const std::uint64_t pad = (alignment - (cursor_ % alignment)) % alignment;
+    if (!checked_add(cursor_, pad, data_start)) return ReadError::OffsetOverflow;
+    if (data_start > source_.size()) return ReadError::TensorDataOutOfBounds;
+
+    for (auto& t : tensors_) {
+        if (t.data_offset % alignment != 0) return ReadError::MisalignedTensorData;
+        std::uint64_t absolute = 0;
+        if (!checked_add(data_start, t.data_offset, absolute)) return ReadError::OffsetOverflow;
+        if (!range_within(absolute, t.data_length, source_.size())) {
+            return ReadError::TensorDataOutOfBounds;
+        }
+        t.data_offset = absolute;
+    }
+    if (has_overlap(tensors_)) return ReadError::OverlappingTensorData;
+    return ReadError::Ok;
+}
+
 ReadError Reader::parse() {
     std::byte magic[4];
     if (const auto e = take(magic); e != ReadError::Ok) return e;
@@ -285,51 +373,11 @@ ReadError Reader::parse() {
     if (tensor_count > kMaxTensorCount) return ReadError::CountTooLarge;
     if (metadata_count > kMaxMetadataCount) return ReadError::CountTooLarge;
 
-    metadata_.reserve(static_cast<std::size_t>(metadata_count));
-    for (std::uint64_t i = 0; i < metadata_count; ++i) {
-        MetadataEntry entry{};
-        if (const auto e = take_string(entry.key); e != ReadError::Ok) return e;
-        std::uint64_t raw_type = 0;
-        if (const auto e = take_uint(4, raw_type); e != ReadError::Ok) return e;
-        if (!known_value_type(static_cast<std::uint32_t>(raw_type))) return ReadError::UnknownValueType;
-        entry.type = static_cast<ValueType>(raw_type);
-        if (const auto e = take_value(entry); e != ReadError::Ok) return e;
-        metadata_.push_back(std::move(entry));
-    }
-
-    // general.alignment, if present and a power of two, governs where tensor
-    // data begins; otherwise the format's default does.
-    std::uint64_t alignment = kDefaultAlignment;
-    for (const MetadataEntry& e : metadata_) {
-        if (e.key == "general.alignment" && e.type == ValueType::UInt32) {
-            const std::uint64_t value = std::get<std::uint64_t>(e.value);
-            if (value != 0 && (value & (value - 1)) == 0) alignment = value;
-        }
-    }
-
-    tensors_.reserve(static_cast<std::size_t>(tensor_count));
-    for (std::uint64_t i = 0; i < tensor_count; ++i) {
-        if (const auto e = take_tensor(); e != ReadError::Ok) return e;
-    }
-    if (has_duplicate_name(tensors_)) return ReadError::DuplicateTensorName;
-
-    // Tensor data begins at the next alignment boundary after the index.
-    std::uint64_t data_start = 0;
-    const std::uint64_t pad = (alignment - (cursor_ % alignment)) % alignment;
-    if (!checked_add(cursor_, pad, data_start)) return ReadError::OffsetOverflow;
-    if (data_start > source_.size()) return ReadError::TensorDataOutOfBounds;
-
-    // Make each tensor's offset absolute and validate its region against the
-    // file's authoritative size.
-    for (auto& t : tensors_) {
-        std::uint64_t absolute = 0;
-        if (!checked_add(data_start, t.data_offset, absolute)) return ReadError::OffsetOverflow;
-        if (!range_within(absolute, t.data_length, source_.size())) {
-            return ReadError::TensorDataOutOfBounds;
-        }
-        t.data_offset = absolute;
-    }
-    return ReadError::Ok;
+    if (const auto e = take_metadata(metadata_count); e != ReadError::Ok) return e;
+    std::uint64_t alignment = 0;
+    if (const auto e = resolve_alignment(metadata_, alignment); e != ReadError::Ok) return e;
+    if (const auto e = take_tensors(tensor_count); e != ReadError::Ok) return e;
+    return place_tensor_data(alignment);
 }
 
 }  // namespace
@@ -338,8 +386,8 @@ ReadResult read_index(ByteSource& source, TensorIndex& out) {
     Reader reader{source};
     const ReadError error = reader.parse();
     if (error != ReadError::Ok) return ReadResult{error, reader.bytes_needed()};
-    out.tensors_ = reader.take_tensors();
-    out.metadata_ = reader.take_metadata();
+    out.tensors_ = reader.release_tensors();
+    out.metadata_ = reader.release_metadata();
     return ReadResult{};
 }
 

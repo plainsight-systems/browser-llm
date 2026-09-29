@@ -152,6 +152,12 @@ not rejected: the verdict belongs to the gates, which consult the capability
 table and name the tensor they reject. The reader knows nothing of which
 formats are implemented and depends on nothing in `formats/`.
 
+It does enforce the rules the format itself states: tensor offsets are
+multiples of the alignment, `general.alignment` is a power-of-two `uint32`,
+metadata keys are non-empty and unique, tensor names fit in 64 bytes, and no
+two tensors claim the same bytes. A file that breaks one is refused by name;
+the reader never substitutes a default for a value the file got wrong.
+
 ## Contracts
 
 Four rules hold for every contract:

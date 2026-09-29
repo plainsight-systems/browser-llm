@@ -117,3 +117,22 @@ TEST_CASE("a string array's elements are read by position") {
     CHECK(text == "ccc");
     CHECK(read_string_element(source, tokens, 3, text).error == ReadError::ShortRead);
 }
+
+TEST_CASE("a declared alignment other than the default is honoured") {
+    const auto bytes = load_gguf_fixture("alignment_64");
+    const TensorIndex index = read_fixture(bytes);
+    REQUIRE(index.tensors().size() == 2);
+    for (const auto& t : index.tensors()) {
+        CAPTURE(t.name);
+        CHECK(t.data_offset % 64 == 0);
+    }
+    // Two 16-byte tensors, each padded to the declared 64.
+    CHECK(index.tensors()[1].data_offset - index.tensors()[0].data_offset == 64);
+}
+
+TEST_CASE("a tensor name of exactly the format's 64-byte limit is accepted") {
+    const auto bytes = load_gguf_fixture("tensor_name_64_bytes");
+    const TensorIndex index = read_fixture(bytes);
+    REQUIRE(index.tensors().size() == 1);
+    CHECK(index.tensors()[0].name.size() == 64);
+}

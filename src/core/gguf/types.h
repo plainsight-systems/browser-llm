@@ -13,6 +13,8 @@ inline constexpr char kMagic[4] = {'G', 'G', 'U', 'F'};
 inline constexpr std::uint32_t kSupportedVersion = 3;
 inline constexpr std::uint32_t kDefaultAlignment = 32;
 inline constexpr std::uint32_t kMaxDimensions = 4;
+// The format's own limit on a tensor name.
+inline constexpr std::uint64_t kMaxTensorNameLength = 64;
 
 // Bounds that exist to stop a hostile file from making us allocate. They are
 // not format limits, they are our limits, and exceeding one is a named error
@@ -128,7 +130,12 @@ enum class ReadError : std::uint32_t {
     OffsetOverflow,          // offset + length wraps
     TensorDataOutOfBounds,   // the region is not inside the file
     DuplicateTensorName,
-    MisalignedTensorData,
+    TensorNameTooLong,       // longer than the format's 64 bytes
+    MisalignedTensorData,    // an offset that is not a multiple of the alignment
+    OverlappingTensorData,   // two tensors claim the same bytes
+    BadAlignment,            // general.alignment is not a power-of-two uint32
+    EmptyKey,
+    DuplicateMetadataKey,
     NestedArray,             // arrays of arrays are not supported
 };
 
@@ -151,7 +158,12 @@ enum class ReadError : std::uint32_t {
         case ReadError::OffsetOverflow: return "offset plus length overflows";
         case ReadError::TensorDataOutOfBounds: return "tensor data lies outside the file";
         case ReadError::DuplicateTensorName: return "duplicate tensor name";
-        case ReadError::MisalignedTensorData: return "tensor data start is misaligned";
+        case ReadError::TensorNameTooLong: return "tensor name is longer than 64 bytes";
+        case ReadError::MisalignedTensorData: return "tensor data is not aligned as the file declares";
+        case ReadError::OverlappingTensorData: return "two tensors claim the same bytes";
+        case ReadError::BadAlignment: return "general.alignment is not a power-of-two uint32";
+        case ReadError::EmptyKey: return "a metadata key is empty";
+        case ReadError::DuplicateMetadataKey: return "duplicate metadata key";
         case ReadError::NestedArray: return "nested arrays are not supported";
     }
     return "unrecognised error";

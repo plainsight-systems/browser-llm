@@ -94,6 +94,24 @@ def _with_tensor_offset(bogus_offset: int) -> bytes:
     return body + data + b"\0" * ((-len(data)) % 32)
 
 
+def _tensors_at(*placements, alignment=32):
+    """A file whose tensors sit at chosen relative offsets: (name, offset)."""
+    data = q4_0_blocks(1)
+    head = MAGIC + struct.pack("<I", VERSION) + struct.pack("<QQ", len(placements), 0)
+    info = b""
+    for name, offset in placements:
+        info += gstr(name) + struct.pack("<I", 1) + struct.pack("<q", 32)
+        info += struct.pack("<I", T_Q4_0) + struct.pack("<Q", offset)
+    body = head + info
+    body += b"\0" * ((-len(body)) % alignment)
+    return body + data + b"\0" * 64
+
+
+def _with_alignment(vtype, payload, alignment=32):
+    return build([(b"t", [4], T_F32, b"\0" * 16)],
+                 metadata=[kv(b"general.alignment", vtype, payload)], alignment=alignment)
+
+
 CASES = {
     "valid": valid,
     "bad_magic": lambda: build([], magic=b"GGUX"),
@@ -147,6 +165,26 @@ CASES = {
         (b"other", [4], T_F32, b"\0" * 16),
         (b"dup", [4], T_F32, b"\0" * 16),
     ]),
+    # A declared alignment other than the default is honoured.
+    "alignment_64": lambda: build(
+        [(b"a", [4], T_F32, b"\0" * 16), (b"b", [4], T_F32, b"\0" * 16)],
+        metadata=[kv(b"general.alignment", U32, struct.pack("<I", 64))], alignment=64),
+    # The alignment must be a power-of-two uint32; neither is a reason to
+    # fall back to the default.
+    "alignment_wrong_type": lambda: _with_alignment(U64, struct.pack("<Q", 32)),
+    "alignment_not_power_of_two": lambda: _with_alignment(U32, struct.pack("<I", 48)),
+    # The spec: every tensor offset is a multiple of the alignment.
+    "misaligned_tensor_offset": lambda: _tensors_at((b"t", 16)),
+    "overlapping_tensor_data": lambda: _tensors_at((b"a", 0), (b"b", 0)),
+    "empty_metadata_key": lambda: build(
+        [], metadata=[kv(b"", U32, struct.pack("<I", 1))]),
+    "duplicate_metadata_key": lambda: build(
+        [], metadata=[kv(b"general.name", STRING, gstr(b"a")),
+                      kv(b"general.type", STRING, gstr(b"model")),
+                      kv(b"general.name", STRING, gstr(b"b"))]),
+    # The format's limit on a name is 64 bytes: exactly that is fine.
+    "tensor_name_64_bytes": lambda: build([(b"n" * 64, [4], T_F32, b"\0" * 16)]),
+    "tensor_name_65_bytes": lambda: build([(b"n" * 65, [4], T_F32, b"\0" * 16)]),
     "nested_array": lambda: build(
         [], metadata=[kv(b"bad", ARRAY, struct.pack("<IQ", ARRAY, 1))]
     ),
