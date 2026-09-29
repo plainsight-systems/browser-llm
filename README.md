@@ -59,6 +59,10 @@ Then [`docs/architecture/change-axes.md`](docs/architecture/change-axes.md) —
 the thirteen reasons any file here changes, and the rule that decides where code
 goes: one translation unit, one reason to change.
 
+Then [`docs/architecture/file-mapping.md`](docs/architecture/file-mapping.md) —
+which files implement each box, the axis each changes on, and the contracts
+between them.
+
 ## Governance
 
 Entry point: [`docs/decisions/MEMORY.md`](docs/decisions/MEMORY.md).

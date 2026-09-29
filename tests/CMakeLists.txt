@@ -19,6 +19,7 @@ add_executable(browser_llm_tests
     gguf_parse_test.cpp
     gguf_quant_params_test.cpp
     gguf_malformed_test.cpp
+    contract_headers_test.cpp
     main_test.cpp
 )
 

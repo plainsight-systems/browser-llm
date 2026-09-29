@@ -3,6 +3,11 @@
 // Its job is translation, not behavior: it starts the device request, forwards
 // the result to JavaScript as JSON, and owns nothing else. Product behavior
 // belongs in src/core.
+//
+// Contract 11, the boundary: this file and web/worker.js are the only two
+// places JavaScript and C++ meet. The crossings are preflight a header prefix,
+// load a chunk of the file, generate from a rendered prompt and the turn's
+// policy, and cancel. Text goes back one crossing per token (WASM.2).
 
 #include <emscripten.h>
 #include <emscripten/eventloop.h>

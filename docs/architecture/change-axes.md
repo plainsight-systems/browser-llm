@@ -5,7 +5,7 @@ because without that list the rule cannot be applied — every split sounds
 arguable and the argument is settled by taste.
 
 It governs how [`logical-overview.md`](logical-overview.md)'s boxes become
-files. It does not list the files; that is the mapping, written next.
+files. It does not list the files; that is [`file-mapping.md`](file-mapping.md).
 
 ## The axes
 
@@ -41,12 +41,12 @@ measuring a model never looks like a code change.
 **Architecture and tokenizer are separate axes.** Adding an architecture that
 reuses an existing tokenizer touches no tokenizer; adding a tokenizer under an
 existing architecture touches no graph. That is the test below, and it is why
-K is not part of A. An earlier version of this table lumped them, because the
-first two models examined happened to differ in both — which is exactly the
-coincidence the test exists to catch.
+K is not part of A. Examples that happen to differ in both architecture and
+tokenizer do not show that the two change together; they are the coincidence
+the test exists to catch.
 
-**B covers writing as well as reading.** Weights are only ever read, so B began
-as "unpack". A quantized cache would be the first thing the harness *writes* in
+**B covers writing as well as reading.** Weights are only ever read, but a
+quantized cache would be the first thing the harness *writes* in
 a quantized format, and it reuses the format knowledge of any weight stored in
 the same format. B owns both directions. Which format the cache uses is not B's
 business; that is policy, on J.

@@ -1,0 +1,4 @@
+{
+  "$comment": "Axis J: one measured configuration per model; changes when a model is measured. Each entry: file URL, SHA-256, cache precision, sampling settings per mode, and the template variables the model exposes. Contract 12 in docs/architecture/file-mapping.md; the C++ side is src/core/policy/policy.h.",
+  "models": []
+}

@@ -1,6 +1,11 @@
 // Owns the wasm module and the inference loop. Runs off the main thread so the
 // page stays responsive.
 //
+// Contract 11, the boundary: this file and src/wasm/bindings.cpp are the only
+// two places JavaScript and C++ meet. The crossings are preflight a header
+// prefix, load a chunk of the file, generate from a rendered prompt and the
+// turn's policy, and cancel. Text comes back one message per token (WASM.2).
+//
 // A plain Web Worker, deliberately: it needs no SharedArrayBuffer, so it works
 // on GitHub Pages, which cannot set the COOP/COEP headers that cross-origin
 // isolation requires.

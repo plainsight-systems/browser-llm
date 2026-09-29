@@ -5,10 +5,9 @@ models differ.
 
 This is the **logical** view: phases, responsibilities, and principles. It
 names no files, no types, and no interfaces. The rules that turn these boxes
-into files are in [`change-axes.md`](change-axes.md); the mapping itself is a
-separate document, written when the mapping is real. A previous architecture
-document drifted because it described a design that was never built; this one
-is kept to claims that can be checked against a model file.
+into files are in [`change-axes.md`](change-axes.md), and the resulting
+arrangement is in [`file-mapping.md`](file-mapping.md). Every claim here can be
+checked against a model file.
 
 The principles are general. Three real model files were read to test them, and
 those appear only as evidence at the end — they are examples, not the design.
@@ -248,7 +247,7 @@ has three more mantissa bits, bf16 has f32's range — and a model trained in
 bf16 has only ever produced values bf16 can hold. The choice sits on the
 bounded-divergence side of the correctness gate, so it is made by measuring
 logits against an f32-cache reference over real conversations, not by
-argument. Until measured, f16 is a starting point, not a decision.
+argument. A model without a measurement uses f16.
 
 **Sampling.** Model cards specify sampling settings, and they are not
 interchangeable between models or even between modes of one model. Qwen3's
@@ -412,9 +411,3 @@ In both, new weights for a known architecture need no code, and a new
 architecture, weight format or tokenizer does — the boundaries of principles 2
 and 3. The one difference is the fallback, which is why principle 7 rejects by
 name instead.
-
-## What this document does not contain
-
-No file layout, no type names, no interfaces, no acceptance criteria. Those
-belong to the mapping that comes next, and writing them here before the code
-exists is how the previous architecture document became fiction.

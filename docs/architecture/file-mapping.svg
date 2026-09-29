@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="700" viewBox="0 0 680 700" role="img">
+<title>Each logical box mapped to the files that implement it, with each file's change axis</title>
+<desc>Twelve logical boxes, each with the files that implement it and the axis each file changes on. Seven boxes span more than one axis and split into files on different axes: Pick, Preflight, Gates, Upload, KV cache, Prefill and Decode, and Emit. Files are coloured by layer: JavaScript, C++ core, or the WASM boundary.</desc>
+<style>
+  .bg { fill: #FFFFFF; }
+  .th { font: 500 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #2C2C2A; }
+  .ts { font: 400 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #5F5E5A; }
+  rect { stroke-width: 1; }
+  .coral rect  { fill: #FAECE7; stroke: #D85A30; } .coral text  { fill: #712B13; }
+  .gray rect   { fill: #F1EFE8; stroke: #888780; } .gray text   { fill: #2C2C2A; }
+  .teal rect   { fill: #E1F5EE; stroke: #0F6E56; } .teal text   { fill: #085041; }
+  .purple rect { fill: #EEEDFE; stroke: #534AB7; } .purple text { fill: #3C3489; }
+  .arr { stroke: #888780; stroke-width: 1.5; fill: none; }
+</style>
+<defs>
+  <marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+    <path d="M 0 1 L 8 5 L 0 9" fill="none" stroke="#888780" stroke-width="1.5"/>
+  </marker>
+</defs>
+<rect class="bg" x="0" y="0" width="680" height="700"/>
+
+<text class="th" x="40" y="44">Logical box</text>
+<text class="th" x="192" y="44">Files, and the axis each changes on</text>
+
+<text class="ts" x="40" y="66">Load</text>
+
+<g class="coral"><rect x="40" y="74" width="134" height="32" rx="6"/><text class="th" x="107" y="95" text-anchor="middle">Pick</text></g>
+<line class="arr" x1="174" y1="90" x2="190" y2="90" marker-end="url(#a)"/>
+<g class="teal"><rect x="192" y="76" width="111" height="28" rx="5"/><text class="ts" x="247" y="94" text-anchor="middle">web/picker · H</text></g>
+<g class="teal"><rect x="311" y="76" width="144" height="28" rx="5"/><text class="ts" x="383" y="94" text-anchor="middle">web/models.json · J</text></g>
+
+<g class="coral"><rect x="40" y="114" width="134" height="32" rx="6"/><text class="th" x="107" y="135" text-anchor="middle">Preflight</text></g>
+<line class="arr" x1="174" y1="130" x2="190" y2="130" marker-end="url(#a)"/>
+<g class="teal"><rect x="192" y="116" width="105" height="28" rx="5"/><text class="ts" x="244" y="134" text-anchor="middle">web/fetch · L</text></g>
+<g class="purple"><rect x="305" y="116" width="118" height="28" rx="5"/><text class="ts" x="364" y="134" text-anchor="middle">gguf/reader · C</text></g>
+
+<g class="coral"><rect x="40" y="154" width="134" height="32" rx="6"/><text class="th" x="107" y="175" text-anchor="middle">Gates</text></g>
+<line class="arr" x1="174" y1="170" x2="190" y2="170" marker-end="url(#a)"/>
+<g class="purple"><rect x="192" y="156" width="105" height="28" rx="5"/><text class="ts" x="244" y="174" text-anchor="middle">preflight · I</text></g>
+<g class="purple"><rect x="305" y="156" width="111" height="28" rx="5"/><text class="ts" x="360" y="174" text-anchor="middle">capability · I</text></g>
+<g class="purple"><rect x="424" y="156" width="137" height="28" rx="5"/><text class="ts" x="492" y="174" text-anchor="middle">residency/plan · D</text></g>
+
+<g class="gray"><rect x="40" y="194" width="134" height="32" rx="6"/><text class="th" x="107" y="215" text-anchor="middle">Fetch</text></g>
+<line class="arr" x1="174" y1="210" x2="190" y2="210" marker-end="url(#a)"/>
+<g class="teal"><rect x="192" y="196" width="105" height="28" rx="5"/><text class="ts" x="244" y="214" text-anchor="middle">web/fetch · L</text></g>
+<g class="teal"><rect x="305" y="196" width="98" height="28" rx="5"/><text class="ts" x="354" y="214" text-anchor="middle">web/opfs · L</text></g>
+
+<g class="coral"><rect x="40" y="234" width="134" height="66" rx="6"/><text class="th" x="107" y="272" text-anchor="middle">Upload</text></g>
+<line class="arr" x1="174" y1="250" x2="190" y2="250" marker-end="url(#a)"/>
+<line class="arr" x1="174" y1="284" x2="190" y2="284" marker-end="url(#a)"/>
+<g class="purple"><rect x="192" y="236" width="137" height="28" rx="5"/><text class="ts" x="260" y="254" text-anchor="middle">residency/plan · D</text></g>
+<g class="purple"><rect x="337" y="236" width="131" height="28" rx="5"/><text class="ts" x="402" y="254" text-anchor="middle">formats/&lt;fmt&gt; · B</text></g>
+<g class="purple"><rect x="192" y="270" width="150" height="28" rx="5"/><text class="ts" x="267" y="288" text-anchor="middle">residency/upload · D</text></g>
+<g class="purple"><rect x="350" y="270" width="118" height="28" rx="5"/><text class="ts" x="409" y="288" text-anchor="middle">arch/&lt;arch&gt; · A</text></g>
+
+<text class="ts" x="40" y="322">Generate</text>
+
+<g class="gray"><rect x="40" y="330" width="134" height="32" rx="6"/><text class="th" x="107" y="351" text-anchor="middle">Jinja</text></g>
+<line class="arr" x1="174" y1="346" x2="190" y2="346" marker-end="url(#a)"/>
+<g class="teal"><rect x="192" y="332" width="124" height="28" rx="5"/><text class="ts" x="254" y="350" text-anchor="middle">web/template · H</text></g>
+
+<g class="gray"><rect x="40" y="370" width="134" height="32" rx="6"/><text class="th" x="107" y="391" text-anchor="middle">Tokenize</text></g>
+<line class="arr" x1="174" y1="386" x2="190" y2="386" marker-end="url(#a)"/>
+<g class="purple"><rect x="192" y="372" width="144" height="28" rx="5"/><text class="ts" x="264" y="390" text-anchor="middle">tokenizer/&lt;alg&gt; · K</text></g>
+<g class="purple"><rect x="344" y="372" width="118" height="28" rx="5"/><text class="ts" x="403" y="390" text-anchor="middle">pretokenize · K</text></g>
+
+<g class="gray"><rect x="40" y="410" width="134" height="32" rx="6"/><text class="th" x="107" y="431" text-anchor="middle">Diff</text></g>
+<line class="arr" x1="174" y1="426" x2="190" y2="426" marker-end="url(#a)"/>
+<g class="purple"><rect x="192" y="412" width="124" height="28" rx="5"/><text class="ts" x="254" y="430" text-anchor="middle">cache/prefix · G</text></g>
+
+<g class="coral"><rect x="40" y="450" width="134" height="32" rx="6"/><text class="th" x="107" y="471" text-anchor="middle">KV cache</text></g>
+<line class="arr" x1="174" y1="466" x2="190" y2="466" marker-end="url(#a)"/>
+<g class="purple"><rect x="192" y="452" width="98" height="28" rx="5"/><text class="ts" x="241" y="470" text-anchor="middle">cache/kv · G</text></g>
+<g class="purple"><rect x="298" y="452" width="131" height="28" rx="5"/><text class="ts" x="363" y="470" text-anchor="middle">formats/&lt;fmt&gt; · B</text></g>
+
+<g class="coral"><rect x="40" y="490" width="134" height="32" rx="6"/><text class="th" x="107" y="511" text-anchor="middle">Prefill · Decode</text></g>
+<line class="arr" x1="174" y1="506" x2="190" y2="506" marker-end="url(#a)"/>
+<g class="purple"><rect x="192" y="492" width="92" height="28" rx="5"/><text class="ts" x="238" y="510" text-anchor="middle">runtime · M</text></g>
+<g class="purple"><rect x="292" y="492" width="118" height="28" rx="5"/><text class="ts" x="351" y="510" text-anchor="middle">arch/&lt;arch&gt; · A</text></g>
+<g class="purple"><rect x="418" y="492" width="105" height="28" rx="5"/><text class="ts" x="470" y="510" text-anchor="middle">kernels/* · E</text></g>
+
+<g class="gray"><rect x="40" y="530" width="134" height="32" rx="6"/><text class="th" x="107" y="551" text-anchor="middle">Sample</text></g>
+<line class="arr" x1="174" y1="546" x2="190" y2="546" marker-end="url(#a)"/>
+<g class="purple"><rect x="192" y="532" width="92" height="28" rx="5"/><text class="ts" x="238" y="550" text-anchor="middle">sampler · F</text></g>
+
+<g class="coral"><rect x="40" y="570" width="134" height="32" rx="6"/><text class="th" x="107" y="591" text-anchor="middle">Emit</text></g>
+<line class="arr" x1="174" y1="586" x2="190" y2="586" marker-end="url(#a)"/>
+<g class="purple"><rect x="192" y="572" width="144" height="28" rx="5"/><text class="ts" x="264" y="590" text-anchor="middle">tokenizer/&lt;alg&gt; · K</text></g>
+<g class="gray"><rect x="344" y="572" width="105" height="28" rx="5"/><text class="ts" x="396" y="590" text-anchor="middle">wasm/bindings</text></g>
+<g class="teal"><rect x="457" y="572" width="98" height="28" rx="5"/><text class="ts" x="506" y="590" text-anchor="middle">web/chat · H</text></g>
+
+<g class="coral"><rect x="40" y="624" width="12" height="12" rx="2"/></g>
+<text class="ts" x="60" y="635">spans more than one change axis, so its files split</text>
+<g class="teal"><rect x="40" y="646" width="12" height="12" rx="2"/></g>
+<text class="ts" x="60" y="657">JavaScript</text>
+<g class="purple"><rect x="150" y="646" width="12" height="12" rx="2"/></g>
+<text class="ts" x="170" y="657">C++ core</text>
+<g class="gray"><rect x="250" y="646" width="12" height="12" rx="2"/></g>
+<text class="ts" x="270" y="657">WASM boundary</text>
+<text class="ts" x="40" y="684">A file in more than one row serves several boxes, always on its one axis.</text>
+</svg>
