@@ -1,0 +1,299 @@
+{
+ "date": "29 Sep 2026",
+ "fixtures": [
+  {
+   "model": "qwen3-0.6b-q4_0",
+   "chat": {
+    "template": "{%- if tools %}\n    {{- '<|im_start|>system\\n' }}\n    {%- if messages[0].role == 'system' %}\n        {{- messages[0].content + '\\n\\n' }}\n    {%- endif %}\n    {{- \"# Tools\\n\\nYou may call one or more functions to assist with the user query.\\n\\nYou are provided with function signatures within <tools></tools> XML tags:\\n<tools>\" }}\n    {%- for tool in tools %}\n        {{- \"\\n\" }}\n        {{- tool | tojson }}\n    {%- endfor %}\n    {{- \"\\n</tools>\\n\\nFor each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\\n<tool_call>\\n{\\\"name\\\": <function-name>, \\\"arguments\\\": <args-json-object>}\\n</tool_call><|im_end|>\\n\" }}\n{%- else %}\n    {%- if messages[0].role == 'system' %}\n        {{- '<|im_start|>system\\n' + messages[0].content + '<|im_end|>\\n' }}\n    {%- endif %}\n{%- endif %}\n{%- set ns = namespace(multi_step_tool=true, last_query_index=messages|length - 1) %}\n{%- for forward_message in messages %}\n    {%- set index = (messages|length - 1) - loop.index0 %}\n    {%- set message = messages[index] %}\n    {%- set current_content = message.content if message.content is defined and message.content is not none else '' %}\n    {%- set tool_start = '<tool_response>' %}\n    {%- set tool_start_length = tool_start|length %}\n    {%- set start_of_message = current_content[:tool_start_length] %}\n    {%- set tool_end = '</tool_response>' %}\n    {%- set tool_end_length = tool_end|length %}\n    {%- set start_pos = (current_content|length) - tool_end_length %}\n    {%- if start_pos < 0 %}\n        {%- set start_pos = 0 %}\n    {%- endif %}\n    {%- set end_of_message = current_content[start_pos:] %}\n    {%- if ns.multi_step_tool and message.role == \"user\" and not(start_of_message == tool_start and end_of_message == tool_end) %}\n        {%- set ns.multi_step_tool = false %}\n        {%- set ns.last_query_index = index %}\n    {%- endif %}\n{%- endfor %}\n{%- for message in messages %}\n    {%- if (message.role == \"user\") or (message.role == \"system\" and not loop.first) %}\n        {{- '<|im_start|>' + message.role + '\\n' + message.content + '<|im_end|>' + '\\n' }}\n    {%- elif message.role == \"assistant\" %}\n        {%- set m_content = message.content if message.content is defined and message.content is not none else '' %}\n        {%- set content = m_content %}\n        {%- set reasoning_content = '' %}\n        {%- if message.reasoning_content is defined and message.reasoning_content is not none %}\n            {%- set reasoning_content = message.reasoning_content %}\n        {%- else %}\n            {%- if '</think>' in m_content %}\n                {%- set content = (m_content.split('</think>')|last).lstrip('\\n') %}\n                {%- set reasoning_content = (m_content.split('</think>')|first).rstrip('\\n') %}\n                {%- set reasoning_content = (reasoning_content.split('<think>')|last).lstrip('\\n') %}\n            {%- endif %}\n        {%- endif %}\n        {%- if loop.index0 > ns.last_query_index %}\n            {%- if loop.last or (not loop.last and (not reasoning_content.strip() == '')) %}\n                {{- '<|im_start|>' + message.role + '\\n<think>\\n' + reasoning_content.strip('\\n') + '\\n</think>\\n\\n' + content.lstrip('\\n') }}\n            {%- else %}\n                {{- '<|im_start|>' + message.role + '\\n' + content }}\n            {%- endif %}\n        {%- else %}\n            {{- '<|im_start|>' + message.role + '\\n' + content }}\n        {%- endif %}\n        {%- if message.tool_calls %}\n            {%- for tool_call in message.tool_calls %}\n                {%- if (loop.first and content) or (not loop.first) %}\n                    {{- '\\n' }}\n                {%- endif %}\n                {%- if tool_call.function %}\n                    {%- set tool_call = tool_call.function %}\n                {%- endif %}\n                {{- '<tool_call>\\n{\"name\": \"' }}\n                {{- tool_call.name }}\n                {{- '\", \"arguments\": ' }}\n                {%- if tool_call.arguments is string %}\n                    {{- tool_call.arguments }}\n                {%- else %}\n                    {{- tool_call.arguments | tojson }}\n                {%- endif %}\n                {{- '}\\n</tool_call>' }}\n            {%- endfor %}\n        {%- endif %}\n        {{- '<|im_end|>\\n' }}\n    {%- elif message.role == \"tool\" %}\n        {%- if loop.first or (messages[loop.index0 - 1].role != \"tool\") %}\n            {{- '<|im_start|>user' }}\n        {%- endif %}\n        {{- '\\n<tool_response>\\n' }}\n        {{- message.content }}\n        {{- '\\n</tool_response>' }}\n        {%- if loop.last or (messages[loop.index0 + 1].role != \"tool\") %}\n            {{- '<|im_end|>\\n' }}\n        {%- endif %}\n    {%- endif %}\n{%- endfor %}\n{%- if add_generation_prompt %}\n    {{- '<|im_start|>assistant\\n' }}\n    {%- if enable_thinking is defined and enable_thinking is false %}\n        {{- '<think>\\n\\n</think>\\n\\n' }}\n    {%- endif %}\n{%- endif %}",
+    "bosToken": null,
+    "eosToken": "<|im_end|>"
+   },
+   "cases": [
+    {
+     "name": "one user turn",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Hello"
+      }
+     ],
+     "variables": {},
+     "expected": "<|im_start|>user\nHello<|im_end|>\n<|im_start|>assistant\n"
+    },
+    {
+     "name": "one user turn",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Hello"
+      }
+     ],
+     "variables": {
+      "enable_thinking": false
+     },
+     "expected": "<|im_start|>user\nHello<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+    },
+    {
+     "name": "system prompt",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be brief."
+      },
+      {
+       "role": "user",
+       "content": "What is a KV cache?"
+      }
+     ],
+     "variables": {},
+     "expected": "<|im_start|>system\nBe brief.<|im_end|>\n<|im_start|>user\nWhat is a KV cache?<|im_end|>\n<|im_start|>assistant\n"
+    },
+    {
+     "name": "system prompt",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be brief."
+      },
+      {
+       "role": "user",
+       "content": "What is a KV cache?"
+      }
+     ],
+     "variables": {
+      "enable_thinking": false
+     },
+     "expected": "<|im_start|>system\nBe brief.<|im_end|>\n<|im_start|>user\nWhat is a KV cache?<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+    },
+    {
+     "name": "second turn",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Hi"
+      },
+      {
+       "role": "assistant",
+       "content": "Hello! How can I help?"
+      },
+      {
+       "role": "user",
+       "content": "Tell me a joke."
+      }
+     ],
+     "variables": {},
+     "expected": "<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\nHello! How can I help?<|im_end|>\n<|im_start|>user\nTell me a joke.<|im_end|>\n<|im_start|>assistant\n"
+    },
+    {
+     "name": "second turn",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Hi"
+      },
+      {
+       "role": "assistant",
+       "content": "Hello! How can I help?"
+      },
+      {
+       "role": "user",
+       "content": "Tell me a joke."
+      }
+     ],
+     "variables": {
+      "enable_thinking": false
+     },
+     "expected": "<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\nHello! How can I help?<|im_end|>\n<|im_start|>user\nTell me a joke.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+    },
+    {
+     "name": "earlier reasoning in the history",
+     "messages": [
+      {
+       "role": "user",
+       "content": "2+2?"
+      },
+      {
+       "role": "assistant",
+       "content": "<think>\nAdd them.\n</think>\n\n4"
+      },
+      {
+       "role": "user",
+       "content": "And 3+3?"
+      }
+     ],
+     "variables": {},
+     "expected": "<|im_start|>user\n2+2?<|im_end|>\n<|im_start|>assistant\n4<|im_end|>\n<|im_start|>user\nAnd 3+3?<|im_end|>\n<|im_start|>assistant\n"
+    },
+    {
+     "name": "earlier reasoning in the history",
+     "messages": [
+      {
+       "role": "user",
+       "content": "2+2?"
+      },
+      {
+       "role": "assistant",
+       "content": "<think>\nAdd them.\n</think>\n\n4"
+      },
+      {
+       "role": "user",
+       "content": "And 3+3?"
+      }
+     ],
+     "variables": {
+      "enable_thinking": false
+     },
+     "expected": "<|im_start|>user\n2+2?<|im_end|>\n<|im_start|>assistant\n4<|im_end|>\n<|im_start|>user\nAnd 3+3?<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+    }
+   ]
+  },
+  {
+   "model": "llama-3.2-1b-instruct-q4_0",
+   "chat": {
+    "template": "{{- bos_token }}\n{%- if custom_tools is defined %}\n    {%- set tools = custom_tools %}\n{%- endif %}\n{%- if not tools_in_user_message is defined %}\n    {%- set tools_in_user_message = true %}\n{%- endif %}\n{%- if not date_string is defined %}\n    {%- if strftime_now is defined %}\n        {%- set date_string = strftime_now(\"%d %b %Y\") %}\n    {%- else %}\n        {%- set date_string = \"26 Jul 2024\" %}\n    {%- endif %}\n{%- endif %}\n{%- if not tools is defined %}\n    {%- set tools = none %}\n{%- endif %}\n\n{#- This block extracts the system message, so we can slot it into the right place. #}\n{%- if messages[0]['role'] == 'system' %}\n    {%- set system_message = messages[0]['content']|trim %}\n    {%- set messages = messages[1:] %}\n{%- else %}\n    {%- set system_message = \"\" %}\n{%- endif %}\n\n{#- System message #}\n{{- \"<|start_header_id|>system<|end_header_id|>\\n\\n\" }}\n{%- if tools is not none %}\n    {{- \"Environment: ipython\\n\" }}\n{%- endif %}\n{{- \"Cutting Knowledge Date: December 2023\\n\" }}\n{{- \"Today Date: \" + date_string + \"\\n\\n\" }}\n{%- if tools is not none and not tools_in_user_message %}\n    {{- \"You have access to the following functions. To call a function, please respond with JSON for a function call.\" }}\n    {{- 'Respond in the format {\"name\": function name, \"parameters\": dictionary of argument name and its value}.' }}\n    {{- \"Do not use variables.\\n\\n\" }}\n    {%- for t in tools %}\n        {{- t | tojson(indent=4) }}\n        {{- \"\\n\\n\" }}\n    {%- endfor %}\n{%- endif %}\n{{- system_message }}\n{{- \"<|eot_id|>\" }}\n\n{#- Custom tools are passed in a user message with some extra guidance #}\n{%- if tools_in_user_message and not tools is none %}\n    {#- Extract the first user message so we can plug it in here #}\n    {%- if messages | length != 0 %}\n        {%- set first_user_message = messages[0]['content']|trim %}\n        {%- set messages = messages[1:] %}\n    {%- else %}\n        {{- raise_exception(\"Cannot put tools in the first user message when there's no first user message!\") }}\n{%- endif %}\n    {{- '<|start_header_id|>user<|end_header_id|>\\n\\n' -}}\n    {{- \"Given the following functions, please respond with a JSON for a function call \" }}\n    {{- \"with its proper arguments that best answers the given prompt.\\n\\n\" }}\n    {{- 'Respond in the format {\"name\": function name, \"parameters\": dictionary of argument name and its value}.' }}\n    {{- \"Do not use variables.\\n\\n\" }}\n    {%- for t in tools %}\n        {{- t | tojson(indent=4) }}\n        {{- \"\\n\\n\" }}\n    {%- endfor %}\n    {{- first_user_message + \"<|eot_id|>\"}}\n{%- endif %}\n\n{%- for message in messages %}\n    {%- if not (message.role == 'ipython' or message.role == 'tool' or 'tool_calls' in message) %}\n        {{- '<|start_header_id|>' + message['role'] + '<|end_header_id|>\\n\\n'+ message['content'] | trim + '<|eot_id|>' }}\n    {%- elif 'tool_calls' in message %}\n        {%- if not message.tool_calls|length == 1 %}\n            {{- raise_exception(\"This model only supports single tool-calls at once!\") }}\n        {%- endif %}\n        {%- set tool_call = message.tool_calls[0].function %}\n        {{- '<|start_header_id|>assistant<|end_header_id|>\\n\\n' -}}\n        {{- '{\"name\": \"' + tool_call.name + '\", ' }}\n        {{- '\"parameters\": ' }}\n        {{- tool_call.arguments | tojson }}\n        {{- \"}\" }}\n        {{- \"<|eot_id|>\" }}\n    {%- elif message.role == \"tool\" or message.role == \"ipython\" %}\n        {{- \"<|start_header_id|>ipython<|end_header_id|>\\n\\n\" }}\n        {%- if message.content is mapping or message.content is iterable %}\n            {{- message.content | tojson }}\n        {%- else %}\n            {{- message.content }}\n        {%- endif %}\n        {{- \"<|eot_id|>\" }}\n    {%- endif %}\n{%- endfor %}\n{%- if add_generation_prompt %}\n    {{- '<|start_header_id|>assistant<|end_header_id|>\\n\\n' }}\n{%- endif %}\n",
+    "bosToken": "<|begin_of_text|>",
+    "eosToken": "<|eot_id|>"
+   },
+   "cases": [
+    {
+     "name": "one user turn",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Hello"
+      }
+     ],
+     "variables": {},
+     "expected": "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nCutting Knowledge Date: December 2023\nToday Date: 29 Sep 2026\n\n<|eot_id|><|start_header_id|>user<|end_header_id|>\n\nHello<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
+    },
+    {
+     "name": "system prompt",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be brief."
+      },
+      {
+       "role": "user",
+       "content": "What is a KV cache?"
+      }
+     ],
+     "variables": {},
+     "expected": "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nCutting Knowledge Date: December 2023\nToday Date: 29 Sep 2026\n\nBe brief.<|eot_id|><|start_header_id|>user<|end_header_id|>\n\nWhat is a KV cache?<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
+    },
+    {
+     "name": "second turn",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Hi"
+      },
+      {
+       "role": "assistant",
+       "content": "Hello! How can I help?"
+      },
+      {
+       "role": "user",
+       "content": "Tell me a joke."
+      }
+     ],
+     "variables": {},
+     "expected": "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nCutting Knowledge Date: December 2023\nToday Date: 29 Sep 2026\n\n<|eot_id|><|start_header_id|>user<|end_header_id|>\n\nHi<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\nHello! How can I help?<|eot_id|><|start_header_id|>user<|end_header_id|>\n\nTell me a joke.<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
+    },
+    {
+     "name": "earlier reasoning in the history",
+     "messages": [
+      {
+       "role": "user",
+       "content": "2+2?"
+      },
+      {
+       "role": "assistant",
+       "content": "<think>\nAdd them.\n</think>\n\n4"
+      },
+      {
+       "role": "user",
+       "content": "And 3+3?"
+      }
+     ],
+     "variables": {},
+     "expected": "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nCutting Knowledge Date: December 2023\nToday Date: 29 Sep 2026\n\n<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n2+2?<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n<think>\nAdd them.\n</think>\n\n4<|eot_id|><|start_header_id|>user<|end_header_id|>\n\nAnd 3+3?<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
+    }
+   ]
+  },
+  {
+   "model": "gemma-3-1b-it-q4_0",
+   "chat": {
+    "template": "{{ bos_token }}\n{%- if messages[0]['role'] == 'system' -%}\n    {%- if messages[0]['content'] is string -%}\n        {%- set first_user_prefix = messages[0]['content'] + '\n\n' -%}\n    {%- else -%}\n        {%- set first_user_prefix = messages[0]['content'][0]['text'] + '\n\n' -%}\n    {%- endif -%}\n    {%- set loop_messages = messages[1:] -%}\n{%- else -%}\n    {%- set first_user_prefix = \"\" -%}\n    {%- set loop_messages = messages -%}\n{%- endif -%}\n{%- for message in loop_messages -%}\n    {%- if (message['role'] == 'user') != (loop.index0 % 2 == 0) -%}\n        {{ raise_exception(\"Conversation roles must alternate user/assistant/user/assistant/...\") }}\n    {%- endif -%}\n    {%- if (message['role'] == 'assistant') -%}\n        {%- set role = \"model\" -%}\n    {%- else -%}\n        {%- set role = message['role'] -%}\n    {%- endif -%}\n    {{ '<start_of_turn>' + role + '\n' + (first_user_prefix if loop.first else \"\") }}\n    {%- if message['content'] is string -%}\n        {{ message['content'] | trim }}\n    {%- elif message['content'] is iterable -%}\n        {%- for item in message['content'] -%}\n            {%- if item['type'] == 'image' -%}\n                {{ '<start_of_image>' }}\n            {%- elif item['type'] == 'text' -%}\n                {{ item['text'] | trim }}\n            {%- endif -%}\n        {%- endfor -%}\n    {%- else -%}\n        {{ raise_exception(\"Invalid content type\") }}\n    {%- endif -%}\n    {{ '<end_of_turn>\n' }}\n{%- endfor -%}\n{%- if add_generation_prompt -%}\n    {{'<start_of_turn>model\n'}}\n{%- endif -%}\n",
+    "bosToken": "<bos>",
+    "eosToken": "<end_of_turn>"
+   },
+   "cases": [
+    {
+     "name": "one user turn",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Hello"
+      }
+     ],
+     "variables": {},
+     "expected": "<bos><start_of_turn>user\nHello<end_of_turn>\n<start_of_turn>model\n"
+    },
+    {
+     "name": "system prompt",
+     "messages": [
+      {
+       "role": "system",
+       "content": "Be brief."
+      },
+      {
+       "role": "user",
+       "content": "What is a KV cache?"
+      }
+     ],
+     "variables": {},
+     "expected": "<bos><start_of_turn>user\nBe brief.\n\nWhat is a KV cache?<end_of_turn>\n<start_of_turn>model\n"
+    },
+    {
+     "name": "second turn",
+     "messages": [
+      {
+       "role": "user",
+       "content": "Hi"
+      },
+      {
+       "role": "assistant",
+       "content": "Hello! How can I help?"
+      },
+      {
+       "role": "user",
+       "content": "Tell me a joke."
+      }
+     ],
+     "variables": {},
+     "expected": "<bos><start_of_turn>user\nHi<end_of_turn>\n<start_of_turn>model\nHello! How can I help?<end_of_turn>\n<start_of_turn>user\nTell me a joke.<end_of_turn>\n<start_of_turn>model\n"
+    },
+    {
+     "name": "earlier reasoning in the history",
+     "messages": [
+      {
+       "role": "user",
+       "content": "2+2?"
+      },
+      {
+       "role": "assistant",
+       "content": "<think>\nAdd them.\n</think>\n\n4"
+      },
+      {
+       "role": "user",
+       "content": "And 3+3?"
+      }
+     ],
+     "variables": {},
+     "expected": "<bos><start_of_turn>user\n2+2?<end_of_turn>\n<start_of_turn>model\n<think>\nAdd them.\n</think>\n\n4<end_of_turn>\n<start_of_turn>user\nAnd 3+3?<end_of_turn>\n<start_of_turn>model\n"
+    }
+   ]
+  }
+ ]
+}

@@ -1,5 +1,8 @@
 #pragma once
 
+#include <cstdint>
+#include <string>
+
 #include "core/gguf/byte_source.h"
 #include "core/gguf/index.h"
 #include "core/gguf/types.h"
@@ -21,5 +24,12 @@ namespace bllm::gguf {
 //     run is not an error here; the gates decide, and name the tensor.
 //   - Leaves `out` untouched unless the read succeeds.
 [[nodiscard]] ReadResult read_index(ByteSource& source, TensorIndex& out);
+
+// Reads element `element` of a string array the index located. Walks the
+// array from its start, so it costs the elements before it; for looking up a
+// few named tokens, not for decoding a vocabulary. ShortRead if the array
+// holds fewer elements or is not an array of strings.
+[[nodiscard]] ReadResult read_string_element(ByteSource& source, const ArrayLocation& array,
+                                             std::uint64_t element, std::string& out);
 
 }  // namespace bllm::gguf

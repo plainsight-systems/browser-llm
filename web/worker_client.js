@@ -29,12 +29,19 @@ export class WorkerClient {
 
   // Resolves with the request's result, or rejects with a WorkerError.
   // `onToken` receives each piece of streamed text, in order.
-  request(kind, payload = {}, { onToken, transfer = [] } = {}) {
+  request(kind, payload = {}, options = {}) {
+    return this.send(kind, payload, options).reply;
+  }
+
+  // As request(), but also returns the request's id, for a later request
+  // that refers to it.
+  send(kind, payload = {}, { onToken, transfer = [] } = {}) {
     const id = this.#nextId++;
-    return new Promise((resolve, reject) => {
+    const reply = new Promise((resolve, reject) => {
       this.#pending.set(id, { resolve, reject, onToken });
       this.#port.postMessage({ id, kind, ...payload }, transfer);
     });
+    return { id, reply };
   }
 
   // Fails every request still waiting, when the worker itself has died.

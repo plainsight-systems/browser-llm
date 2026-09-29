@@ -10,6 +10,10 @@ export const Request = Object.freeze({
   PREFLIGHT: 'preflight',
   // Hand the runtime the next chunk of the model file, in order.
   LOAD_CHUNK: 'load-chunk',
+  // Generate a reply to a rendered prompt, streaming its text.
+  GENERATE: 'generate',
+  // Stop a generation early; `target` is its request id.
+  CANCEL: 'cancel',
 });
 
 export const Reply = Object.freeze({

@@ -21,6 +21,13 @@ export async function createRuntime({ onDevice, runBench }) {
     loadChunk: () => {
       throw new Error('loading a model onto the GPU is not implemented in this build');
     },
+
+    generate: () => {
+      throw new Error('generating text is not implemented in this build');
+    },
+
+    // Nothing generates, so there is nothing to stop.
+    cancel: () => false,
   };
 }
 

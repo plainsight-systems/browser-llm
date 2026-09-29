@@ -115,9 +115,36 @@ std::string json_string(std::string_view text) {
     return "\"" + json_escape(std::string(text)) + "\"";
 }
 
+// A token's text, looked up by the id stored under `id_key`, as JSON; null if
+// the file declares no such token.
+std::string token_json(bllm::gguf::ByteSource& source, const bllm::gguf::TensorIndex& index,
+                       std::string_view id_key) {
+    std::uint32_t id = 0;
+    bllm::gguf::ArrayLocation tokens{};
+    std::string text;
+    if (index.read_u32(id_key, id) != bllm::gguf::MetadataError::Ok ||
+        index.read_array("tokenizer.ggml.tokens", tokens) != bllm::gguf::MetadataError::Ok ||
+        bllm::gguf::read_string_element(source, tokens, id, text).error !=
+            bllm::gguf::ReadError::Ok) {
+        return "null";
+    }
+    return json_string(text);
+}
+
+// What the page needs to render a conversation for this model: the chat
+// template the file carries, and the text of the tokens it refers to.
+std::string chat_json(bllm::gguf::ByteSource& source, const bllm::gguf::TensorIndex& index) {
+    std::string_view chat_template;
+    const bool has_template = index.read_string("tokenizer.chat_template", chat_template) ==
+                              bllm::gguf::MetadataError::Ok;
+    return "{\"template\":" + (has_template ? json_string(chat_template) : std::string("null")) +
+           ",\"bosToken\":" + token_json(source, index, "tokenizer.ggml.bos_token_id") +
+           ",\"eosToken\":" + token_json(source, index, "tokenizer.ggml.eos_token_id") + "}";
+}
+
 // The preflight answer: bytes the reader still needs, a file that cannot be
 // read, or the verdict on a file that can.
-std::string preflight_json(const bllm::gguf::ReadResult& read,
+std::string preflight_json(bllm::gguf::ByteSource& source, const bllm::gguf::ReadResult& read,
                            const bllm::gguf::TensorIndex& index) {
     using bllm::gguf::ReadError;
     if (read.error == ReadError::NeedMoreBytes) {
@@ -139,6 +166,7 @@ std::string preflight_json(const bllm::gguf::ReadResult& read,
     std::string json = "{\"status\":\"read\",\"architecture\":";
     json += named ? json_string(architecture) : "null";
     json += ",\"tensorCount\":" + std::to_string(index.tensors().size());
+    json += ",\"chat\":" + chat_json(source, index);
     json += ",\"accepted\":" + std::string(verdict.accepted() ? "true" : "false");
     json += ",\"rejections\":[";
     for (std::size_t i = 0; i < verdict.rejections.size(); ++i) {
@@ -347,7 +375,7 @@ EMSCRIPTEN_KEEPALIVE void bllm_preflight(std::uint32_t request, const std::byte*
                                         static_cast<std::uint64_t>(file_size)};
     bllm::gguf::TensorIndex index;
     const auto read = bllm::gguf::read_index(source, index);
-    bllm_reply(request, preflight_json(read, index).c_str());
+    bllm_reply(request, preflight_json(source, read, index).c_str());
 }
 
 #if BLLM_DIAGNOSTICS_ENABLED

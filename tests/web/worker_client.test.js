@@ -81,3 +81,10 @@ test('failAll rejects every waiting request', async () => {
   }
   close();
 });
+
+test('send returns the request id alongside its reply', async () => {
+  const { client, close } = connect((req, send) => send({ id: req.id, kind: Reply.DONE, value: req.id }));
+  const { id, reply } = client.send('x');
+  assert.equal(await reply, id);
+  close();
+});

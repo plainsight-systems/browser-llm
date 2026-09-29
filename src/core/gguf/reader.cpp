@@ -47,9 +47,11 @@ namespace {
 // how far into the file it needed to go, so the caller can supply that much.
 class Reader {
 public:
-    explicit Reader(ByteSource& source) noexcept : source_(source) {}
+    explicit Reader(ByteSource& source, std::uint64_t start = 0) noexcept
+        : source_(source), cursor_(start) {}
 
     [[nodiscard]] ReadError parse();
+    [[nodiscard]] ReadError take_string_at(std::uint64_t element, std::string& out);
 
     [[nodiscard]] std::uint64_t bytes_needed() const noexcept { return bytes_needed_; }
     [[nodiscard]] std::vector<TensorEntry> take_tensors() { return std::move(tensors_); }
@@ -110,6 +112,16 @@ ReadError Reader::skip(std::uint64_t count) {
     if (!range_within(cursor_, count, source_.size())) return ReadError::ShortRead;
     cursor_ += count;
     return ReadError::Ok;
+}
+
+// Skips `element` strings from the cursor, then reads the next one.
+ReadError Reader::take_string_at(std::uint64_t element, std::string& out) {
+    for (std::uint64_t i = 0; i < element; ++i) {
+        std::uint64_t length = 0;
+        if (const auto e = take_uint(8, length); e != ReadError::Ok) return e;
+        if (const auto e = skip(length); e != ReadError::Ok) return e;
+    }
+    return take_string(out);
 }
 
 ReadError Reader::take_array(ArrayLocation& out) {
@@ -312,6 +324,16 @@ ReadResult read_index(ByteSource& source, TensorIndex& out) {
     out.tensors_ = reader.take_tensors();
     out.metadata_ = reader.take_metadata();
     return ReadResult{};
+}
+
+ReadResult read_string_element(ByteSource& source, const ArrayLocation& array,
+                               std::uint64_t element, std::string& out) {
+    if (array.element_type != ValueType::String || element >= array.element_count) {
+        return ReadResult{ReadError::ShortRead, 0};
+    }
+    Reader reader{source, array.bytes.offset};
+    const ReadError error = reader.take_string_at(element, out);
+    return ReadResult{error, error == ReadError::Ok ? 0 : reader.bytes_needed()};
 }
 
 }  // namespace bllm::gguf

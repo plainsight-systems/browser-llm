@@ -94,3 +94,25 @@ button, input { font: inherit; color: inherit; }
   margin: 0; padding: .5rem 1.25rem; font-size: .85rem; font-weight: 500;
   background: var(--bad); color: #fff;
 }
+
+.chat { display: flex; flex-direction: column; min-height: 24rem; }
+.conversation { flex: 1; display: flex; flex-direction: column; gap: .75rem; min-height: 0; }
+.chat-heading { margin: 0; font-weight: 500; padding-bottom: .5rem; border-bottom: 1px solid var(--line); }
+.chat-log { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: .75rem; }
+.message { max-width: 85%; white-space: pre-wrap; overflow-wrap: anywhere; }
+.message p { margin: 0; }
+.message.user {
+  align-self: flex-end; background: var(--accent-bg); border-radius: 12px; padding: .45rem .8rem;
+}
+.message.assistant { align-self: flex-start; display: grid; gap: .35rem; }
+.thinking { font-size: .85rem; color: var(--dim); border-left: 2px solid var(--line); padding-left: .6rem; }
+.thinking summary { cursor: pointer; }
+.message-facts { font-size: .75rem; color: var(--dim); }
+.chat-error { color: var(--bad); margin: 0; font-size: .85rem; }
+.chat-error:empty { display: none; }
+.composer { display: grid; gap: .4rem; border: 1px solid var(--line); border-radius: 12px; padding: .5rem .6rem; }
+.composer textarea {
+  font: inherit; color: inherit; background: none; border: 0; resize: vertical; outline: none;
+}
+.composer-row { display: flex; justify-content: space-between; align-items: center; }
+.toggle { font-size: .85rem; color: var(--dim); display: flex; align-items: center; gap: .3rem; }

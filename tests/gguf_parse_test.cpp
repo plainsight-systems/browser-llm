@@ -102,3 +102,18 @@ TEST_CASE("tensor offsets are absolute, aligned, and inside the file") {
         CHECK(t.data_offset + t.data_length <= bytes.size());
     }
 }
+
+TEST_CASE("a string array's elements are read by position") {
+    const auto bytes = load_gguf_fixture("valid");
+    MemoryByteSource source{bytes};
+    const TensorIndex index = read_fixture(bytes);
+    ArrayLocation tokens{};
+    REQUIRE(index.read_array("tokenizer.ggml.tokens", tokens) == MetadataError::Ok);
+
+    std::string text;
+    CHECK(read_string_element(source, tokens, 0, text).error == ReadError::Ok);
+    CHECK(text == "a");
+    CHECK(read_string_element(source, tokens, 2, text).error == ReadError::Ok);
+    CHECK(text == "ccc");
+    CHECK(read_string_element(source, tokens, 3, text).error == ReadError::ShortRead);
+}

@@ -1,0 +1,12 @@
+{
+  "$comment": "Third-party code served with the page, byte-for-byte as published. tests/web/vendor.test.js checks each file against its sha256.",
+  "jinja.js": {
+    "package": "@huggingface/jinja",
+    "version": "0.5.10",
+    "file": "dist/index.js",
+    "tarball": "https://registry.npmjs.org/@huggingface/jinja/-/jinja-0.5.10.tgz",
+    "integrity": "sha512-SgS1D1bglQ94ceD4ZCL6eayUDy9uV1xuyk61OjgSxU5GJh7upqZCKII0JoTYMc6wWsg3JUgaPRX0ElQzXPk3Cw==",
+    "sha256": "58cf1a55f9a48154a05bcb8d5b85d0dadfc96aef22fd33f3105ec2151e8bac36",
+    "license": "MIT, in jinja.LICENSE"
+  }
+}

@@ -3,11 +3,13 @@
 
 import { renderCache } from './cache_view.js';
 import { loadCatalog } from './catalog.js';
+import { createChat } from './chat.js';
 import { showDevice, showStarting, showUnavailable } from './device_status.js';
 import { cacheKey } from './download.js';
 import { createModelController } from './model_controller.js';
 import { ModelCache, storageStatus } from './opfs.js';
 import { createPicker } from './picker.js';
+import { Request } from './protocol.js';
 import { WorkerClient } from './worker_client.js';
 
 const page = {
@@ -26,7 +28,19 @@ if (!('gpu' in navigator)) {
   const client = startWorker();
   const [models, cache] = await Promise.all([loadCatalog(), ModelCache.open()]);
 
-  const picker = createPicker(page.models, { models, onChoose: (model) => controller.choose(model) });
+  const chat = createChat(page.chat, {
+    generate: (prompt, { sampling, seed, onText }) =>
+      client.send(Request.GENERATE, { prompt, sampling, seed }, { onToken: onText }),
+    cancel: (id) => client.request(Request.CANCEL, { target: id }),
+  });
+
+  const picker = createPicker(page.models, {
+    models,
+    onChoose: (model) => {
+      chat.close();
+      controller.choose(model);
+    },
+  });
 
   const refreshCache = async () => {
     const [entries, status] = await Promise.all([cache.list(), storageStatus()]);
@@ -45,7 +59,7 @@ if (!('gpu' in navigator)) {
     client,
     cache,
     onCacheChanged: refreshCache,
-    onLoaded: (model) => page.chat.replaceChildren(`${model.name} is loaded.`),
+    onLoaded: (model, verdict) => chat.open(model, verdict.chat),
   });
 
   await refreshCache();

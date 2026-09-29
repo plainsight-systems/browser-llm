@@ -86,7 +86,7 @@ export function createModelController({ element, client, cache, onLoaded, onCach
       });
       if (signal.aborted) return;
       show({ phase: 'loaded', model, verdict });
-      onLoaded(model);
+      onLoaded(model, verdict);
     } catch (error) {
       if (!signal.aborted) show({ phase: 'failed', model, action: 'load', error });
     }

@@ -29,6 +29,9 @@ const handlers = {
   [Request.PREFLIGHT]: (runtime, { bytes, totalSize }) => runtime.preflight(bytes, totalSize),
   [Request.LOAD_CHUNK]: (runtime, { offset, bytes, totalSize }) =>
     runtime.loadChunk({ offset, bytes, totalSize }),
+  [Request.GENERATE]: (runtime, { id, prompt, sampling, seed }, streamText) =>
+    runtime.generate({ id, prompt, sampling, seed, onText: streamText }),
+  [Request.CANCEL]: (runtime, { target }) => runtime.cancel(target),
 };
 
 self.addEventListener('message', async ({ data: request }) => {
