@@ -8,6 +8,8 @@
 export const Request = Object.freeze({
   // Read a model file's index from its first bytes and judge it.
   PREFLIGHT: 'preflight',
+  // Hand the runtime the next chunk of the model file, in order.
+  LOAD_CHUNK: 'load-chunk',
 });
 
 export const Reply = Object.freeze({

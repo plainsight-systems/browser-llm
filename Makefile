@@ -25,7 +25,7 @@ EMSDK_IMAGE := emscripten/emsdk:6.0.8
 # directory is incompatible -- see tools/ensure_container_cache.sh.
 CONTAINER_SRC := /src
 
-.PHONY: test test-native test-web check wasm wasm-diag dist serve clean
+.PHONY: test test-native test-web check wasm wasm-diag dist serve serve-dev clean
 
 ## Every unit test. No browser, no GPU.
 test: test-native test-web
@@ -47,6 +47,7 @@ check:
 	./tests/test_check_boundaries.sh
 	./tests/test_codex_review_preflight.sh
 	./tests/test_ensure_container_cache.sh
+	./tests/test_check_site.sh
 
 ## Diagnostic wasm build: same optimisation, instrumentation compiled in.
 ## Timings from this build are diagnostic and are not quotable as throughput.
@@ -63,15 +64,19 @@ wasm:
 
 ## Assemble the deployable static site.
 dist: wasm
-	mkdir -p dist
-	cp web/* dist/
-	cp build/wasm-release/browser_llm.mjs build/wasm-release/browser_llm.wasm dist/
-	touch dist/.nojekyll
+	./tools/assemble_site.sh
+	./tools/check_site.sh
 
 ## Serve dist/ locally. The page cannot run from file:// — module loading and
 ## the model fetch both fail against a null origin.
 serve: dist
 	cd dist && python3 -m http.server 8080
 
+## Serve a development site that includes web/dev/, for ?fake-runtime.
+## Never deployed.
+serve-dev: wasm
+	./tools/assemble_site.sh --dev
+	cd dist-dev && python3 -m http.server 8081
+
 clean:
-	rm -rf build dist
+	rm -rf build dist dist-dev

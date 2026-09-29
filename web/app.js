@@ -1,61 +1,68 @@
-// The composition root. Creates the worker and the views, and wires them
-// together; no other module reaches into another's DOM.
+// The composition root. Creates the worker, the cache and the views, and
+// wires them together; no other module reaches into another's DOM.
 
+import { renderCache } from './cache_view.js';
 import { loadCatalog } from './catalog.js';
 import { showDevice, showStarting, showUnavailable } from './device_status.js';
-import { fetchRange } from './fetch.js';
+import { cacheKey } from './download.js';
+import { createModelController } from './model_controller.js';
+import { ModelCache, storageStatus } from './opfs.js';
 import { createPicker } from './picker.js';
-import { preflight } from './preflight.js';
-import { Request } from './protocol.js';
-import * as verdictView from './verdict_view.js';
 import { WorkerClient } from './worker_client.js';
 
-const deviceStatus = document.querySelector('#device-status');
-const modelsPanel = document.querySelector('#models');
-const verdictPanel = document.querySelector('#verdict');
+const page = {
+  deviceStatus: document.querySelector('#device-status'),
+  fakeBanner: document.querySelector('#fake-banner'),
+  models: document.querySelector('#models'),
+  model: document.querySelector('#model'),
+  cache: document.querySelector('#cache'),
+  chat: document.querySelector('#chat'),
+};
 
 if (!('gpu' in navigator)) {
-  showUnavailable(deviceStatus,
+  showUnavailable(page.deviceStatus,
     'This browser does not expose navigator.gpu. Use Chrome or Edge on desktop.');
 } else {
   const client = startWorker();
-  const models = await loadCatalog();
-  createPicker(modelsPanel, { models, onChoose: (model) => checkModel(client, model) });
+  const [models, cache] = await Promise.all([loadCatalog(), ModelCache.open()]);
+
+  const picker = createPicker(page.models, { models, onChoose: (model) => controller.choose(model) });
+
+  const refreshCache = async () => {
+    const [entries, status] = await Promise.all([cache.list(), storageStatus()]);
+    const cachedKeys = new Set(entries.map((entry) => entry.key));
+    picker.setCached(new Set(models.filter((m) => cachedKeys.has(cacheKey(m))).map((m) => m.id)));
+    renderCache(page.cache, { entries, ...status }, {
+      onRemove: async (key) => {
+        await cache.remove(key);
+        await refreshCache();
+      },
+    });
+  };
+
+  const controller = createModelController({
+    element: page.model,
+    client,
+    cache,
+    onCacheChanged: refreshCache,
+    onLoaded: (model) => page.chat.replaceChildren(`${model.name} is loaded.`),
+  });
+
+  await refreshCache();
 }
 
 function startWorker() {
-  showStarting(deviceStatus);
+  showStarting(page.deviceStatus);
   const worker = new Worker(`./worker.js${location.search}`, { type: 'module' });
   const client = new WorkerClient(worker, {
-    onDevice: (device) => showDevice(deviceStatus, device),
+    onDevice: (device) => {
+      showDevice(page.deviceStatus, device);
+      page.fakeBanner.hidden = !device.fake;
+    },
   });
   worker.addEventListener('error', (event) => {
-    showDevice(deviceStatus, { ok: false, stage: 'worker', error: event.message });
+    showDevice(page.deviceStatus, { ok: false, stage: 'worker', error: event.message });
     client.failAll(new Error(`the worker stopped: ${event.message}`));
   });
   return client;
-}
-
-// Preflights the chosen model. Choosing another model abandons this check:
-// its downloads are aborted and its answer, if one still arrives, is ignored.
-let currentCheck = null;
-
-async function checkModel(client, model) {
-  currentCheck?.abort();
-  const check = new AbortController();
-  currentCheck = check;
-
-  verdictView.showChecking(verdictPanel, model);
-  try {
-    const verdict = await preflight({
-      fetchRange: (start, end) => fetchRange(model.url, start, end, { signal: check.signal }),
-      readIndex: (bytes, totalSize) => {
-        const copy = bytes.slice().buffer;
-        return client.request(Request.PREFLIGHT, { bytes: copy, totalSize }, { transfer: [copy] });
-      },
-    });
-    if (!check.signal.aborted) verdictView.showVerdict(verdictPanel, model, verdict);
-  } catch (error) {
-    if (!check.signal.aborted) verdictView.showFailure(verdictPanel, model, error);
-  }
 }

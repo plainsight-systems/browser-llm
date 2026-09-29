@@ -38,12 +38,11 @@ jobs:
       - name: Diagnostics excluded from the shipped module
         run: ./tools/check_diagnostics_excluded.sh
 
-      - name: Assemble dist
-        run: |
-          mkdir -p dist
-          cp web/* dist/
-          cp build/wasm-release/browser_llm.mjs build/wasm-release/browser_llm.wasm dist/
-          touch dist/.nojekyll
+      - name: Assemble the site
+        run: ./tools/assemble_site.sh
+
+      - name: No development tooling in the site
+        run: ./tools/check_site.sh
 
       - uses: actions/upload-pages-artifact@v3
         with:

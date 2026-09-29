@@ -9,8 +9,11 @@ import { h } from './dom.js';
 import { CatalogError, modelFromUrl } from './catalog.js';
 import { formatBytes } from './units.js';
 
+// Returns { setCached(ids) }, which marks the models whose ids are in `ids`
+// as downloaded.
 export function createPicker(root, { models, onChoose }) {
   const buttons = new Map();
+  const facts = new Map();
 
   const choose = (model) => {
     for (const [id, button] of buttons) button.setAttribute('aria-pressed', String(id === model.id));
@@ -18,11 +21,13 @@ export function createPicker(root, { models, onChoose }) {
   };
 
   const list = h('ul', { className: 'models' }, models.map((model) => {
+    const fact = h('span', { className: 'model-facts', text: describe(model, false) });
     const button = h('button', { type: 'button', className: 'model', 'aria-pressed': 'false',
       onclick: () => choose(model) },
       h('span', { className: 'model-name', text: model.name }),
-      h('span', { className: 'model-facts', text: describe(model) }));
+      fact);
     buttons.set(model.id, button);
+    facts.set(model.id, { model, fact });
     return h('li', {}, button);
   }));
 
@@ -45,9 +50,16 @@ export function createPicker(root, { models, onChoose }) {
     urlError);
 
   root.append(list, form);
+
+  return {
+    setCached(ids) {
+      for (const [id, { model, fact }] of facts) fact.textContent = describe(model, ids.has(id));
+    },
+  };
 }
 
-function describe(model) {
+function describe(model, cached) {
   const size = model.sizeBytes === undefined ? null : formatBytes(model.sizeBytes);
-  return [size, model.measured ? 'measured' : 'unmeasured'].filter(Boolean).join(' · ');
+  return [size, cached && 'downloaded', model.measured ? 'measured' : 'unmeasured']
+    .filter(Boolean).join(' · ');
 }

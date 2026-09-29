@@ -43,6 +43,28 @@ export async function fetchRange(url, start, end, { signal } = {}) {
   return { bytes: await response.arrayBuffer(), totalSize: range.total };
 }
 
+// Streams the whole file at `url`. Resolves once the server has answered,
+// with the file's size (null if the server did not say) and its bytes as an
+// async iterable of chunks.
+export async function openDownload(url, { signal } = {}) {
+  const response = await request(url, { signal });
+  const length = response.headers.get('Content-Length');
+  return { totalSize: length === null ? null : Number(length), chunks: chunksOf(response.body) };
+}
+
+async function* chunksOf(body) {
+  const reader = body.getReader();
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return;
+      yield value;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 async function request(url, init) {
   let response;
   try {

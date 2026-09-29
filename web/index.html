@@ -7,6 +7,9 @@
 <link rel="stylesheet" href="./style.css">
 </head>
 <body>
+<p id="fake-banner" class="fake-banner" hidden>
+  Fake runtime: no model runs on this page. It exists to exercise the interface during development.
+</p>
 <header class="bar">
   <h1>browser-llm</h1>
   <span id="device-status" class="device" data-state="pending"></span>
@@ -15,7 +18,8 @@
   <aside class="panel side" aria-label="Models">
     <h2>Models</h2>
     <div id="models"></div>
-    <div id="verdict" class="verdict" aria-live="polite"></div>
+    <div id="model" class="model-panel" aria-live="polite"></div>
+    <section id="cache" class="cache" aria-label="Downloaded models"></section>
   </aside>
   <main id="chat" class="panel" aria-label="Chat">
     <p class="empty">Choose a model to start.</p>

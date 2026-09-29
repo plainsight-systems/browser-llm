@@ -34,16 +34,23 @@ module's own header, and contract 11 in the two boundary files.
 | `web/device_status.js` | H | whether the GPU is usable, and if not, why |
 | `web/picker.js` | H | choosing a model; showing an unmeasured model as unmeasured |
 | `web/catalog.js` | H | the models offered: the curated list, and a model named by a pasted URL |
-| `web/verdict_view.js` | H | what preflight found: every named rejection, or why the check failed |
+| `web/model_controller.js` | H | the chosen model's lifecycle: check, download, load; one state object, abandoned on a new choice |
+| `web/model_view.js` | H | renders that state: every named rejection, progress, and the next action |
+| `web/cache_view.js` | H | what the cache holds, the space it uses, and whether the browser keeps it |
 | `web/dom.js`, `web/units.js` | H | building elements safely; formatting sizes |
 | `web/models.json` | J | the curated list: one measured configuration per model |
 | `web/template.js` | H | rendering the model's chat template |
 | `web/chat.js` | H | conversation state and streamed rendering |
 | `web/fetch.js` | L | range and streaming fetch, with progress |
 | `web/preflight.js` | L | fetching the front of a file until the reader has its whole index |
-| `web/opfs.js` | L | the model file cache |
+| `web/opfs.js` | L | the model file cache; a file is listed only once complete and verified |
+| `web/download.js` | L | streaming a model into the cache, verifying size and SHA-256 as it arrives |
+| `web/sha256.js` | L | SHA-256 over a stream |
+| `web/load.js` | L | handing a cached file to the runtime in chunks, one at a time |
 | `web/worker.js` | boundary | owns the WASM module; the JavaScript side of every crossing |
 | `web/protocol.js` | boundary | the message kinds both sides of the worker use |
+| `web/wasm_runtime.js` | boundary | the C++ module behind the operations the worker offers |
+| `web/dev/fake_runtime.js` | development | a stand-in runtime for exercising the page; never deployed, and `tools/check_site.sh` proves it |
 | `web/worker_client.js` | boundary | the page's side of the worker: requests as promises, streamed text as callbacks |
 | `src/wasm/bindings.cpp` | boundary | the only Emscripten-aware C++; the crossing budget |
 | `src/core/gguf/` | C | reader, the tensor index it produces, and a size for every format GGUF defines |

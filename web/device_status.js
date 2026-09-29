@@ -1,6 +1,9 @@
 // Axis H. The header line that says whether the GPU is usable, and if not,
 // why. Its input is the worker's DEVICE notice.
 
+// Stages at which the runtime itself, rather than the GPU, failed.
+const STARTUP_STAGES = new Set(['worker', 'runtime', 'module']);
+
 export function showStarting(element) {
   render(element, 'pending', 'Starting WebGPU…', '');
 }
@@ -11,7 +14,12 @@ export function showUnavailable(element, reason) {
 
 export function showDevice(element, device) {
   if (!device.ok) {
-    render(element, 'bad', 'GPU check failed', `${device.stage}: ${device.error}`);
+    const label = STARTUP_STAGES.has(device.stage) ? 'Runtime failed to start' : 'GPU check failed';
+    render(element, 'bad', label, `${device.stage}: ${device.error}`);
+    return;
+  }
+  if (device.fake) {
+    render(element, 'bad', 'Fake runtime · no model runs', 'development stand-in selected by ?fake-runtime');
     return;
   }
   if (device.bench !== undefined) {
