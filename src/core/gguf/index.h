@@ -3,27 +3,28 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <string>
 #include <string_view>
+#include <variant>
 #include <vector>
 
+#include "core/gguf/byte_source.h"
 #include "core/gguf/types.h"
 
 namespace bllm::gguf {
 
 // Contract 2: the tensor index.
 //
-// What the reader produces and every later stage reads. The reader is a
-// parser; this is its result, and the reader does not outlive the parse.
+// What the reader produces and every later stage reads.
 //
-//   - Immutable. Built once by the reader, read-only afterwards, and alive for
-//     as long as anything refers to a tensor by identifier.
+//   - Immutable once read. read_index fills it, and every accessor is const.
 //   - Complete. Every tensor in the file, including formats the harness cannot
 //     run. Whether a format runs is the capability table's question; the index
 //     records what the file says.
-//   - Scalar and string metadata is decoded during the parse. A missing key
-//     and a key of the wrong type are different errors because they are
-//     different defects: one is a file that lacks a field, the other a file
-//     that misdeclares it.
+//   - Scalar and string metadata is decoded during the read. A missing key and
+//     a key of the wrong type are different errors because they are different
+//     defects: one is a file that lacks a field, the other a file that
+//     misdeclares it.
 //   - Arrays are located, not decoded. A vocabulary is ~150,000 strings and
 //     only the tokenizer reads it, from the byte source.
 
@@ -37,19 +38,34 @@ enum class MetadataError {
     WrongType,
 };
 
-// Where an array value lives in the file.
+// Where an array value lives in the file: its elements, after the header
+// that declares their type and count.
 struct ArrayLocation {
     ValueType element_type;
     std::uint64_t element_count;
     ByteRange bytes;
 };
 
+// One metadata value as the file stores it. Integers widen to 64 bits and
+// floats to double; `type` keeps what the file declared, so an accessor can
+// refuse a key of the wrong type.
+struct MetadataEntry {
+    std::string key;
+    ValueType type;
+    std::variant<std::uint64_t, std::int64_t, double, bool, std::string, ArrayLocation> value;
+};
+
 class TensorIndex {
 public:
-    [[nodiscard]] std::span<const TensorEntry> tensors() const noexcept;
+    // An empty index. read_index fills one.
+    TensorIndex() = default;
+
+    [[nodiscard]] std::span<const TensorEntry> tensors() const noexcept { return tensors_; }
 
     // Precondition: `id` came from this index.
-    [[nodiscard]] const TensorEntry& tensor(TensorId id) const noexcept;
+    [[nodiscard]] const TensorEntry& tensor(TensorId id) const noexcept {
+        return tensors_[static_cast<std::size_t>(id)];
+    }
 
     [[nodiscard]] std::optional<TensorId> find(std::string_view name) const noexcept;
 
@@ -62,11 +78,12 @@ public:
     [[nodiscard]] MetadataError read_array(std::string_view key, ArrayLocation& out) const noexcept;
 
 private:
-    // Built only by the reader.
-    friend class Reader;
-    TensorIndex() = default;
+    friend ReadResult read_index(ByteSource& source, TensorIndex& out);
+
+    [[nodiscard]] const MetadataEntry* entry(std::string_view key) const noexcept;
 
     std::vector<TensorEntry> tensors_;
+    std::vector<MetadataEntry> metadata_;
 };
 
 }  // namespace bllm::gguf

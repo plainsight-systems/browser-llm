@@ -29,29 +29,99 @@ enum class ValueType : std::uint32_t {
     String = 8, Array = 9, UInt64 = 10, Int64 = 11, Float64 = 12,
 };
 
-// ggml tensor types. Only the ones this project reads are named; the rest are
-// recognised as valid-but-unsupported so an unexpected file fails with a
-// useful error rather than "unknown type".
+// The weight formats GGUF defines, numbered as the format numbers them. Gaps
+// are formats ggml has removed; a file that names one is malformed.
+//
+// Enumerating a format is not implementing it. The reader needs every
+// format's block size to validate the file and to name a tensor it cannot
+// run; which formats run is the capability table's business.
 enum class TensorType : std::uint32_t {
     F32 = 0, F16 = 1, Q4_0 = 2, Q4_1 = 3,
     Q5_0 = 6, Q5_1 = 7, Q8_0 = 8, Q8_1 = 9,
-    Q6_K = 14, Q8_K = 15,
-    Count = 40,   // upper bound for range validation
+    Q2_K = 10, Q3_K = 11, Q4_K = 12, Q5_K = 13, Q6_K = 14, Q8_K = 15,
+    IQ2_XXS = 16, IQ2_XS = 17, IQ3_XXS = 18, IQ1_S = 19, IQ4_NL = 20,
+    IQ3_S = 21, IQ2_S = 22, IQ4_XS = 23,
+    I8 = 24, I16 = 25, I32 = 26, I64 = 27, F64 = 28,
+    IQ1_M = 29, BF16 = 30,
+    TQ1_0 = 34, TQ2_0 = 35,
+    MXFP4 = 39, NVFP4 = 40, Q1_0 = 41, Q2_0 = 42,
 };
+
+// How a format stores its values: `block_bytes` bytes hold `block_elements`
+// consecutive values of a row. An unquantized format is a block of one.
+struct FormatLayout {
+    TensorType type;
+    std::string_view name;
+    std::uint32_t block_elements;
+    std::uint32_t block_bytes;
+};
+
+inline constexpr std::uint32_t kSuperBlock = 256;   // ggml's QK_K
+
+// Every format GGUF defines, from ggml's own table (GGML_QUANT_SIZES in
+// gguf-py).
+inline constexpr FormatLayout kFormatLayouts[] = {
+    {TensorType::F32, "F32", 1, 4},
+    {TensorType::F16, "F16", 1, 2},
+    {TensorType::Q4_0, "Q4_0", 32, 18},
+    {TensorType::Q4_1, "Q4_1", 32, 20},
+    {TensorType::Q5_0, "Q5_0", 32, 22},
+    {TensorType::Q5_1, "Q5_1", 32, 24},
+    {TensorType::Q8_0, "Q8_0", 32, 34},
+    {TensorType::Q8_1, "Q8_1", 32, 36},
+    {TensorType::Q2_K, "Q2_K", kSuperBlock, 84},
+    {TensorType::Q3_K, "Q3_K", kSuperBlock, 110},
+    {TensorType::Q4_K, "Q4_K", kSuperBlock, 144},
+    {TensorType::Q5_K, "Q5_K", kSuperBlock, 176},
+    {TensorType::Q6_K, "Q6_K", kSuperBlock, 210},
+    {TensorType::Q8_K, "Q8_K", kSuperBlock, 292},
+    {TensorType::IQ2_XXS, "IQ2_XXS", kSuperBlock, 66},
+    {TensorType::IQ2_XS, "IQ2_XS", kSuperBlock, 74},
+    {TensorType::IQ3_XXS, "IQ3_XXS", kSuperBlock, 98},
+    {TensorType::IQ1_S, "IQ1_S", kSuperBlock, 50},
+    {TensorType::IQ4_NL, "IQ4_NL", 32, 18},
+    {TensorType::IQ3_S, "IQ3_S", kSuperBlock, 110},
+    {TensorType::IQ2_S, "IQ2_S", kSuperBlock, 82},
+    {TensorType::IQ4_XS, "IQ4_XS", kSuperBlock, 136},
+    {TensorType::I8, "I8", 1, 1},
+    {TensorType::I16, "I16", 1, 2},
+    {TensorType::I32, "I32", 1, 4},
+    {TensorType::I64, "I64", 1, 8},
+    {TensorType::F64, "F64", 1, 8},
+    {TensorType::IQ1_M, "IQ1_M", kSuperBlock, 56},
+    {TensorType::BF16, "BF16", 1, 2},
+    {TensorType::TQ1_0, "TQ1_0", kSuperBlock, 54},
+    {TensorType::TQ2_0, "TQ2_0", kSuperBlock, 66},
+    {TensorType::MXFP4, "MXFP4", 32, 17},
+    {TensorType::NVFP4, "NVFP4", 64, 36},
+    {TensorType::Q1_0, "Q1_0", 128, 18},
+    {TensorType::Q2_0, "Q2_0", 64, 18},
+};
+
+// The layout of `type`, or null for a number GGUF does not define.
+[[nodiscard]] constexpr const FormatLayout* format_layout(TensorType type) noexcept {
+    for (const FormatLayout& layout : kFormatLayouts) {
+        if (layout.type == type) return &layout;
+    }
+    return nullptr;
+}
 
 // The closed set of ways reading can fail. One vocabulary for callers (E.27);
 // the reader never throws and never reads out of bounds.
 enum class ReadError : std::uint32_t {
     Ok = 0,
-    ShortRead,               // the source could not supply the bytes
+    // The bytes lie inside the file but have not been supplied yet. Not a
+    // defect in the file: supply the bytes ReadResult asks for and read again.
+    NeedMoreBytes,
+    ShortRead,               // the file ends before this field
     BadMagic,
     UnsupportedVersion,
     CountTooLarge,           // tensor or metadata count beyond our bound
     StringTooLong,
     ArrayTooLong,
     UnknownValueType,
-    UnknownTensorType,
-    UnsupportedTensorType,   // valid ggml type, not one we handle
+    UnknownTensorType,       // a format number GGUF does not define
+    RowNotWholeBlocks,       // a row is not a whole number of its format's blocks
     TooManyDimensions,
     NegativeDimension,
     ElementCountOverflow,    // the shape product does not fit
@@ -65,6 +135,7 @@ enum class ReadError : std::uint32_t {
 [[nodiscard]] constexpr std::string_view to_string(ReadError e) noexcept {
     switch (e) {
         case ReadError::Ok: return "ok";
+        case ReadError::NeedMoreBytes: return "more of the file is needed to read its index";
         case ReadError::ShortRead: return "short read: the file ends before this field";
         case ReadError::BadMagic: return "not a GGUF file: magic mismatch";
         case ReadError::UnsupportedVersion: return "unsupported GGUF version";
@@ -72,8 +143,8 @@ enum class ReadError : std::uint32_t {
         case ReadError::StringTooLong: return "string length exceeds the reader's bound";
         case ReadError::ArrayTooLong: return "array length exceeds the reader's bound";
         case ReadError::UnknownValueType: return "unknown metadata value type";
-        case ReadError::UnknownTensorType: return "tensor type outside the ggml range";
-        case ReadError::UnsupportedTensorType: return "tensor type not supported by this harness";
+        case ReadError::UnknownTensorType: return "tensor format not defined by GGUF";
+        case ReadError::RowNotWholeBlocks: return "tensor row is not a whole number of blocks";
         case ReadError::TooManyDimensions: return "tensor declares more than 4 dimensions";
         case ReadError::NegativeDimension: return "tensor declares a negative dimension";
         case ReadError::ElementCountOverflow: return "tensor element count overflows";
@@ -85,6 +156,14 @@ enum class ReadError : std::uint32_t {
     }
     return "unrecognised error";
 }
+
+// The outcome of reading a file's index.
+struct ReadResult {
+    ReadError error = ReadError::Ok;
+    // Set with NeedMoreBytes: how many bytes from the start of the file the
+    // next read needs to be supplied with.
+    std::uint64_t bytes_needed = 0;
+};
 
 // A tensor's extent, grouped so it cannot be passed to a constructor in
 // pieces or misordered against the byte range.
@@ -139,12 +218,14 @@ struct TensorEntry {
     std::uint64_t element_count;
     // Byte range within the file. Relative to the tensor data region while the
     // index is being read; absolute — and validated as inside the file — once
-    // Reader::parse returns Ok.
+    // read_index returns Ok.
     std::uint64_t data_offset;
     std::uint64_t data_length;
 
+    // Quantized formats store blocks of several values; the rest store each
+    // value on its own. A type the reader accepted always has a layout.
     [[nodiscard]] bool is_quantized() const noexcept {
-        return type != TensorType::F32 && type != TensorType::F16;
+        return format_layout(type)->block_elements > 1;
     }
 };
 

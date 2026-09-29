@@ -20,9 +20,10 @@ U8, I8, U16, I16, U32, I32, F32, BOOL, STRING, ARRAY, U64, I64, F64 = range(13)
 
 # ggml_type
 T_F32, T_F16, T_Q4_0 = 0, 1, 2
-# A type this harness does not read. Valid ggml, inside the range check,
-# and rejected only because bytes_for_elements cannot size it.
+# A real GGUF format the harness has no kernel for. The reader must record a
+# tensor in it, not reject the file.
 T_Q6_K = 14
+Q6_K_BLOCK_ELEMENTS, Q6_K_BLOCK_BYTES = 256, 210
 
 
 def gstr(s: bytes) -> bytes:
@@ -119,12 +120,10 @@ CASES = {
     "unknown_tensor_type": lambda: build(
         [(b"t", [4], 999, b"\0" * 16)]
     ),
-    # Distinct from the case above: 14 is a REAL ggml type and passes the
-    # range check. It is rejected because this harness cannot interpret it,
-    # which is the only thing standing between the index and an entry whose
-    # bytes nobody knows how to read.
-    "unsupported_tensor_type": lambda: build(
-        [(b"t", [4], T_Q6_K, b"\0" * 16)]
+    # Not malformed: Q6_K is a real format. Whether it can run is decided by
+    # the gates, so the reader records it like any other tensor.
+    "q6_k_tensor": lambda: build(
+        [(b"t", [Q6_K_BLOCK_ELEMENTS], T_Q6_K, b"\0" * Q6_K_BLOCK_BYTES)]
     ),
     "not_block_aligned": lambda: build(
         # 33 elements is not a whole number of Q4_0 blocks.

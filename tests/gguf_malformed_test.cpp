@@ -1,8 +1,9 @@
 #include <doctest/doctest.h>
 
-#include <cstddef>
-#include <string>
 #include <algorithm>
+#include <cstddef>
+#include <span>
+#include <string>
 #include <vector>
 
 #include "core/gguf/reader.h"
@@ -18,92 +19,107 @@ using namespace bllm::gguf;
 
 namespace {
 
-ReadError parse_fixture(const std::string& name) {
-    const auto bytes = bllm::testing::load_gguf_fixture(name);
+ReadError read_whole(std::span<const std::byte> bytes) {
     MemoryByteSource source{bytes};
-    Reader reader{source};
-    return reader.parse();
+    TensorIndex index;
+    return read_index(source, index).error;
+}
+
+ReadError read_fixture(const std::string& name) {
+    return read_whole(bllm::testing::load_gguf_fixture(name));
 }
 
 }  // namespace
 
 TEST_CASE("malformed inputs each fail with their own named error") {
-    CHECK(parse_fixture("bad_magic") == ReadError::BadMagic);
-    CHECK(parse_fixture("bad_version") == ReadError::UnsupportedVersion);
-    CHECK(parse_fixture("truncated_header") == ReadError::ShortRead);
-    CHECK(parse_fixture("tensor_count_too_large") == ReadError::CountTooLarge);
-    CHECK(parse_fixture("metadata_count_lies") == ReadError::ShortRead);
-    CHECK(parse_fixture("negative_dimension") == ReadError::NegativeDimension);
-    CHECK(parse_fixture("unknown_tensor_type") == ReadError::UnknownTensorType);
-    CHECK(parse_fixture("not_block_aligned") == ReadError::UnsupportedTensorType);
-    CHECK(parse_fixture("duplicate_tensor_name") == ReadError::DuplicateTensorName);
-    CHECK(parse_fixture("nested_array") == ReadError::NestedArray);
-    CHECK(parse_fixture("unknown_value_type") == ReadError::UnknownValueType);
-    CHECK(parse_fixture("offset_past_eof") == ReadError::TensorDataOutOfBounds);
-    CHECK(parse_fixture("data_truncated") == ReadError::TensorDataOutOfBounds);
+    CHECK(read_fixture("bad_magic") == ReadError::BadMagic);
+    CHECK(read_fixture("bad_version") == ReadError::UnsupportedVersion);
+    CHECK(read_fixture("truncated_header") == ReadError::ShortRead);
+    CHECK(read_fixture("tensor_count_too_large") == ReadError::CountTooLarge);
+    CHECK(read_fixture("metadata_count_lies") == ReadError::ShortRead);
+    CHECK(read_fixture("negative_dimension") == ReadError::NegativeDimension);
+    CHECK(read_fixture("unknown_tensor_type") == ReadError::UnknownTensorType);
+    CHECK(read_fixture("not_block_aligned") == ReadError::RowNotWholeBlocks);
+    CHECK(read_fixture("duplicate_tensor_name") == ReadError::DuplicateTensorName);
+    CHECK(read_fixture("nested_array") == ReadError::NestedArray);
+    CHECK(read_fixture("unknown_value_type") == ReadError::UnknownValueType);
+    CHECK(read_fixture("offset_past_eof") == ReadError::TensorDataOutOfBounds);
+    CHECK(read_fixture("data_truncated") == ReadError::TensorDataOutOfBounds);
     // The wrap case: absolute offset arithmetic must be refused, not computed.
-    CHECK(parse_fixture("offset_overflow") == ReadError::OffsetOverflow);
+    CHECK(read_fixture("offset_overflow") == ReadError::OffsetOverflow);
 }
 
-TEST_CASE("no malformed case is reported as success") {
-    // The property that matters more than any individual mapping: nothing
-    // deliberately broken parses cleanly.
-    for (const char* name : {"bad_magic", "bad_version", "truncated_header",
-                             "tensor_count_too_large", "metadata_count_lies",
-                             "negative_dimension", "unknown_tensor_type",
-                             "not_block_aligned", "duplicate_tensor_name",
-                             "nested_array", "unknown_value_type",
-                             "offset_past_eof", "data_truncated",
-                             "offset_overflow"}) {
-        CAPTURE(name);
-        CHECK(parse_fixture(name) != ReadError::Ok);
-    }
-}
-
-TEST_CASE("an empty source fails rather than reading anything") {
+TEST_CASE("an empty file fails rather than reading anything") {
     std::vector<std::byte> empty;
-    MemoryByteSource source{empty};
-    Reader reader{source};
-    CHECK(reader.parse() == ReadError::ShortRead);
-    CHECK(source.size() == 0);
+    CHECK(read_whole(empty) == ReadError::ShortRead);
 }
 
 TEST_CASE("every truncation of a valid file fails, none read out of bounds") {
-    // Cuts the valid fixture at every length. Any prefix is malformed; the
-    // reader must say so rather than walk past the end. This is the case a
-    // fixed set of hand-made fixtures cannot cover.
+    // Cuts the valid fixture at every length, and presents each cut as the
+    // WHOLE file. Any such file is malformed; the reader must say so rather
+    // than walk past the end. This is the case a fixed set of hand-made
+    // fixtures cannot cover.
     const auto full = bllm::testing::load_gguf_fixture("valid");
 
-    // Where the last declared byte of tensor data sits. A cut at or beyond it
-    // removes only trailing padding, which is not part of any declared region
-    // — the reader is right to accept that. A cut below it removes bytes a
-    // tensor claims, and must fail.
+    // A cut at or beyond the last declared tensor byte removes only trailing
+    // padding, which no region claims, so the reader is right to accept it.
     std::uint64_t last_declared_byte = 0;
     {
         MemoryByteSource whole{full};
-        Reader reader{whole};
-        REQUIRE(reader.parse() == ReadError::Ok);
-        for (const auto& t : reader.tensors()) {
+        TensorIndex index;
+        REQUIRE(read_index(whole, index).error == ReadError::Ok);
+        for (const auto& t : index.tensors()) {
             last_declared_byte = std::max(last_declared_byte, t.data_offset + t.data_length);
         }
-        REQUIRE(last_declared_byte > 0);
         REQUIRE(last_declared_byte < full.size());   // there IS trailing padding
     }
 
     std::size_t wrongly_accepted = 0;
     for (std::size_t cut = 0; cut < last_declared_byte; ++cut) {
-        std::span<const std::byte> prefix{full.data(), cut};
-        MemoryByteSource source{prefix};
-        Reader reader{source};
-        if (reader.parse() == ReadError::Ok) {
-            ++wrongly_accepted;
-        }
+        if (read_whole({full.data(), cut}) == ReadError::Ok) ++wrongly_accepted;
     }
-    // Every prefix that cuts into declared data must be rejected.
     CHECK(wrongly_accepted == 0);
+}
+
+TEST_CASE("a prefix of the file asks for the bytes it lacks, and nothing else fails") {
+    // The browser holds the front of the file and knows its full size. Every
+    // prefix must either read, or ask for more — never report the file as
+    // malformed, because it is not.
+    const auto full = bllm::testing::load_gguf_fixture("valid");
+
+    for (std::size_t cut = 0; cut <= full.size(); ++cut) {
+        CAPTURE(cut);
+        MemoryByteSource source{{full.data(), cut}, full.size()};
+        TensorIndex index;
+        const ReadResult result = read_index(source, index);
+        if (result.error == ReadError::Ok) continue;
+        REQUIRE(result.error == ReadError::NeedMoreBytes);
+        CHECK(result.bytes_needed > cut);
+        CHECK(result.bytes_needed <= full.size());
+        CHECK(index.tensors().empty());   // untouched unless the read succeeds
+    }
+}
+
+TEST_CASE("supplying the bytes asked for converges on the whole index") {
+    const auto full = bllm::testing::load_gguf_fixture("valid");
+
+    std::uint64_t resident = 0;
+    TensorIndex index;
+    for (int attempt = 0;; ++attempt) {
+        REQUIRE(attempt < 1000);
+        MemoryByteSource source{{full.data(), static_cast<std::size_t>(resident)}, full.size()};
+        const ReadResult result = read_index(source, index);
+        if (result.error == ReadError::Ok) break;
+        REQUIRE(result.error == ReadError::NeedMoreBytes);
+        resident = result.bytes_needed;
+    }
+    CHECK(index.tensors().size() == 2);
+    // The index is complete without any tensor data resident.
+    CHECK(resident <= index.tensors()[0].data_offset);
 }
 
 TEST_CASE("error strings are distinct and non-empty") {
     CHECK(to_string(ReadError::BadMagic) != to_string(ReadError::ShortRead));
+    CHECK(to_string(ReadError::NeedMoreBytes) != to_string(ReadError::ShortRead));
     CHECK_FALSE(to_string(ReadError::TensorDataOutOfBounds).empty());
 }
