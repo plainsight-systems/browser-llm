@@ -25,13 +25,20 @@ EMSDK_IMAGE := emscripten/emsdk:6.0.8
 # directory is incompatible -- see tools/ensure_container_cache.sh.
 CONTAINER_SRC := /src
 
-.PHONY: test check wasm wasm-diag dist serve clean
+.PHONY: test test-native test-web check wasm wasm-diag dist serve clean
 
-## Native build + unit tests. No browser, no GPU.
-test:
+## Every unit test. No browser, no GPU.
+test: test-native test-web
+
+## C++ build and unit tests.
+test-native:
 	cmake --preset native-debug
 	cmake --build --preset native-debug
 	ctest --preset native-debug
+
+## JavaScript unit tests, in Node. No dependencies to install.
+test-web:
+	node --test tests/web/*.test.js
 
 ## Structural invariants, plus the tests proving each guard actually fires.
 check:

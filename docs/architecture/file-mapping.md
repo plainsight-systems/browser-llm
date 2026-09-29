@@ -29,6 +29,9 @@ module's own header, and contract 11 in the two boundary files.
 
 | Module | Axis | Owns |
 |---|---|---|
+| `web/app.js` | H | the composition root: creates the worker and the views and wires them together |
+| `web/index.html`, `web/style.css` | H | the page's structure and appearance |
+| `web/device_status.js` | H | whether the GPU is usable, and if not, why |
 | `web/picker.js` | H | choosing a model; showing an unmeasured model as unmeasured |
 | `web/models.json` | J | the curated list: one measured configuration per model |
 | `web/template.js` | H | rendering the model's chat template |
@@ -36,6 +39,8 @@ module's own header, and contract 11 in the two boundary files.
 | `web/fetch.js` | L | range and streaming fetch, with progress |
 | `web/opfs.js` | L | the model file cache |
 | `web/worker.js` | boundary | owns the WASM module; the JavaScript side of every crossing |
+| `web/protocol.js` | boundary | the message kinds both sides of the worker use |
+| `web/worker_client.js` | boundary | the page's side of the worker: requests as promises, streamed text as callbacks |
 | `src/wasm/bindings.cpp` | boundary | the only Emscripten-aware C++; the crossing budget |
 | `src/core/gguf/` | C | reader, the tensor index it produces, and a size for every format GGUF defines |
 | `src/core/capability/` | I | what the code implements |

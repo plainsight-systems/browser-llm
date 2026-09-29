@@ -1,0 +1,8 @@
+{
+  "name": "browser-llm-web",
+  "private": true,
+  "type": "module",
+  "description": "Unit tests for the JavaScript in web/. There are no dependencies and no build step.",
+  "engines": { "node": ">=22" },
+  "scripts": { "test": "node --test tests/web/*.test.js" }
+}
