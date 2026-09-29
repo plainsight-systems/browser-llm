@@ -125,6 +125,13 @@ CASES = {
     "q6_k_tensor": lambda: build(
         [(b"t", [Q6_K_BLOCK_ELEMENTS], T_Q6_K, b"\0" * Q6_K_BLOCK_BYTES)]
     ),
+    # Two tensors share a format, so a gate that reports per format must
+    # report it once, with both counted.
+    "shared_format": lambda: build([
+        (b"first.weight", [32], T_Q4_0, q4_0_blocks(1)),
+        (b"second.weight", [32], T_Q4_0, q4_0_blocks(1)),
+        (b"norm.weight", [4], T_F32, b"\0" * 16),
+    ]),
     "not_block_aligned": lambda: build(
         # 33 elements is not a whole number of Q4_0 blocks.
         [(b"t", [33], T_Q4_0, q4_0_blocks(2))]

@@ -1,4 +1,26 @@
 {
-  "$comment": "Axis J: one measured configuration per model; changes when a model is measured. Each entry: file URL, SHA-256, cache precision, memory budget, sampling settings per mode, and the template variables the model exposes. Contract 12 in docs/architecture/file-mapping.md; the C++ side is src/core/policy/policy.h.",
-  "models": []
+  "$comment": "Axis J: the models offered. An entry with a `policy` has been measured and runs with it; one without runs on the defaults and is shown as unmeasured. Each entry: id, name, url, sizeBytes, sha256, and optionally policy (cache precision, memory budget, sampling settings per mode, template variables). Contract 12 in docs/architecture/file-mapping.md; the C++ side is src/core/policy/policy.h.",
+  "models": [
+    {
+      "id": "qwen3-0.6b-q4_0",
+      "name": "Qwen3 0.6B",
+      "url": "https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_0.gguf",
+      "sizeBytes": 382156480,
+      "sha256": "33bcc57074ec7b6eada5a90651ee546ec0c2b271002c22baf9f1b2dd1e8f75cb"
+    },
+    {
+      "id": "llama-3.2-1b-instruct-q4_0",
+      "name": "Llama 3.2 1B Instruct",
+      "url": "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_0.gguf",
+      "sizeBytes": 773025920,
+      "sha256": "fa0390e7c043f89ae1847bd6682d748041a99d4ef3de0e0b27d33b6af97a8be8"
+    },
+    {
+      "id": "gemma-3-1b-it-q4_0",
+      "name": "Gemma 3 1B",
+      "url": "https://huggingface.co/unsloth/gemma-3-1b-it-GGUF/resolve/main/gemma-3-1b-it-Q4_0.gguf",
+      "sizeBytes": 721918496,
+      "sha256": "27ee88e03be02e9ba73def9a819d570d8ad73716e50769e87f374ae394b0276e"
+    }
+  ]
 }

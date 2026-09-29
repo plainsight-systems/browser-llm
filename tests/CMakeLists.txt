@@ -20,6 +20,7 @@ add_executable(browser_llm_tests
     gguf_formats_test.cpp
     gguf_malformed_test.cpp
     contract_headers_test.cpp
+    preflight_test.cpp
     main_test.cpp
 )
 

@@ -19,9 +19,12 @@
 #include <cstdio>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 
+#include "core/gguf/reader.h"
 #include "core/gpu/device.h"
+#include "core/preflight/preflight.h"
 #include "core/run_guard.h"
 #include "core/gpu/self_check.h"
 #include "core/diagnostics.h"
@@ -100,6 +103,51 @@ void report_failure(const std::string& stage, const std::string& error) {
     const std::string json = std::string("{\"ok\":false,\"stage\":\"") + stage +
                              "\",\"error\":\"" + json_escape(error) + "\"}";
     bllm_deliver(json.c_str());
+}
+
+// Answers one request from the worker. Requests carry an id so an answer
+// that arrives later, from a callback, still reaches the request it belongs to.
+EM_JS(void, bllm_reply, (std::uint32_t request, const char* json), {
+    globalThis.bllmOnReply(request, JSON.parse(UTF8ToString(json)));
+});
+
+std::string json_string(std::string_view text) {
+    return "\"" + json_escape(std::string(text)) + "\"";
+}
+
+// The preflight answer: bytes the reader still needs, a file that cannot be
+// read, or the verdict on a file that can.
+std::string preflight_json(const bllm::gguf::ReadResult& read,
+                           const bllm::gguf::TensorIndex& index) {
+    using bllm::gguf::ReadError;
+    if (read.error == ReadError::NeedMoreBytes) {
+        return "{\"status\":\"need-bytes\",\"bytesNeeded\":" +
+               std::to_string(read.bytes_needed) + "}";
+    }
+    if (read.error != ReadError::Ok) {
+        return "{\"status\":\"unreadable\",\"error\":" +
+               json_string(bllm::gguf::to_string(read.error)) + "}";
+    }
+    // The device-fit gate fails closed in this build (preflight.cpp) and reads
+    // neither limits nor policy, so none are passed.
+    const auto verdict = bllm::preflight::preflight(index, bllm::residency::DeviceLimits{},
+                                                    bllm::policy::LoadPolicy{});
+    std::string_view architecture;
+    const bool named = index.read_string("general.architecture", architecture) ==
+                       bllm::gguf::MetadataError::Ok;
+
+    std::string json = "{\"status\":\"read\",\"architecture\":";
+    json += named ? json_string(architecture) : "null";
+    json += ",\"tensorCount\":" + std::to_string(index.tensors().size());
+    json += ",\"accepted\":" + std::string(verdict.accepted() ? "true" : "false");
+    json += ",\"rejections\":[";
+    for (std::size_t i = 0; i < verdict.rejections.size(); ++i) {
+        const auto& r = verdict.rejections[i];
+        json += i == 0 ? "" : ",";
+        json += "{\"gate\":" + json_string(bllm::preflight::to_string(r.gate)) +
+                ",\"detail\":" + json_string(r.detail) + "}";
+    }
+    return json + "]}";
 }
 
 // Serialises runs and identifies late callbacks. Logic lives in core and is
@@ -287,6 +335,19 @@ EMSCRIPTEN_KEEPALIVE void bllm_run_self_check() {
     timeout_id() = emscripten_set_timeout(on_timeout, kRunTimeoutMs,
                                           to_userdata(generation));
     bllm::gpu::Device::request(on_device, to_userdata(generation));
+}
+
+// Reads the index from the front of a model file and answers with the
+// preflight verdict. `resident` bytes are the file's first bytes; `file_size`
+// is the whole file's length, as a double because JavaScript numbers are
+// exact to 2^53 and no model file approaches that.
+EMSCRIPTEN_KEEPALIVE void bllm_preflight(std::uint32_t request, const std::byte* resident,
+                                         std::uint32_t resident_length, double file_size) {
+    bllm::gguf::MemoryByteSource source{{resident, resident_length},
+                                        static_cast<std::uint64_t>(file_size)};
+    bllm::gguf::TensorIndex index;
+    const auto read = bllm::gguf::read_index(source, index);
+    bllm_reply(request, preflight_json(read, index).c_str());
 }
 
 #if BLLM_DIAGNOSTICS_ENABLED

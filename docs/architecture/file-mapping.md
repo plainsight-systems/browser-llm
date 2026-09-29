@@ -33,10 +33,14 @@ module's own header, and contract 11 in the two boundary files.
 | `web/index.html`, `web/style.css` | H | the page's structure and appearance |
 | `web/device_status.js` | H | whether the GPU is usable, and if not, why |
 | `web/picker.js` | H | choosing a model; showing an unmeasured model as unmeasured |
+| `web/catalog.js` | H | the models offered: the curated list, and a model named by a pasted URL |
+| `web/verdict_view.js` | H | what preflight found: every named rejection, or why the check failed |
+| `web/dom.js`, `web/units.js` | H | building elements safely; formatting sizes |
 | `web/models.json` | J | the curated list: one measured configuration per model |
 | `web/template.js` | H | rendering the model's chat template |
 | `web/chat.js` | H | conversation state and streamed rendering |
 | `web/fetch.js` | L | range and streaming fetch, with progress |
+| `web/preflight.js` | L | fetching the front of a file until the reader has its whole index |
 | `web/opfs.js` | L | the model file cache |
 | `web/worker.js` | boundary | owns the WASM module; the JavaScript side of every crossing |
 | `web/protocol.js` | boundary | the message kinds both sides of the worker use |

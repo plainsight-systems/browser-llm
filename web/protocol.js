@@ -5,6 +5,11 @@
 // replies end with exactly one DONE or FAILED; TOKEN replies may come before.
 // Notices carry no id: the worker sends them unprompted.
 
+export const Request = Object.freeze({
+  // Read a model file's index from its first bytes and judge it.
+  PREFLIGHT: 'preflight',
+});
+
 export const Reply = Object.freeze({
   TOKEN: 'token',
   DONE: 'done',

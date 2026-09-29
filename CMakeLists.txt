@@ -25,8 +25,10 @@ option(BLLM_ENABLE_DIAGNOSTICS
        "Compile diagnostic instrumentation into the build (perturbs timing)" OFF)
 
 add_library(browser_llm_core STATIC
+    src/core/capability/capability.cpp
     src/core/gguf/index.cpp
     src/core/gguf/reader.cpp
+    src/core/preflight/preflight.cpp
     src/core/gpu/dispatch_math.cpp
 )
 
@@ -96,7 +98,8 @@ if(EMSCRIPTEN)
         # than chosen.
         -sALLOW_MEMORY_GROWTH=1
         -sMAXIMUM_MEMORY=536870912
-        -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']
+        -sEXPORTED_RUNTIME_METHODS=['HEAPU8']
+        -sEXPORTED_FUNCTIONS=['_main','_malloc','_free']
         # Deliberately absent: -pthread. GitHub Pages cannot set COOP/COEP,
         # so SharedArrayBuffer is unavailable and pthreads cannot be used.
     )

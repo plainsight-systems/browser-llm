@@ -1,0 +1,51 @@
+#include "core/capability/capability.h"
+
+#include <array>
+#include <span>
+
+namespace bllm::capability {
+namespace {
+
+// One identifier a file can carry, and the implementation that runs it.
+// Several rows may share an implementation (principle 2).
+template <typename Identifier, typename Implementation>
+struct Row {
+    Identifier identifier;
+    const Implementation* implementation;
+};
+
+template <typename Identifier, typename Implementation>
+const Implementation* lookup(std::span<const Row<Identifier, Implementation>> table,
+                             Identifier identifier) noexcept {
+    for (const auto& row : table) {
+        if (row.identifier == identifier) return row.implementation;
+    }
+    return nullptr;
+}
+
+// An identifier is supported exactly when it has a row here. Adding an
+// implementation adds its file and one row, and nothing else.
+constexpr std::array<Row<std::string_view, arch::Architecture>, 0> kArchitectures{};
+constexpr std::array<Row<gguf::TensorType, formats::Format>, 0> kFormats{};
+constexpr std::array<Row<std::string_view, tokenizer::Algorithm>, 0> kTokenizers{};
+constexpr std::array<Row<std::string_view, tokenizer::PreTokenizer>, 0> kPreTokenizers{};
+
+}  // namespace
+
+const arch::Architecture* find_architecture(std::string_view general_architecture) noexcept {
+    return lookup<std::string_view, arch::Architecture>(kArchitectures, general_architecture);
+}
+
+const formats::Format* find_format(gguf::TensorType type) noexcept {
+    return lookup<gguf::TensorType, formats::Format>(kFormats, type);
+}
+
+const tokenizer::Algorithm* find_tokenizer(std::string_view tokenizer_model) noexcept {
+    return lookup<std::string_view, tokenizer::Algorithm>(kTokenizers, tokenizer_model);
+}
+
+const tokenizer::PreTokenizer* find_pretokenizer(std::string_view tokenizer_pre) noexcept {
+    return lookup<std::string_view, tokenizer::PreTokenizer>(kPreTokenizers, tokenizer_pre);
+}
+
+}  // namespace bllm::capability

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "core/gguf/index.h"
@@ -33,6 +34,16 @@ enum class Gate {
     Tokenizer,
     DeviceFit,
 };
+
+[[nodiscard]] constexpr std::string_view to_string(Gate gate) noexcept {
+    switch (gate) {
+        case Gate::Architecture: return "architecture";
+        case Gate::Formats: return "formats";
+        case Gate::Tokenizer: return "tokenizer";
+        case Gate::DeviceFit: return "device-fit";
+    }
+    return "unknown";
+}
 
 struct Rejection {
     Gate gate;

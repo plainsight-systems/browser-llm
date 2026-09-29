@@ -11,11 +11,52 @@
 // isolation requires.
 
 import createModule from './browser_llm.mjs';
-import { Notice, Reply } from './protocol.js';
+import { Notice, Reply, Request } from './protocol.js';
+
+const modulePromise = createModule();
+
+// --- Calls into C++ ---------------------------------------------------------
+
+// C++ answers a call through bllmOnReply, either during the call or later from
+// a callback. Each call gets an id so its answer finds it either way.
+const pendingCalls = new Map();
+let nextCall = 1;
+globalThis.bllmOnReply = (call, value) => {
+  pendingCalls.get(call)(value);
+  pendingCalls.delete(call);
+};
+
+function callModule(start) {
+  const call = nextCall++;
+  return new Promise((resolve) => {
+    pendingCalls.set(call, resolve);
+    start(call);
+  });
+}
+
+// Copies `bytes` into the module's memory for the duration of `use`.
+async function withBytesInModule(module, bytes, use) {
+  const pointer = module._malloc(bytes.byteLength);
+  if (pointer === 0) throw new Error(`could not allocate ${bytes.byteLength} bytes in the module`);
+  try {
+    module.HEAPU8.set(new Uint8Array(bytes), pointer);
+    return await use(pointer, bytes.byteLength);
+  } finally {
+    module._free(pointer);
+  }
+}
+
+// --- Requests from the page -------------------------------------------------
 
 // One handler per request kind. Each receives the request and a function that
 // streams text back, and returns the request's result or throws.
-const handlers = {};
+const handlers = {
+  async [Request.PREFLIGHT]({ bytes, totalSize }) {
+    const module = await modulePromise;
+    return withBytesInModule(module, bytes, (pointer, length) =>
+      callModule((call) => module._bllm_preflight(call, pointer, length, totalSize)));
+  },
+};
 
 const fail = (id, stage, message) =>
   self.postMessage({ id, kind: Reply.FAILED, error: { stage, message } });
@@ -32,9 +73,11 @@ self.addEventListener('message', async ({ data: request }) => {
     const value = await handler(request, streamText);
     self.postMessage({ id: request.id, kind: Reply.DONE, value });
   } catch (error) {
-    fail(request.id, error.stage ?? request.kind, String(error?.message ?? error));
+    fail(request.id, request.kind, String(error?.message ?? error));
   }
 });
+
+// --- The device check at startup --------------------------------------------
 
 const postDevice = (device) => self.postMessage({ kind: Notice.DEVICE, device });
 
@@ -42,7 +85,7 @@ const postDevice = (device) => self.postMessage({ kind: Notice.DEVICE, device })
 globalThis.bllmOnResult = postDevice;
 
 try {
-  const module = await createModule();
+  const module = await modulePromise;
   // ?bench runs the readback measurement — present only in a diagnostic
   // build, so its absence is reported rather than failing obscurely.
   if (!self.location.search.includes('bench')) {
