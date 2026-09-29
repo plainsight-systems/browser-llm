@@ -1,7 +1,10 @@
 #include "core/gguf/reader.h"
 
+#include <algorithm>
 #include <cstring>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 #include "core/gguf/checked.h"
 
@@ -42,6 +45,17 @@ namespace {
     return static_cast<std::int64_t>(raw << shift) >> shift;
 }
 
+// Sorts the names rather than comparing each with every other: a file may
+// declare up to kMaxTensorCount tensors, and a quadratic check would let a
+// hostile one stall the reader.
+[[nodiscard]] bool has_duplicate_name(const std::vector<TensorEntry>& tensors) {
+    std::vector<std::string_view> names;
+    names.reserve(tensors.size());
+    for (const TensorEntry& t : tensors) names.push_back(t.name);
+    std::sort(names.begin(), names.end());
+    return std::adjacent_find(names.begin(), names.end()) != names.end();
+}
+
 // Walks the file front to back with a cursor. Each take_* advances the cursor
 // only on success. A read that reaches bytes the source does not hold records
 // how far into the file it needed to go, so the caller can supply that much.
@@ -62,6 +76,7 @@ private:
     [[nodiscard]] ReadError take_uint(int bytes, std::uint64_t& out);
     [[nodiscard]] ReadError take_string(std::string& out);
     [[nodiscard]] ReadError skip(std::uint64_t count);
+    [[nodiscard]] ReadError skip_string();
     [[nodiscard]] ReadError take_value(MetadataEntry& entry);
     [[nodiscard]] ReadError take_array(ArrayLocation& out);
     [[nodiscard]] ReadError take_tensor();
@@ -114,12 +129,17 @@ ReadError Reader::skip(std::uint64_t count) {
     return ReadError::Ok;
 }
 
+ReadError Reader::skip_string() {
+    std::uint64_t length = 0;
+    if (const auto e = take_uint(8, length); e != ReadError::Ok) return e;
+    if (length > kMaxStringLength) return ReadError::StringTooLong;
+    return skip(length);
+}
+
 // Skips `element` strings from the cursor, then reads the next one.
 ReadError Reader::take_string_at(std::uint64_t element, std::string& out) {
     for (std::uint64_t i = 0; i < element; ++i) {
-        std::uint64_t length = 0;
-        if (const auto e = take_uint(8, length); e != ReadError::Ok) return e;
-        if (const auto e = skip(length); e != ReadError::Ok) return e;
+        if (const auto e = skip_string(); e != ReadError::Ok) return e;
     }
     return take_string(out);
 }
@@ -136,11 +156,10 @@ ReadError Reader::take_array(ArrayLocation& out) {
 
     out.bytes.offset = cursor_;
     if (out.element_type == ValueType::String) {
-        // Variable-length elements must be walked to find the end, but
-        // nothing is kept.
-        std::string ignored;
+        // Variable-length elements must be walked to find the end: each
+        // length is read, and the text it counts is skipped, not copied.
         for (std::uint64_t i = 0; i < out.element_count; ++i) {
-            if (const auto e = take_string(ignored); e != ReadError::Ok) return e;
+            if (const auto e = skip_string(); e != ReadError::Ok) return e;
         }
     } else {
         std::uint64_t total = 0;
@@ -206,9 +225,6 @@ ReadError Reader::take_tensor() {
     // half-built entry cannot exist to be pushed by mistake.
     std::string name;
     if (const auto e = take_string(name); e != ReadError::Ok) return e;
-    for (const auto& existing : tensors_) {
-        if (existing.name == name) return ReadError::DuplicateTensorName;
-    }
 
     TensorShape shape;
     std::uint64_t dimension_count = 0;
@@ -295,6 +311,7 @@ ReadError Reader::parse() {
     for (std::uint64_t i = 0; i < tensor_count; ++i) {
         if (const auto e = take_tensor(); e != ReadError::Ok) return e;
     }
+    if (has_duplicate_name(tensors_)) return ReadError::DuplicateTensorName;
 
     // Tensor data begins at the next alignment boundary after the index.
     std::uint64_t data_start = 0;

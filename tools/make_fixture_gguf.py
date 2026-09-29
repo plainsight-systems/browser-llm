@@ -140,6 +140,13 @@ CASES = {
         (b"dup", [4], T_F32, b"\0" * 16),
         (b"dup", [4], T_F32, b"\0" * 16),
     ]),
+    # Duplicates separated by another tensor, so a check that compares only
+    # neighbours in file order would miss them.
+    "duplicate_tensor_name_apart": lambda: build([
+        (b"dup", [4], T_F32, b"\0" * 16),
+        (b"other", [4], T_F32, b"\0" * 16),
+        (b"dup", [4], T_F32, b"\0" * 16),
+    ]),
     "nested_array": lambda: build(
         [], metadata=[kv(b"bad", ARRAY, struct.pack("<IQ", ARRAY, 1))]
     ),

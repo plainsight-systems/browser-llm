@@ -371,6 +371,15 @@ EMSCRIPTEN_KEEPALIVE void bllm_run_self_check() {
 // exact to 2^53 and no model file approaches that.
 EMSCRIPTEN_KEEPALIVE void bllm_preflight(std::uint32_t request, const std::byte* resident,
                                          std::uint32_t resident_length, double file_size) {
+    // Checked before the conversion: casting a NaN, a negative or a
+    // fractional double to an integer is undefined or lossy, and the value
+    // comes from outside C++. The resident prefix cannot exceed the file.
+    constexpr double kMaxExactInteger = 9007199254740992.0;   // 2^53
+    if (!(file_size >= resident_length && file_size <= kMaxExactInteger) ||
+        file_size != static_cast<double>(static_cast<std::uint64_t>(file_size))) {
+        bllm_reply(request, "{\"status\":\"unreadable\",\"error\":\"the file size is not valid\"}");
+        return;
+    }
     bllm::gguf::MemoryByteSource source{{resident, resident_length},
                                         static_cast<std::uint64_t>(file_size)};
     bllm::gguf::TensorIndex index;

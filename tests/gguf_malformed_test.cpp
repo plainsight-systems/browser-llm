@@ -41,6 +41,7 @@ TEST_CASE("malformed inputs each fail with their own named error") {
     CHECK(read_fixture("unknown_tensor_type") == ReadError::UnknownTensorType);
     CHECK(read_fixture("not_block_aligned") == ReadError::RowNotWholeBlocks);
     CHECK(read_fixture("duplicate_tensor_name") == ReadError::DuplicateTensorName);
+    CHECK(read_fixture("duplicate_tensor_name_apart") == ReadError::DuplicateTensorName);
     CHECK(read_fixture("nested_array") == ReadError::NestedArray);
     CHECK(read_fixture("unknown_value_type") == ReadError::UnknownValueType);
     CHECK(read_fixture("offset_past_eof") == ReadError::TensorDataOutOfBounds);
