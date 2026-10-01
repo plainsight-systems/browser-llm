@@ -21,6 +21,7 @@ add_executable(charlotte_tests
     gguf_malformed_test.cpp
     contract_headers_test.cpp
     preflight_test.cpp
+    arch_describe_test.cpp
     main_test.cpp
 )
 

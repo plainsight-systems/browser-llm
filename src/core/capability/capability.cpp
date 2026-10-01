@@ -3,6 +3,10 @@
 #include <array>
 #include <span>
 
+#include "core/arch/gemma3/gemma3.h"
+#include "core/arch/llama/llama.h"
+#include "core/arch/qwen3/qwen3.h"
+
 namespace bllm::capability {
 namespace {
 
@@ -25,7 +29,11 @@ const Implementation* lookup(std::span<const Row<Identifier, Implementation>> ta
 
 // An identifier is supported exactly when it has a row here. Adding an
 // implementation adds its file and one row, and nothing else.
-constexpr std::array<Row<std::string_view, arch::Architecture>, 0> kArchitectures{};
+constexpr std::array kArchitectures{
+    Row<std::string_view, arch::Architecture>{"gemma3", &arch::kGemma3},
+    Row<std::string_view, arch::Architecture>{"llama", &arch::kLlama},
+    Row<std::string_view, arch::Architecture>{"qwen3", &arch::kQwen3},
+};
 constexpr std::array<Row<gguf::TensorType, formats::Format>, 0> kFormats{};
 constexpr std::array<Row<std::string_view, tokenizer::Algorithm>, 0> kTokenizers{};
 constexpr std::array<Row<std::string_view, tokenizer::PreTokenizer>, 0> kPreTokenizers{};

@@ -45,12 +45,15 @@ TEST_CASE("a readable file can always be downloaded, whatever this build can run
 }
 
 TEST_CASE("every check reports, each naming the stage it stops") {
-    // The fixture names a real architecture and uses two real formats, none
-    // of which this build implements, and declares no tokenizer.
+    // The fixture names a real architecture but declares too few of its
+    // numbers to describe, uses two formats this build cannot run, and
+    // declares no tokenizer.
     const auto verdict = preflight_fixture("valid");
 
     CHECK(verdict.reached() == Stage::Download);
-    CHECK(blocked(verdict, Stage::Describe, "architecture \"qwen3\" is not supported"));
+    CHECK(blocked(verdict, Stage::Describe,
+                  "architecture \"qwen3\" cannot read this file: a required key is missing "
+                  "(qwen3.context_length)"));
     CHECK(blocked(verdict, Stage::Run,
                   "format Q4_0 is not supported (1 tensor, first token_embd.weight)"));
     CHECK(blocked(verdict, Stage::Run,

@@ -30,6 +30,8 @@ std::string_view to_string(arch::DescribeError error) noexcept {
         case arch::DescribeError::WrongKeyType: return "a key has the wrong type";
         case arch::DescribeError::MissingTensor: return "a required tensor is missing";
         case arch::DescribeError::ShapeMismatch: return "a tensor has the wrong shape";
+        case arch::DescribeError::InvalidValue: return "a value no model could have";
+        case arch::DescribeError::UnsupportedValue: return "a value in a form this build does not read";
     }
     return "unrecognised error";
 }
@@ -50,10 +52,10 @@ void check_architecture(const gguf::TensorIndex& index, Verdict& verdict) {
         return;
     }
     model::ModelDescription description{};
-    if (const auto e = architecture->describe(index, description); e != arch::DescribeError::Ok) {
+    if (const auto r = architecture->describe(index, description); !r.ok()) {
         verdict.blockers.push_back(
-            {Stage::Describe, "architecture " + quoted(name) +
-                                  " cannot read this file: " + std::string(to_string(e))});
+            {Stage::Describe, "architecture " + quoted(name) + " cannot read this file: " +
+                                  std::string(to_string(r.error)) + " (" + r.subject + ")"});
     }
 }
 

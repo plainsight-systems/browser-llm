@@ -99,6 +99,68 @@ def _one_tensor_with(*metadata):
     return build([(b"t", [4], T_F32, b"\0" * 16)], metadata=list(metadata))
 
 
+# A tiny but complete transformer, in the shape a real converter writes:
+# embedding 8, 2 query heads and 1 key/value head of width 4, feed-forward 16,
+# a 6-token vocabulary. Enough for describe to check every key, name and shape.
+E, H, KV, D, F, VOCAB = 8, 2, 1, 4, 16, 6
+ROLE_SHAPES = {
+    "attn_norm": [E], "attn_q": [E, H * D], "attn_k": [E, KV * D], "attn_v": [E, KV * D],
+    "attn_q_norm": [D], "attn_k_norm": [D], "attn_output": [H * D, E],
+    "post_attention_norm": [E], "ffn_norm": [E], "ffn_gate": [E, F], "ffn_up": [E, F],
+    "ffn_down": [F, E], "post_ffw_norm": [E],
+}
+ARCH_ROLES = {
+    "qwen3": ["attn_norm", "attn_q", "attn_k", "attn_v", "attn_q_norm", "attn_k_norm",
+              "attn_output", "ffn_norm", "ffn_gate", "ffn_up", "ffn_down"],
+    "llama": ["attn_norm", "attn_q", "attn_k", "attn_v", "attn_output",
+              "ffn_norm", "ffn_gate", "ffn_up", "ffn_down"],
+    "gemma3": ["attn_norm", "attn_q", "attn_k", "attn_v", "attn_q_norm", "attn_k_norm",
+               "attn_output", "post_attention_norm", "ffn_norm", "ffn_gate", "ffn_up",
+               "ffn_down", "post_ffw_norm"],
+}
+
+
+def f32_zeros(dims):
+    n = 1
+    for d in dims:
+        n *= d
+    return b"\0" * (4 * n)
+
+
+def tiny_model(arch, layers=2, *, extra=(), omit_key=None, omit_tensor=None, reshape=None,
+               head_count_kv=KV):
+    """A tiny `arch` model. `reshape` is (tensor name, dims) to break a shape."""
+    keys = {
+        "block_count": (U32, struct.pack("<I", layers)),
+        "context_length": (U32, struct.pack("<I", 64)),
+        "embedding_length": (U32, struct.pack("<I", E)),
+        "feed_forward_length": (U32, struct.pack("<I", F)),
+        "attention.head_count": (U32, struct.pack("<I", H)),
+        "attention.head_count_kv": (U32, struct.pack("<I", head_count_kv)),
+        "attention.key_length": (U32, struct.pack("<I", D)),
+        "attention.value_length": (U32, struct.pack("<I", D)),
+        "attention.layer_norm_rms_epsilon": (F32, struct.pack("<f", 1e-6)),
+        "rope.freq_base": (F32, struct.pack("<f", 1e6)),
+    }
+    metadata = [kv(b"general.architecture", STRING, gstr(arch.encode()))]
+    for key, (vtype, payload) in keys.items():
+        if key != omit_key:
+            metadata.append(kv(f"{arch}.{key}".encode(), vtype, payload))
+    tokens = b"".join(gstr(t) for t in [b"a", b"b", b"c", b"d", b"e", b"f"])
+    metadata.append(kv(b"tokenizer.ggml.tokens", ARRAY, struct.pack("<IQ", STRING, VOCAB) + tokens))
+    metadata.extend(extra)
+
+    shapes = {"token_embd.weight": [E, VOCAB], "output_norm.weight": [E]}
+    for layer in range(layers):
+        for role in ARCH_ROLES[arch]:
+            shapes[f"blk.{layer}.{role}.weight"] = ROLE_SHAPES[role]
+    if reshape is not None:
+        shapes[reshape[0]] = reshape[1]
+    tensors = [(name.encode(), dims, T_F32, f32_zeros(dims))
+               for name, dims in shapes.items() if name != omit_tensor]
+    return build(tensors, metadata=metadata)
+
+
 def _tensors_at(*placements, alignment=32):
     """A file whose tensors sit at chosen relative offsets: (name, offset)."""
     data = q4_0_blocks(1)
@@ -199,6 +261,35 @@ CASES = {
         kv(b"general.architecture", STRING, gstr(b"qwen3")),
         kv(b"tokenizer.ggml.model", STRING, gstr(b"gpt2")),
         kv(b"tokenizer.ggml.pre", STRING, gstr(b"qwen2"))),
+    # Describe: one complete tiny model per architecture, and one file broken
+    # in each way describe must name.
+    "tiny_qwen3": lambda: tiny_model("qwen3"),
+    "tiny_llama": lambda: tiny_model("llama"),
+    # Seven layers: a run of six (five window layers, one global) and one more.
+    "tiny_gemma3": lambda: tiny_model("gemma3", layers=7, extra=[
+        kv(b"gemma3.attention.sliding_window", U32, struct.pack("<I", 16))]),
+    "tiny_gemma3_no_window": lambda: tiny_model("gemma3", layers=7),
+    "tiny_gemma3_pattern_per_layer": lambda: tiny_model("gemma3", layers=7, extra=[
+        kv(b"gemma3.attention.sliding_window", U32, struct.pack("<I", 16)),
+        kv(b"gemma3.attention.sliding_window_pattern", ARRAY,
+           struct.pack("<IQ", BOOL, 7) + bytes([1, 1, 1, 1, 1, 0, 1]))]),
+    "tiny_qwen3_missing_key": lambda: tiny_model("qwen3", omit_key="attention.head_count_kv"),
+    "tiny_qwen3_missing_tensor": lambda: tiny_model("qwen3", omit_tensor="blk.1.ffn_up.weight"),
+    "tiny_qwen3_wrong_shape": lambda: tiny_model("qwen3", reshape=("blk.1.attn_k.weight", [E, 2 * D])),
+    "tiny_qwen3_heads_not_grouped": lambda: tiny_model("qwen3", head_count_kv=3),
+    "tiny_qwen3_too_many_layers": lambda: build(
+        [(b"token_embd.weight", [E, VOCAB], T_F32, f32_zeros([E, VOCAB]))],
+        metadata=[kv(b"general.architecture", STRING, gstr(b"qwen3"))] + [
+            kv(f"qwen3.{k}".encode(), t, p) for k, (t, p) in {
+                "block_count": (U32, struct.pack("<I", 4_000_000_000)),
+                "context_length": (U32, struct.pack("<I", 64)),
+                "embedding_length": (U32, struct.pack("<I", E)),
+                "feed_forward_length": (U32, struct.pack("<I", F)),
+                "attention.head_count": (U32, struct.pack("<I", H)),
+                "attention.head_count_kv": (U32, struct.pack("<I", KV)),
+                "attention.layer_norm_rms_epsilon": (F32, struct.pack("<f", 1e-6)),
+                "rope.freq_base": (F32, struct.pack("<f", 1e6)),
+            }.items()]),
     "nested_array": lambda: build(
         [], metadata=[kv(b"bad", ARRAY, struct.pack("<IQ", ARRAY, 1))]
     ),

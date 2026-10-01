@@ -62,6 +62,7 @@ module's own header, and contract 11 in the two boundary files.
 | `src/core/model/` | contract | the model description: every number, with no reference to architecture |
 | `src/core/policy/` | contract | a model's measured configuration, and the defaults for an unmeasured one |
 | `src/core/arch/architecture.h` | contract | what every architecture supplies |
+| `src/core/arch/describe` | C | what describing shares: GGUF's `<arch>.<key>` and `blk.<layer>.<suffix>` naming, and the shape each role's weight has |
 | `src/core/arch/<arch>/` | A | reading its numbers into the model description, its graph, its load transforms |
 | `src/core/formats/format.h` | contract | what every weight format supplies |
 | `src/core/formats/<format>/` | B | block layout, pack and unpack in WGSL, the upload transform |
