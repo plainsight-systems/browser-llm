@@ -202,6 +202,11 @@ Four rules hold for every contract:
      layer reuses, sized for a 512-token prefill block at f32.
    - A weight larger than one binding is split by whole rows; every offset is
      aligned to WebGPU's storage-offset alignment.
+   - A kernel over a split weight dispatches once per piece and binds one
+     piece at a time, so the bindings a kernel needs never depend on how many
+     pieces a weight has. Rows are whole in every piece: a matrix multiply
+     writes a disjoint range of output rows per piece, and every embedding row
+     lives in exactly one piece.
    - Attention never stores a block-by-context matrix of scores, which at
      these sizes would run to gigabytes; kernels work within the working
      buffers.
