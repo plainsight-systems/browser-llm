@@ -137,6 +137,7 @@ enum class ReadError : std::uint32_t {
     EmptyKey,
     DuplicateMetadataKey,
     NestedArray,             // arrays of arrays are not supported
+    WrongElementType,        // an array read as another element type than it holds
 };
 
 [[nodiscard]] constexpr std::string_view to_string(ReadError e) noexcept {
@@ -165,6 +166,7 @@ enum class ReadError : std::uint32_t {
         case ReadError::EmptyKey: return "a metadata key is empty";
         case ReadError::DuplicateMetadataKey: return "duplicate metadata key";
         case ReadError::NestedArray: return "nested arrays are not supported";
+        case ReadError::WrongElementType: return "the array holds another element type";
     }
     return "unrecognised error";
 }

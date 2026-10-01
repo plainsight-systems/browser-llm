@@ -83,6 +83,23 @@ def valid() -> bytes:
     )
 
 
+def token_arrays() -> bytes:
+    """A vocabulary's three arrays: strings (one empty, one multi-byte), their
+    int32 types, and float32 scores."""
+    tokens = [b"", b"a", "h\u00e9llo".encode(), b"<|x|>"]
+    return build(
+        tensors=[],
+        metadata=[
+            kv(b"tokenizer.ggml.tokens", ARRAY,
+               struct.pack("<IQ", STRING, len(tokens)) + b"".join(gstr(t) for t in tokens)),
+            kv(b"tokenizer.ggml.token_type", ARRAY,
+               struct.pack("<IQ", I32, 4) + struct.pack("<4i", 3, 1, 1, -4)),
+            kv(b"tokenizer.ggml.scores", ARRAY,
+               struct.pack("<IQ", F32, 4) + struct.pack("<4f", -1000.0, -1.5, 0.0, 2.25)),
+        ],
+    )
+
+
 def _with_tensor_offset(bogus_offset: int) -> bytes:
     """A structurally valid file whose single tensor claims an absurd offset."""
     data = q4_0_blocks(1)
@@ -183,6 +200,7 @@ def _with_alignment(vtype, payload, alignment=32):
 
 CASES = {
     "valid": valid,
+    "token_arrays": token_arrays,
     "bad_magic": lambda: build([], magic=b"GGUX"),
     "bad_version": lambda: build([], version=2),
     "truncated_header": lambda: MAGIC + struct.pack("<I", VERSION) + b"\x01\x02",

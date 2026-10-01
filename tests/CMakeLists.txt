@@ -16,6 +16,7 @@ add_executable(charlotte_tests
     run_guard_test.cpp
     quant_q4_0_test.cpp
     gguf_checked_test.cpp
+    gguf_arrays_test.cpp
     gguf_parse_test.cpp
     gguf_formats_test.cpp
     gguf_malformed_test.cpp

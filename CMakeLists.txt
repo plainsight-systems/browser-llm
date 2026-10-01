@@ -30,6 +30,7 @@ add_library(charlotte_core STATIC
     src/core/arch/llama/llama.cpp
     src/core/arch/qwen3/qwen3.cpp
     src/core/capability/capability.cpp
+    src/core/gguf/arrays.cpp
     src/core/gguf/index.cpp
     src/core/gguf/reader.cpp
     src/core/preflight/preflight.cpp

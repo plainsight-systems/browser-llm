@@ -27,8 +27,8 @@ namespace bllm::gguf {
 
 // Reads element `element` of a string array the index located. Walks the
 // array from its start, so it costs the elements before it; for looking up a
-// few named tokens, not for decoding a vocabulary. ShortRead if the array
-// holds fewer elements or is not an array of strings.
+// few named tokens. A whole vocabulary is read_strings (arrays.h). ShortRead
+// if the array holds fewer elements or is not an array of strings.
 [[nodiscard]] ReadResult read_string_element(ByteSource& source, const ArrayLocation& array,
                                              std::uint64_t element, std::string& out);
 

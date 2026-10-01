@@ -7,6 +7,7 @@
 #include "core/cache/prefix.h"
 #include "core/capability/capability.h"
 #include "core/formats/format.h"
+#include "core/gguf/arrays.h"
 #include "core/gguf/index.h"
 #include "core/kernels/interface.h"
 #include "core/model/model_description.h"
