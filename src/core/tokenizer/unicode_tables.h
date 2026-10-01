@@ -13,6 +13,11 @@ namespace bllm::tokenizer::unicode_tables {
 // by code point and its entries do not overlap, so it is searched by
 // bisection. Each is reached through a function, never a global object, so no
 // table depends on another translation unit's initialisation.
+//
+// Optimization (browser): constexpr data lands in the module's read-only
+// segment, so loading the module does no work to build it (WASM.7).
+// Optimization (practice): contiguous sorted ranges, about ten comparisons a
+// lookup (CACHE.3). ICU goes further, with compact tries.
 
 struct ClassRange {
     char32_t first;

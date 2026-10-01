@@ -74,6 +74,8 @@ private:
 
     gguf::StringTable tokens_;
     std::vector<TokenType> types_;
+    // Optimization (practice): a sorted vector searched by bisection, contiguous
+    // where std::unordered_map allocates a node per entry (CACHE.3).
     std::vector<TokenId> by_text_;   // every identifier, ordered by its text
 };
 

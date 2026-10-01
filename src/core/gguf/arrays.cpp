@@ -16,6 +16,8 @@ static_assert(std::endian::native == std::endian::little);
 
 // Scalars are read this much at a time, so a hostile element count is never an
 // allocation before its bytes exist. A multiple of every scalar's size.
+// Optimization (browser): the wasm heap is one contiguous block, and an
+// allocation it cannot hold aborts the module (WASM.1).
 constexpr std::uint64_t kChunkBytes = 1u << 20;
 
 constexpr std::uint64_t kLengthBytes = 8;   // each string's length prefix

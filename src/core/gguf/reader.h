@@ -20,6 +20,8 @@ namespace bllm::gguf {
 //   - Reads the index only, never tensor data, so only the front of the file
 //     needs to be resident. When a read reaches bytes that are not,
 //     the result is NeedMoreBytes with how many bytes to supply.
+//     Optimization (browser): the page judges a model from its first bytes,
+//     16 MiB of a 700 MB file, before deciding to download the rest.
 //   - Records every tensor, whatever its format. A format the harness cannot
 //     run is not an error here; preflight decides, and names the tensor.
 //   - Leaves `out` untouched unless the read succeeds.

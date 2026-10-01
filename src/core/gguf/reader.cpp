@@ -48,6 +48,7 @@ namespace {
 // True when some value appears twice. Sorts rather than comparing each value
 // with every other: a file may declare up to 2^20 tensors or keys, and a
 // quadratic check would let a hostile one stall the reader.
+// Optimization (practice): work on untrusted input bounded at O(n log n).
 [[nodiscard]] bool has_duplicate(std::vector<std::string_view> values) {
     std::sort(values.begin(), values.end());
     return std::adjacent_find(values.begin(), values.end()) != values.end();
@@ -80,6 +81,8 @@ template <typename Entry, typename Field>
 
 // True when two tensors' byte ranges intersect. Precondition: every range is
 // inside the file, so no end wraps.
+// Optimization (practice): sorted by offset, each range need only be checked
+// against the one before it: O(n log n) on untrusted input, not O(n²).
 [[nodiscard]] bool has_overlap(const std::vector<TensorEntry>& tensors) {
     std::vector<ByteRange> ranges;
     ranges.reserve(tensors.size());

@@ -56,6 +56,8 @@ private:
     // position is the longest.
     std::vector<Token> tokens_;
     // The tokens starting with byte b are tokens_[starts_[b], starts_[b + 1]).
+    // Optimization (practice): a position whose byte starts no special token
+    // costs one check, not one per token; Gemma 3 has 6,414 of them.
     std::array<std::uint32_t, 257> starts_{};
 };
 

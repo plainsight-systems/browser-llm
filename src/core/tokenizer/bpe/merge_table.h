@@ -49,6 +49,9 @@ private:
         Merge merge;
     };
 
+    // Optimization (practice): a sorted vector of packed 64-bit pairs searched by
+    // bisection, contiguous where std::unordered_map allocates a node per entry
+    // (CACHE.3). Hugging Face tokenizers goes further, with a perfect hash.
     std::vector<Entry> entries_;   // ordered by pair
 };
 

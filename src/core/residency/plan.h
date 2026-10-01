@@ -25,6 +25,8 @@ namespace bllm::residency {
 //     (GPU.9): the weights, packed in file order into as few buffers as the
 //     limits allow; the KV cache, keys and values per layer at the context
 //     offered; and one set of working buffers that every layer reuses.
+//     Optimization (practice): a few large buffers, suballocated, rather than
+//     one allocation per tensor (GPU.9).
 //   - Limits are the ones the device granted, never the adapter's advertised
 //     maxima (WASM.10). Packing works at WebGPU's default limits.
 //   - A weight larger than one storage binding is split by rows. Every offset
@@ -34,12 +36,17 @@ namespace bllm::residency {
 //     Attention never stores a block-by-context matrix of scores: at 512
 //     tokens, 32 heads and a 40,000-token context that is 2.6 GB. Kernels work
 //     within these buffers.
+//     Optimization (browser): no 128 MiB binding could hold that matrix, nor
+//     a 2 GiB budget; attention computes in tiles, as FlashAttention does.
 //   - A layer's cache holds one slot per token of the context offered, or, for
 //     a sliding-window layer, never more than its window, a prefill block and
 //     the policy's rollback reserve. A step writes up to kPrefillBlock new
 //     tokens while its first query still reads a window behind them, so a
 //     ring of window + kPrefillBlock is the least a step needs; the reserve is
 //     how far a turn can roll back. Position p lives in slot p mod slots.
+//     Optimization (browser): Gemma 3's cache falls from 832 MiB to 238 MiB
+//     under a budget the browser cannot measure; llama.cpp sizes its
+//     sliding-window cache the same way.
 //   - The context offered is the largest that fits the memory budget and the
 //     binding limit, capped at the context the model was trained for.
 //   - The fit counts every tensor. An output head stored as a byte-for-byte
