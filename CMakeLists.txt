@@ -44,6 +44,7 @@ add_library(charlotte_core STATIC
     src/core/tokenizer/special.cpp
     src/core/tokenizer/unicode.cpp
     src/core/tokenizer/unicode_tables.cpp
+    src/core/tokenizer/utf8_stream.cpp
     src/core/tokenizer/vocabulary.cpp
     src/core/residency/plan.cpp
     src/core/gpu/dispatch_math.cpp

@@ -25,6 +25,7 @@ add_executable(charlotte_tests
     tokenizer_piece_cache_test.cpp
     tokenizer_split_test.cpp
     tokenizer_unicode_test.cpp
+    tokenizer_utf8_stream_test.cpp
     tokenizer_vocabulary_test.cpp
     gguf_parse_test.cpp
     gguf_formats_test.cpp

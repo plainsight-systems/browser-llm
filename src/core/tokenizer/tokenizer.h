@@ -46,7 +46,8 @@ public:
 
     // Ends the stream. Returns false if bytes were pending — generation
     // stopped inside a character — in which case U+FFFD is appended in their
-    // place rather than dropping them unseen.
+    // place rather than dropping them unseen. The stream is then empty, ready
+    // for another.
     [[nodiscard]] bool finish(std::string& out);
 
 private:
