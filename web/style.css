@@ -125,6 +125,7 @@ button, input, textarea { font: inherit; color: inherit; }
 .model-panel[data-state="ok"] { border-color: var(--amber); }
 .model-heading { font-weight: 500; }
 .later summary { cursor: pointer; color: var(--dim); }
+.model-fit { color: var(--fg); }
 .later ul { margin-top: .3rem; }
 .model-panel .model-facts { color: var(--dim); font-size: .8rem; }
 .actions { display: flex; gap: .4rem; }

@@ -13,7 +13,7 @@
 
 import { h } from './dom.js';
 import { nextStage, reaches } from './stages.js';
-import { formatBytes } from './units.js';
+import { formatBytes, formatMemory } from './units.js';
 
 export function renderModel(element, state, actions) {
   element.dataset.state = TONES[state.phase];
@@ -66,11 +66,12 @@ const NEXT = {
   run: 'run it',
 };
 
-// What the file is, what stops the next stage, and — folded away — what else
-// running it needs.
+// What the file is, how it fits this device, what stops the next stage, and —
+// folded away — what else running it needs.
 function stages(verdict) {
   const { next, blocking, later } = nextStage(verdict);
   const parts = [facts(verdict)];
+  if (verdict.fit) parts.push(fits(verdict.fit));
   if (next === undefined) return [...parts, h('p', { text: 'This build can run it.' })];
   parts.push(h('p', { text: `Cannot ${NEXT[next]} yet:` }), reasons(blocking));
   if (later.length > 0) {
@@ -80,6 +81,12 @@ function stages(verdict) {
   }
   return parts;
 }
+
+const fits = (fit) => h('p', { className: 'model-fit',
+  text: `Fits this device: ${fit.contextOffered.toLocaleString()} of ` +
+        `${fit.trainedContext.toLocaleString()} tokens of context, ` +
+        `${formatMemory(fit.totalBytes)} of a ${formatMemory(fit.memoryBudget)} budget ` +
+        `(${formatMemory(fit.weightBytes)} weights, ${formatMemory(fit.cacheBytes)} cache)` });
 
 const reasons = (blockers) => h('ul', {}, blockers.map((b) => h('li', { text: b.detail })));
 

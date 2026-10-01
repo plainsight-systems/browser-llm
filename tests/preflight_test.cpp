@@ -106,3 +106,22 @@ TEST_CASE("no blocker names a stage the reader alone decides, and every one says
         }
     }
 }
+
+TEST_CASE("with a device's limits, a model that describes reaches fit and says how it fits") {
+    const auto bytes = testing::load_gguf_fixture("tiny_qwen3");
+    gguf::MemoryByteSource source{bytes};
+    gguf::TensorIndex index;
+    REQUIRE(gguf::read_index(source, index).error == gguf::ReadError::Ok);
+
+    const residency::DeviceLimits defaults{256ull << 20, 128ull << 20, 256};
+    const auto verdict = preflight::preflight(index, defaults, policy::LoadPolicy{});
+    CHECK(verdict.reached() == Stage::Fit);
+    REQUIRE(verdict.fit.has_value());
+    CHECK(verdict.fit->context_offered == 64);
+    CHECK(verdict.fit->total_bytes <= verdict.fit->memory_budget);
+
+    // Without a device there are no limits, and fit cannot be judged.
+    const auto blind = preflight::preflight(index, residency::DeviceLimits{}, policy::LoadPolicy{});
+    CHECK(blind.reached() == Stage::Describe);
+    CHECK(blocked(blind, Stage::Fit, "no GPU device was acquired, so fit cannot be judged"));
+}

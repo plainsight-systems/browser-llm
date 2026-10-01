@@ -1,5 +1,8 @@
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -55,7 +58,7 @@ enum class Stage {
 // The furthest stage this build implements. Every later stage is blocked, by
 // name, whatever the model: a verdict never claims a stage that does not
 // exist. Advanced when the next stage is built.
-inline constexpr Stage kImplementedThrough = Stage::Describe;
+inline constexpr Stage kImplementedThrough = Stage::Fit;
 
 // What stops `stage`. Never Read or Download: those depend only on the
 // reader.
@@ -64,8 +67,22 @@ struct Blocker {
     std::string detail;
 };
 
+// What the residency plan found for a model that fits.
+struct FitSummary {
+    std::uint64_t weight_bytes;
+    std::uint64_t cache_bytes;
+    std::uint64_t scratch_bytes;
+    std::uint64_t total_bytes;
+    std::uint64_t memory_budget;
+    std::uint32_t context_offered;
+    std::uint32_t trained_context;
+    std::size_t buffer_count;
+};
+
 struct Verdict {
     std::vector<Blocker> blockers;
+    // Set when the model reaches Fit.
+    std::optional<FitSummary> fit;
 
     // The furthest stage reached: the one before the earliest stage blocked.
     [[nodiscard]] Stage reached() const noexcept {

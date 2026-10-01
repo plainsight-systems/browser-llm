@@ -37,26 +37,77 @@ std::string_view to_string(arch::DescribeError error) noexcept {
 }
 
 // Describe: the architecture is implemented and can read its numbers from
-// this file.
-void check_architecture(const gguf::TensorIndex& index, Verdict& verdict) {
+// this file. Returns the description, which Fit needs.
+std::optional<model::ModelDescription> check_architecture(const gguf::TensorIndex& index,
+                                                          Verdict& verdict) {
     constexpr std::string_view kKey = "general.architecture";
     std::string_view name;
     if (const auto e = index.read_string(kKey, name); e != gguf::MetadataError::Ok) {
         verdict.blockers.push_back({Stage::Describe, unreadable_key(e, kKey)});
-        return;
+        return std::nullopt;
     }
     const arch::Architecture* architecture = capability::find_architecture(name);
     if (architecture == nullptr) {
         verdict.blockers.push_back(
             {Stage::Describe, "architecture " + quoted(name) + " is not supported"});
-        return;
+        return std::nullopt;
     }
     model::ModelDescription description{};
     if (const auto r = architecture->describe(index, description); !r.ok()) {
         verdict.blockers.push_back(
             {Stage::Describe, "architecture " + quoted(name) + " cannot read this file: " +
                                   std::string(to_string(r.error)) + " (" + r.subject + ")"});
+        return std::nullopt;
     }
+    return description;
+}
+
+std::string mebibytes(std::uint64_t bytes) {
+    return std::to_string((bytes + (1u << 19)) >> 20) + " MiB";
+}
+
+std::string fit_failure(const residency::PlanResult& r, const residency::ResidencyPlan& plan,
+                        const policy::LoadPolicy& policy) {
+    using residency::PlanError;
+    switch (r.error) {
+        case PlanError::Ok: return "fits";
+        case PlanError::ExceedsBudget:
+            return "needs " + mebibytes(plan.total_bytes) + " for the shortest context worth offering (" +
+                   std::to_string(residency::kPrefillBlock) + " tokens); the memory budget is " +
+                   mebibytes(policy.memory_budget);
+        case PlanError::RowExceedsBinding:
+            return "a row of " + r.subject + " is wider than one storage binding";
+        case PlanError::ScratchExceedsBinding:
+            return "the " + r.subject + " working buffer is wider than one storage binding";
+        case PlanError::UnsupportedCachePrecision:
+            return "the cache precision cannot store the head dimension of " + r.subject;
+        case PlanError::Overflow:
+            return "sizes overflow (" + r.subject + ")";
+    }
+    return "unrecognised error";
+}
+
+// Fit: the residency plan fits the granted limits and the memory budget.
+void check_fit(const gguf::TensorIndex& index, const model::ModelDescription& description,
+               const residency::DeviceLimits& limits, const policy::LoadPolicy& policy,
+               Verdict& verdict) {
+    if (limits.max_buffer_size == 0 || limits.max_storage_binding_size == 0 ||
+        limits.storage_offset_alignment == 0) {
+        verdict.blockers.push_back({Stage::Fit, "no GPU device was acquired, so fit cannot be judged"});
+        return;
+    }
+    if ((limits.storage_offset_alignment & (limits.storage_offset_alignment - 1)) != 0) {
+        verdict.blockers.push_back({Stage::Fit, "the device's storage-offset alignment is not a power of two"});
+        return;
+    }
+    residency::ResidencyPlan plan;
+    if (const auto r = residency::plan_residency(index, description, limits, policy, plan); !r.ok()) {
+        verdict.blockers.push_back({Stage::Fit, fit_failure(r, plan, policy)});
+        return;
+    }
+    verdict.fit = FitSummary{plan.weight_bytes,    plan.cache_bytes,       plan.scratch_bytes,
+                             plan.total_bytes,     policy.memory_budget,   plan.context_offered,
+                             description.trained_context, plan.buffers.size()};
 }
 
 // Run needs every weight format. One blocker per unsupported format, naming
@@ -118,11 +169,12 @@ void check_tokenizer(const gguf::TensorIndex& index, Verdict& verdict) {
 
 }  // namespace
 
-Verdict preflight(const gguf::TensorIndex& index,
-                  [[maybe_unused]] const residency::DeviceLimits& limits,
-                  [[maybe_unused]] const policy::LoadPolicy& policy) {
+Verdict preflight(const gguf::TensorIndex& index, const residency::DeviceLimits& limits,
+                  const policy::LoadPolicy& policy) {
     Verdict verdict;
-    check_architecture(index, verdict);
+    if (const auto description = check_architecture(index, verdict)) {
+        check_fit(index, *description, limits, policy, verdict);
+    }
     check_formats(index, verdict);
     check_tokenizer(index, verdict);
 

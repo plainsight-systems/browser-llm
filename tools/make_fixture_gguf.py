@@ -128,7 +128,7 @@ def f32_zeros(dims):
 
 
 def tiny_model(arch, layers=2, *, extra=(), omit_key=None, omit_tensor=None, reshape=None,
-               head_count_kv=KV):
+               head_count_kv=KV, output_copy=False):
     """A tiny `arch` model. `reshape` is (tensor name, dims) to break a shape."""
     keys = {
         "block_count": (U32, struct.pack("<I", layers)),
@@ -151,6 +151,8 @@ def tiny_model(arch, layers=2, *, extra=(), omit_key=None, omit_tensor=None, res
     metadata.extend(extra)
 
     shapes = {"token_embd.weight": [E, VOCAB], "output_norm.weight": [E]}
+    if output_copy:
+        shapes["output.weight"] = [E, VOCAB]
     for layer in range(layers):
         for role in ARCH_ROLES[arch]:
             shapes[f"blk.{layer}.{role}.weight"] = ROLE_SHAPES[role]
@@ -265,6 +267,9 @@ CASES = {
     # in each way describe must name.
     "tiny_qwen3": lambda: tiny_model("qwen3"),
     "tiny_llama": lambda: tiny_model("llama"),
+    # An output head stored as its own tensor, the same shape and format as
+    # the token embedding: the case residency treats as a candidate duplicate.
+    "tiny_qwen3_output_copy": lambda: tiny_model("qwen3", output_copy=True),
     # Seven layers: a run of six (five window layers, one global) and one more.
     "tiny_gemma3": lambda: tiny_model("gemma3", layers=7, extra=[
         kv(b"gemma3.attention.sliding_window", U32, struct.pack("<I", 16))]),

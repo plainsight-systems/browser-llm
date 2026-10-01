@@ -66,7 +66,7 @@ module's own header, and contract 11 in the two boundary files.
 | `src/core/arch/<arch>/` | A | reading its numbers into the model description, its graph, its load transforms |
 | `src/core/formats/format.h` | contract | what every weight format supplies |
 | `src/core/formats/<format>/` | B | block layout, pack and unpack in WGSL, the upload transform |
-| `src/core/residency/plan` | D | the planner, pure; candidate duplicates |
+| `src/core/residency/plan` | D | the planner, pure: weights, cache and working buffers, and the context offered |
 | `src/core/residency/weight_view` | contract | what a kernel is given for a weight |
 | `src/core/residency/upload` | D | writing planned buffers; confirming duplicates byte for byte |
 | `src/core/gpu/` | D | device, handles, dispatch geometry |
@@ -192,14 +192,25 @@ Four rules hold for every contract:
    tensors by role. The graph and the kernels address weights by role and
    identifier; no tensor name reaches them.
 5. **Residency plan** — `core/residency/plan`. A pure function: tensor index,
-   model description, granted limits and policy in; buffers, and each tensor's
-   place in them, out. It plans against the limits the device granted, never
-   the adapter's advertised maxima, and its packing works at WebGPU's default
-   limits. A tensor larger than one binding is split by rows, and every offset
-   is aligned to WebGPU's storage-offset alignment. The fit check counts every
-   tensor. Tensors with the same format, shape and length are marked as
-   candidate duplicates, and upload shares their storage only after confirming
-   the bytes match.
+   model description, granted limits and policy in; buffers, each weight's
+   place in them, the cache, the working buffers and the context offered, out.
+   It plans against the limits the device granted, never the adapter's
+   advertised maxima, and its packing works at WebGPU's default limits.
+   - Three pools that never share a buffer, because their lifetimes differ:
+     weights packed in file order into as few buffers as the limits allow; the
+     cache, keys and values per layer; and one set of working buffers every
+     layer reuses, sized for a 512-token prefill block at f32.
+   - A weight larger than one binding is split by whole rows; every offset is
+     aligned to WebGPU's storage-offset alignment.
+   - Attention never stores a block-by-context matrix of scores, which at
+     these sizes would run to gigabytes; kernels work within the working
+     buffers.
+   - The context offered is the largest the memory budget allows, capped at
+     the context the model was trained for.
+   - An output head stored as a byte-for-byte copy of the token embedding is
+     marked a candidate duplicate and given buffers of its own; upload shares
+     their storage only after confirming the bytes match, so a fit never
+     depends on unconfirmed sharing.
 6. **Weight view** — `core/residency/weight_view`. What a kernel is given for a
    weight: buffer, offset, length, format and shape as one value, or a list of
    them for a tensor split across bindings. It names a buffer by its index in

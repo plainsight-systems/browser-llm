@@ -18,6 +18,7 @@
 #include <vector>
 #include <cstdio>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -144,8 +145,22 @@ std::string chat_json(bllm::gguf::ByteSource& source, const bllm::gguf::TensorIn
 
 // The preflight answer: bytes the reader still needs, a file that cannot be
 // read, or the verdict on a file that can.
+// What the residency plan found, as JSON; null if the model did not fit.
+std::string fit_json(const std::optional<bllm::preflight::FitSummary>& fit) {
+    if (!fit) return "null";
+    return "{\"weightBytes\":" + std::to_string(fit->weight_bytes) +
+           ",\"cacheBytes\":" + std::to_string(fit->cache_bytes) +
+           ",\"scratchBytes\":" + std::to_string(fit->scratch_bytes) +
+           ",\"totalBytes\":" + std::to_string(fit->total_bytes) +
+           ",\"memoryBudget\":" + std::to_string(fit->memory_budget) +
+           ",\"contextOffered\":" + std::to_string(fit->context_offered) +
+           ",\"trainedContext\":" + std::to_string(fit->trained_context) +
+           ",\"bufferCount\":" + std::to_string(fit->buffer_count) + "}";
+}
+
 std::string preflight_json(bllm::gguf::ByteSource& source, const bllm::gguf::ReadResult& read,
-                           const bllm::gguf::TensorIndex& index) {
+                           const bllm::gguf::TensorIndex& index,
+                           const bllm::residency::DeviceLimits& limits) {
     using bllm::gguf::ReadError;
     if (read.error == ReadError::NeedMoreBytes) {
         return "{\"status\":\"need-bytes\",\"bytesNeeded\":" +
@@ -155,10 +170,9 @@ std::string preflight_json(bllm::gguf::ByteSource& source, const bllm::gguf::Rea
         return "{\"status\":\"unreadable\",\"error\":" +
                json_string(bllm::gguf::to_string(read.error)) + "}";
     }
-    // Fit and every later stage are blocked in this build (preflight.h), so
-    // neither limits nor policy are read, and none are passed.
-    const auto verdict = bllm::preflight::preflight(index, bllm::residency::DeviceLimits{},
-                                                    bllm::policy::LoadPolicy{});
+    // Every listed model is unmeasured, so each runs on the load policy's
+    // defaults.
+    const auto verdict = bllm::preflight::preflight(index, limits, bllm::policy::LoadPolicy{});
     std::string_view architecture;
     const bool named = index.read_string("general.architecture", architecture) ==
                        bllm::gguf::MetadataError::Ok;
@@ -168,6 +182,7 @@ std::string preflight_json(bllm::gguf::ByteSource& source, const bllm::gguf::Rea
     json += ",\"tensorCount\":" + std::to_string(index.tensors().size());
     json += ",\"chat\":" + chat_json(source, index);
     json += ",\"reached\":" + json_string(bllm::preflight::to_string(verdict.reached()));
+    json += ",\"fit\":" + fit_json(verdict.fit);
     json += ",\"blockers\":[";
     for (std::size_t i = 0; i < verdict.blockers.size(); ++i) {
         const auto& b = verdict.blockers[i];
@@ -367,24 +382,33 @@ EMSCRIPTEN_KEEPALIVE void bllm_run_self_check() {
 
 // Reads the index from the front of a model file and answers with the
 // preflight verdict. `resident` bytes are the file's first bytes; `file_size`
-// is the whole file's length, as a double because JavaScript numbers are
-// exact to 2^53 and no model file approaches that.
+// is the whole file's length. Sizes arrive as doubles because JavaScript
+// numbers are exact to 2^53 and nothing here approaches that. The limits are
+// the device's granted ones, all zero when no device was acquired.
 EMSCRIPTEN_KEEPALIVE void bllm_preflight(std::uint32_t request, const std::byte* resident,
-                                         std::uint32_t resident_length, double file_size) {
-    // Checked before the conversion: casting a NaN, a negative or a
-    // fractional double to an integer is undefined or lossy, and the value
-    // comes from outside C++. The resident prefix cannot exceed the file.
+                                         std::uint32_t resident_length, double file_size,
+                                         double max_buffer_size, double max_binding_size,
+                                         std::uint32_t offset_alignment) {
+    // Checked before any conversion: casting a NaN, a negative or a
+    // fractional double to an integer is undefined or lossy, and the values
+    // come from outside C++. The resident prefix cannot exceed the file.
     constexpr double kMaxExactInteger = 9007199254740992.0;   // 2^53
-    if (!(file_size >= resident_length && file_size <= kMaxExactInteger) ||
-        file_size != static_cast<double>(static_cast<std::uint64_t>(file_size))) {
-        bllm_reply(request, "{\"status\":\"unreadable\",\"error\":\"the file size is not valid\"}");
+    const auto exact = [](double v) {
+        return v >= 0 && v <= kMaxExactInteger && v == static_cast<double>(static_cast<std::uint64_t>(v));
+    };
+    if (!exact(file_size) || file_size < resident_length || !exact(max_buffer_size) ||
+        !exact(max_binding_size)) {
+        bllm_reply(request, "{\"status\":\"unreadable\",\"error\":\"the sizes passed in are not valid\"}");
         return;
     }
     bllm::gguf::MemoryByteSource source{{resident, resident_length},
                                         static_cast<std::uint64_t>(file_size)};
+    const bllm::residency::DeviceLimits limits{static_cast<std::uint64_t>(max_buffer_size),
+                                               static_cast<std::uint64_t>(max_binding_size),
+                                               offset_alignment};
     bllm::gguf::TensorIndex index;
     const auto read = bllm::gguf::read_index(source, index);
-    bllm_reply(request, preflight_json(source, read, index).c_str());
+    bllm_reply(request, preflight_json(source, read, index, limits).c_str());
 }
 
 #if BLLM_DIAGNOSTICS_ENABLED

@@ -6,17 +6,29 @@ import createModule from './charlotte.mjs';
 // Starts the module and the device check, which reports through `onDevice`.
 // Resolves with the runtime once the module is instantiated.
 export async function createRuntime({ onDevice, runBench }) {
+  // The device's granted limits, once the device check reports: what preflight
+  // judges fit against. Null when no device was acquired.
+  let reportLimits;
+  const deviceLimits = new Promise((resolve) => { reportLimits = resolve; });
+
   // The module reports the device check by calling this by name.
-  globalThis.bllmOnResult = onDevice;
+  globalThis.bllmOnResult = (device) => {
+    reportLimits(device.ok && device.limits !== undefined ? device.limits : null);
+    onDevice(device);
+  };
   globalThis.bllmOnReply = answer;
 
   const module = await createModule();
   startDeviceCheck(module, { onDevice, runBench });
 
   return {
-    preflight: (bytes, totalSize) =>
-      withBytesInModule(module, bytes, (pointer, length) =>
-        callModule((call) => module._bllm_preflight(call, pointer, length, totalSize))),
+    preflight: async (bytes, totalSize) => {
+      const limits = await deviceLimits;
+      return withBytesInModule(module, bytes, (pointer, length) =>
+        callModule((call) => module._bllm_preflight(call, pointer, length, totalSize,
+          limits?.maxBufferSize ?? 0, limits?.maxStorageBufferBindingSize ?? 0,
+          limits?.minStorageBufferOffsetAlignment ?? 0)));
+    },
 
     loadChunk: () => {
       throw new Error('loading a model onto the GPU is not implemented in this build');
