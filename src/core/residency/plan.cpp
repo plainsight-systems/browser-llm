@@ -6,6 +6,51 @@
 
 #include "core/gguf/checked.h"
 
+// How this file works.
+//
+// The plan is the blueprint for putting a model on the GPU. It is worked out
+// from the file's header alone, so preflight can say whether a model fits, and
+// with how much context, before a single weight byte is downloaded. Upload
+// later carries out the same plan: it creates the buffers listed here and
+// copies each weight's bytes, unchanged, to the place assigned to it. Kernels
+// then find every weight, cache layer and working buffer through the plan.
+//
+// plan_residency fills three pools in a fixed order, because each step needs
+// what the previous one left:
+//
+//   1. place_weights. Every tensor, in file order, packed into as few buffers
+//      as the limits allow. A tensor larger than one binding is cut between
+//      rows, never inside one, so no quantization block is split.
+//   2. place_scratch. The working buffers one layer's step reads and writes,
+//      shared by every layer.
+//   3. place_cache. The KV cache takes whatever the budget has left. The
+//      context offered is the largest whose cache fits, found by bisection
+//      because the cost only grows with the context. A sliding-window layer
+//      stops growing at its ring: its window, a prefill block, and the
+//      rollback reserve.
+//
+// All three place ranges through Packer, a bump allocator over one pool's
+// buffers: align the offset, open a new buffer when the range will not fit,
+// pad the length to a multiple of 4.
+//
+// Where the numbers come from. The widths — embedding, heads, head size,
+// feed-forward, vocabulary — are the file's, read by Describe into the model
+// description. The limits are the ones the device granted, and the budget and
+// cache precision are load policy. Three numbers are this design's own:
+//
+//   - kPrefillBlock, 512 rows: how many prompt tokens one prefill step
+//     processes. A bigger block reads each weight once for more tokens and
+//     spreads a step's dispatches further; a smaller one keeps the working
+//     buffers small (they grow linearly with it), returns control to the
+//     page sooner, and leaves more of the budget to the cache. 512 follows
+//     llama.cpp's default micro-batch; prefill throughput across block sizes
+//     on the target devices is what moves it.
+//   - f32 working values: arithmetic is f32 everywhere, because f16
+//     arithmetic needs WebGPU's optional shader-f16 feature and f16 overflows
+//     at 65,504, which activations can reach. Only storage is narrower — the
+//     cache, per policy — so cache rounding is the only error introduced.
+//   - one row of logits: only a step's last token needs a prediction.
+
 namespace bllm::residency {
 namespace {
 
