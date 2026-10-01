@@ -32,6 +32,9 @@ struct Segment {
 
 class SpecialTokens {
 public:
+    // None: every text is ordinary.
+    SpecialTokens() = default;
+
     // Every control and user-defined token with text. It keeps its own copy
     // of their text, so it does not depend on the vocabulary living on.
     explicit SpecialTokens(const Vocabulary& vocabulary);

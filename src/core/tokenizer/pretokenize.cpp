@@ -10,8 +10,8 @@
 
 namespace bllm::tokenizer {
 
-const PreTokenizer kQwen2{"qwen2", 1, Normalization::Nfc};
-const PreTokenizer kLlamaBpe{"llama-bpe", 3, Normalization::None};
+const PreTokenizer kQwen2{"qwen2", 1, Normalization::Nfc, false};
+const PreTokenizer kLlamaBpe{"llama-bpe", 3, Normalization::None, true};
 
 namespace {
 

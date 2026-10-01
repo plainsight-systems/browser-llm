@@ -17,6 +17,7 @@
 #include "core/residency/weight_view.h"
 #include "core/runtime/runtime.h"
 #include "core/sampler/sampler.h"
+#include "core/tokenizer/bpe/byte_level_bpe.h"
 #include "core/tokenizer/bpe/byte_map.h"
 #include "core/tokenizer/bpe/merge.h"
 #include "core/tokenizer/bpe/merge_table.h"

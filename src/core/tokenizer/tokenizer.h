@@ -32,6 +32,7 @@ struct Algorithm {
 enum class EncodeError {
     Ok,
     InvalidUtf8,
+    TooLong,   // longer than one encode can address (4 GiB)
 };
 
 // Turns the bytes of successive tokens into text. A token can end partway

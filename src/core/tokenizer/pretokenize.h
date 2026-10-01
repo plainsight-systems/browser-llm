@@ -31,9 +31,11 @@ namespace bllm::tokenizer {
 // splitting resumes after it. Every character matches some alternative, so the
 // pieces cover the text exactly.
 
-// What the text goes through before it is split. GGUF does not record a
-// normalizer, so it is part of what the pre-tokenizer's name means: "qwen2" is
-// the pattern after NFC, as Qwen's tokenizer.json defines it.
+// What the text goes through before it is split, and how a piece is merged.
+// GGUF records neither, so both are part of what the pre-tokenizer's name
+// means, as each model's tokenizer.json defines them and llama.cpp reads the
+// name: "qwen2" splits after NFC; "llama-bpe" takes a piece that is itself a
+// token whole, without merging.
 enum class Normalization {
     None,
     Nfc,
@@ -43,10 +45,13 @@ struct PreTokenizer {
     std::string_view name;
     std::uint8_t digits;   // the most digits one piece holds
     Normalization normalization;
+    // A piece whose bytes are a token's text is that token, whatever the
+    // merges would make of it (tokenizer.json's ignore_merges).
+    bool ignore_merges;
 };
 
 extern const PreTokenizer kQwen2;      // one digit a piece, after NFC
-extern const PreTokenizer kLlamaBpe;   // up to three digits a piece
+extern const PreTokenizer kLlamaBpe;   // up to three digits a piece; whole tokens unmerged
 
 // A byte range of the input text.
 struct Piece {
