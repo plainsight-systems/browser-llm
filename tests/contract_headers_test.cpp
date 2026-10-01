@@ -17,6 +17,7 @@
 #include "core/residency/weight_view.h"
 #include "core/runtime/runtime.h"
 #include "core/sampler/sampler.h"
+#include "core/tokenizer/nfc.h"
 #include "core/tokenizer/pretokenize.h"
 #include "core/tokenizer/tokenizer.h"
 #include "core/tokenizer/unicode.h"
