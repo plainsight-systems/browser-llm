@@ -8,68 +8,22 @@ configured the way Hugging Face transformers configures it. Those renderings
 are the reference the page's template engine is checked against: an
 independent implementation of the same language.
 
-Needs network access and jinja2 (pip install jinja2). Not run in CI; its output
+Needs network access and jinja2 (pip install -r tools/requirements.txt). Not
+run in CI; its output
 is committed.
 
     python3 tools/make_template_fixtures.py tests/web/fixtures/templates.json
 """
 import json
-import struct
 import sys
-import urllib.request
 
 import jinja2
 import jinja2.ext
 from jinja2.sandbox import ImmutableSandboxedEnvironment
 
-HEADER_BYTES = 16 * 2**20
+from gguf_header import fetch_header, read_metadata
+
 FIXED_DATE = "29 Sep 2026"
-
-# gguf_type
-U8, I8, U16, I16, U32, I32, F32, BOOL, STRING, ARRAY, U64, I64, F64 = range(13)
-SCALAR = {U8: "<B", I8: "<b", U16: "<H", I16: "<h", U32: "<I", I32: "<i",
-          F32: "<f", BOOL: "<?", U64: "<Q", I64: "<q", F64: "<d"}
-
-
-def fetch_header(url):
-    request = urllib.request.Request(url, headers={"Range": f"bytes=0-{HEADER_BYTES - 1}"})
-    with urllib.request.urlopen(request) as response:
-        return response.read()
-
-
-def read_metadata(data):
-    """Returns {key: value}; string arrays are decoded, others skipped."""
-    pos = 0
-
-    def take(fmt):
-        nonlocal pos
-        (value,) = struct.unpack_from(fmt, data, pos)
-        pos += struct.calcsize(fmt)
-        return value
-
-    def take_string():
-        nonlocal pos
-        length = take("<Q")
-        text = data[pos:pos + length].decode("utf-8", errors="replace")
-        pos += length
-        return text
-
-    def take_value(vtype):
-        if vtype == STRING:
-            return take_string()
-        if vtype == ARRAY:
-            etype, count = take("<I"), take("<Q")
-            return [take_value(etype) for _ in range(count)]
-        return take(SCALAR[vtype])
-
-    assert data[:4] == b"GGUF"
-    pos = 8
-    take("<Q")  # tensor count
-    metadata = {}
-    for _ in range(take("<Q")):
-        key = take_string()
-        metadata[key] = take_value(take("<I"))
-    return metadata
 
 
 def environment():
@@ -113,7 +67,7 @@ def main():
     env = environment()
     fixtures = []
     for model in models:
-        metadata = read_metadata(fetch_header(model["url"]))
+        metadata, _ = read_metadata(fetch_header(model["url"]))
         tokens = metadata["tokenizer.ggml.tokens"]
         # A model may declare no BOS token (Qwen3 does not).
         token = lambda key: tokens[metadata[key]] if key in metadata else None
