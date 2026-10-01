@@ -34,33 +34,31 @@ std::string_view to_string(arch::DescribeError error) noexcept {
     return "unrecognised error";
 }
 
-// Gate 1. Returns the architecture's description when the gate passes, since
-// gate 4 needs it.
-bool check_architecture(const gguf::TensorIndex& index, Verdict& verdict,
-                        model::ModelDescription& description) {
+// Describe: the architecture is implemented and can read its numbers from
+// this file.
+void check_architecture(const gguf::TensorIndex& index, Verdict& verdict) {
     constexpr std::string_view kKey = "general.architecture";
     std::string_view name;
     if (const auto e = index.read_string(kKey, name); e != gguf::MetadataError::Ok) {
-        verdict.rejections.push_back({Gate::Architecture, unreadable_key(e, kKey)});
-        return false;
+        verdict.blockers.push_back({Stage::Describe, unreadable_key(e, kKey)});
+        return;
     }
     const arch::Architecture* architecture = capability::find_architecture(name);
     if (architecture == nullptr) {
-        verdict.rejections.push_back(
-            {Gate::Architecture, "architecture " + quoted(name) + " is not supported"});
-        return false;
+        verdict.blockers.push_back(
+            {Stage::Describe, "architecture " + quoted(name) + " is not supported"});
+        return;
     }
+    model::ModelDescription description{};
     if (const auto e = architecture->describe(index, description); e != arch::DescribeError::Ok) {
-        verdict.rejections.push_back(
-            {Gate::Architecture, "architecture " + quoted(name) +
-                                     " cannot read this file: " + std::string(to_string(e))});
-        return false;
+        verdict.blockers.push_back(
+            {Stage::Describe, "architecture " + quoted(name) +
+                                  " cannot read this file: " + std::string(to_string(e))});
     }
-    return true;
 }
 
-// Gate 2. One rejection per unsupported format, naming how many tensors use
-// it and the first of them.
+// Run needs every weight format. One blocker per unsupported format, naming
+// how many tensors use it and the first of them.
 void check_formats(const gguf::TensorIndex& index, Verdict& verdict) {
     struct Unsupported {
         gguf::TensorType type;
@@ -79,15 +77,16 @@ void check_formats(const gguf::TensorIndex& index, Verdict& verdict) {
         }
     }
     for (const Unsupported& u : found) {
-        verdict.rejections.push_back(
-            {Gate::Formats, "format " + std::string(gguf::format_layout(u.type)->name) +
+        verdict.blockers.push_back(
+            {Stage::Run, "format " + std::string(gguf::format_layout(u.type)->name) +
                                 " is not supported (" + std::to_string(u.users) +
                                 (u.users == 1 ? " tensor" : " tensors") + ", first " +
                                 std::string(u.first_user) + ")"});
     }
 }
 
-// Gate 3.
+// Run needs the tokenizer, and the pre-tokenizer when the tokenizer splits
+// text first.
 void check_tokenizer(const gguf::TensorIndex& index, Verdict& verdict) {
     constexpr std::string_view kModelKey = "tokenizer.ggml.model";
     constexpr std::string_view kPreKey = "tokenizer.ggml.pre";
@@ -95,22 +94,22 @@ void check_tokenizer(const gguf::TensorIndex& index, Verdict& verdict) {
     std::string_view model_name;
     const tokenizer::Algorithm* algorithm = nullptr;
     if (const auto e = index.read_string(kModelKey, model_name); e != gguf::MetadataError::Ok) {
-        verdict.rejections.push_back({Gate::Tokenizer, unreadable_key(e, kModelKey)});
+        verdict.blockers.push_back({Stage::Run, unreadable_key(e, kModelKey)});
     } else if (algorithm = capability::find_tokenizer(model_name); algorithm == nullptr) {
-        verdict.rejections.push_back(
-            {Gate::Tokenizer, "tokenizer " + quoted(model_name) + " is not supported"});
+        verdict.blockers.push_back(
+            {Stage::Run, "tokenizer " + quoted(model_name) + " is not supported"});
     }
 
     std::string_view pre_name;
     const auto pre = index.read_string(kPreKey, pre_name);
     if (pre == gguf::MetadataError::Ok) {
         if (capability::find_pretokenizer(pre_name) == nullptr) {
-            verdict.rejections.push_back(
-                {Gate::Tokenizer, "pre-tokenizer " + quoted(pre_name) + " is not supported"});
+            verdict.blockers.push_back(
+                {Stage::Run, "pre-tokenizer " + quoted(pre_name) + " is not supported"});
         }
     } else if (algorithm != nullptr && algorithm->requires_pretokenizer) {
-        verdict.rejections.push_back(
-            {Gate::Tokenizer, "tokenizer " + quoted(model_name) +
+        verdict.blockers.push_back(
+            {Stage::Run, "tokenizer " + quoted(model_name) +
                                   " needs a pre-tokenizer, and " + unreadable_key(pre, kPreKey)});
     }
 }
@@ -121,17 +120,15 @@ Verdict preflight(const gguf::TensorIndex& index,
                   [[maybe_unused]] const residency::DeviceLimits& limits,
                   [[maybe_unused]] const policy::LoadPolicy& policy) {
     Verdict verdict;
-    model::ModelDescription description{};
-    const bool described = check_architecture(index, verdict, description);
+    check_architecture(index, verdict);
     check_formats(index, verdict);
     check_tokenizer(index, verdict);
 
-    // Gate 4 fails closed: without the residency planner there is no way to
-    // show the model fits, so a model that passes gate 1 is rejected here by
-    // name rather than assumed to fit.
-    if (described) {
-        verdict.rejections.push_back(
-            {Gate::DeviceFit, "the device-fit check is not implemented in this build"});
+    for (int s = static_cast<int>(kImplementedThrough) + 1;
+         s <= static_cast<int>(Stage::Run); ++s) {
+        const auto stage = static_cast<Stage>(s);
+        verdict.blockers.push_back(
+            {stage, "the " + std::string(to_string(stage)) + " stage is not implemented in this build"});
     }
     return verdict;
 }

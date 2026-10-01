@@ -15,8 +15,9 @@ namespace bllm::residency {
 //
 // Contract 5: the residency plan. A pure function. Tensor index, model
 // description, device limits and load policy in; buffers, and each tensor's
-// place in them, out. No GPU, no fetch, no browser. Gate 4 runs it before any
-// weight byte is downloaded, and upload carries it out afterwards.
+// place in them, out. No GPU, no fetch, no browser. Preflight's Fit stage runs
+// it before any weight byte is downloaded, and upload carries it out
+// afterwards.
 //
 //   - Every tensor and the KV cache are placed, within the memory budget in
 //     policy. The cache is sized from the model description and the cache

@@ -2,14 +2,17 @@
 // state object the model panel renders, and re-renders on every change.
 // Choosing another model, or cancelling, abandons the step in progress: its
 // work is aborted and any late answer is ignored.
+//
+// A model already in the cache is checked from its copy, not the network,
+// and a fresh download is read back from the cache before it is offered.
 
 import { cacheKey, downloadModel } from './download.js';
 import { fetchRange, openDownload } from './fetch.js';
 import { loadModel } from './load.js';
 import { renderModel } from './model_view.js';
-import { preflight } from './preflight.js';
-import { Request } from './protocol.js';
 import { requestPersistence } from './opfs.js';
+import { preflight, rangesOfFile } from './preflight.js';
+import { Request } from './protocol.js';
 
 export function createModelController({ element, client, cache, onLoaded, onCacheChanged }) {
   let state = null;
@@ -27,24 +30,24 @@ export function createModelController({ element, client, cache, onLoaded, onCach
     return step.signal;
   };
 
+  // Preflight over any range source: the network, or a cached file.
+  const readVerdict = (fetchRangeOf) => preflight({
+    fetchRange: fetchRangeOf,
+    readIndex: (bytes, totalSize) => {
+      const copy = bytes.slice().buffer;
+      return client.request(Request.PREFLIGHT, { bytes: copy, totalSize }, { transfer: [copy] });
+    },
+  });
+
   async function choose(model) {
     const signal = begin();
     show({ phase: 'checking', model });
     try {
-      const verdict = await preflight({
-        fetchRange: (start, end) => fetchRange(model.url, start, end, { signal }),
-        readIndex: (bytes, totalSize) => {
-          const copy = bytes.slice().buffer;
-          return client.request(Request.PREFLIGHT, { bytes: copy, totalSize }, { transfer: [copy] });
-        },
-      });
-      if (signal.aborted) return;
-      if (!verdict.accepted) {
-        show({ phase: 'rejected', model, verdict });
-        return;
-      }
-      const cached = (await cache.file(cacheKey(model))) !== null;
-      if (!signal.aborted) show({ phase: cached ? 'cached' : 'downloadable', model, verdict });
+      const file = await cache.file(cacheKey(model));
+      const verdict = await readVerdict(file !== null
+        ? rangesOfFile(file)
+        : (start, end) => fetchRange(model.url, start, end, { signal }));
+      if (!signal.aborted) show({ phase: file !== null ? 'cached' : 'downloadable', model, verdict });
     } catch (error) {
       if (!signal.aborted) show({ phase: 'failed', model, action: 'check', error });
     }
@@ -63,7 +66,11 @@ export function createModelController({ element, client, cache, onLoaded, onCach
         },
       });
       onCacheChanged();
-      if (!signal.aborted) show({ phase: 'cached', model, verdict });
+      const copy = await readVerdict(rangesOfFile(await cache.file(cacheKey(model))));
+      if (copy.tensorCount !== verdict.tensorCount || copy.architecture !== verdict.architecture) {
+        throw new Error('the downloaded copy does not read the same as the file on the server');
+      }
+      if (!signal.aborted) show({ phase: 'cached', model, verdict: copy });
     } catch (error) {
       if (!signal.aborted) show({ phase: 'failed', model, action: 'download', error });
     }

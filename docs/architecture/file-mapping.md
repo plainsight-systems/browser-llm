@@ -35,7 +35,8 @@ module's own header, and contract 11 in the two boundary files.
 | `web/picker.js` | H | choosing a model; showing an unmeasured model as unmeasured |
 | `web/catalog.js` | H | the models offered: the curated list, and a model named by a pasted URL |
 | `web/model_controller.js` | H | the chosen model's lifecycle: check, download, load; one state object, abandoned on a new choice |
-| `web/model_view.js` | H | renders that state: every named rejection, progress, and the next action |
+| `web/model_view.js` | H | renders that state: how far the build takes the model, what stops the next stage, progress, and the next action |
+| `web/stages.js` | H | the stages preflight judges, in order, and a verdict's next stage |
 | `web/cache_view.js` | H | what the cache holds, the space it uses, and whether the browser keeps it |
 | `web/dom.js`, `web/units.js` | H | building elements safely; formatting sizes |
 | `web/models.json` | J | the curated list: one measured configuration per model |
@@ -57,7 +58,7 @@ module's own header, and contract 11 in the two boundary files.
 | `src/wasm/bindings.cpp` | boundary | the only Emscripten-aware C++; the crossing budget |
 | `src/core/gguf/` | C | reader, the tensor index it produces, and a size for every format GGUF defines |
 | `src/core/capability/` | I | what the code implements |
-| `src/core/preflight/` | I | the four gates |
+| `src/core/preflight/` | I | the gates: how far this build can take a model, stage by stage |
 | `src/core/model/` | contract | the model description: every number, with no reference to architecture |
 | `src/core/policy/` | contract | a model's measured configuration, and the defaults for an unmeasured one |
 | `src/core/arch/architecture.h` | contract | what every architecture supplies |
@@ -112,7 +113,7 @@ and production never materialises a dequantized weight.
 A file used by two boxes is where its interface matters most. Each still
 changes on exactly one axis.
 
-- **`residency/plan`** serves Gates and Upload. Gate 4 runs the planner before
+- **`residency/plan`** serves Gates and Upload. The Fit stage runs the planner before
   any weight is fetched, so it must be a pure function of the tensor index, the
   model description, the granted limits and the policy.
 - **`formats/<format>`** serves Upload and the KV cache. Packing and unpacking

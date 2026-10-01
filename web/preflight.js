@@ -51,6 +51,11 @@ export async function preflight({ fetchRange, readIndex }) {
   }
 }
 
+// A range source over a file already on this device, so a cached model is
+// read from its copy rather than the network.
+export const rangesOfFile = (file) => async (start, end) =>
+  ({ bytes: await file.slice(start, end).arrayBuffer(), totalSize: file.size });
+
 function concat(a, b) {
   const joined = new Uint8Array(a.length + b.length);
   joined.set(a);

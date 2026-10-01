@@ -6,8 +6,8 @@
 // while it is in use.
 //
 // It reads files with the real reader, so the chat template the page renders
-// is the model's own. Then it accepts every model, loads nothing, and replies
-// with fixed text that says what it is.
+// is the model's own. Then it claims every stage for every model, loads
+// nothing, and replies with fixed text that says what it is.
 //
 // Never deployed: tools/assemble_site.sh leaves web/dev/ out of the site, and
 // tools/check_site.sh fails the build if it is there.
@@ -29,7 +29,7 @@ export async function createRuntime({ onDevice, runBench }) {
     preflight: async (bytes, totalSize) => {
       const answer = await real.preflight(bytes, totalSize);
       if (answer.status !== 'read') return answer;
-      return { ...answer, accepted: true, rejections: [] };
+      return { ...answer, reached: 'run', blockers: [] };
     },
 
     loadChunk: async ({ offset, bytes, totalSize }) =>

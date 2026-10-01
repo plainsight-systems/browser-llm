@@ -155,8 +155,8 @@ std::string preflight_json(bllm::gguf::ByteSource& source, const bllm::gguf::Rea
         return "{\"status\":\"unreadable\",\"error\":" +
                json_string(bllm::gguf::to_string(read.error)) + "}";
     }
-    // The device-fit gate fails closed in this build (preflight.cpp) and reads
-    // neither limits nor policy, so none are passed.
+    // Fit and every later stage are blocked in this build (preflight.h), so
+    // neither limits nor policy are read, and none are passed.
     const auto verdict = bllm::preflight::preflight(index, bllm::residency::DeviceLimits{},
                                                     bllm::policy::LoadPolicy{});
     std::string_view architecture;
@@ -167,13 +167,13 @@ std::string preflight_json(bllm::gguf::ByteSource& source, const bllm::gguf::Rea
     json += named ? json_string(architecture) : "null";
     json += ",\"tensorCount\":" + std::to_string(index.tensors().size());
     json += ",\"chat\":" + chat_json(source, index);
-    json += ",\"accepted\":" + std::string(verdict.accepted() ? "true" : "false");
-    json += ",\"rejections\":[";
-    for (std::size_t i = 0; i < verdict.rejections.size(); ++i) {
-        const auto& r = verdict.rejections[i];
+    json += ",\"reached\":" + json_string(bllm::preflight::to_string(verdict.reached()));
+    json += ",\"blockers\":[";
+    for (std::size_t i = 0; i < verdict.blockers.size(); ++i) {
+        const auto& b = verdict.blockers[i];
         json += i == 0 ? "" : ",";
-        json += "{\"gate\":" + json_string(bllm::preflight::to_string(r.gate)) +
-                ",\"detail\":" + json_string(r.detail) + "}";
+        json += "{\"stage\":" + json_string(bllm::preflight::to_string(b.stage)) +
+                ",\"detail\":" + json_string(b.detail) + "}";
     }
     return json + "]}";
 }

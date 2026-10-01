@@ -21,7 +21,7 @@ identifier in the file, **purple** is per-model policy, **teal** is a regime.
 ```mermaid
 flowchart LR
     pick["Pick<br/>list carries policy"] --> pf["Preflight<br/>header only"]
-    pf --> gates["Gates<br/>against capability"]
+    pf --> gates["Gates<br/>stage by stage"]
     gates --> fetch["Fetch<br/>OPFS"]
     fetch --> upload["Upload<br/>plan, unpack, load transforms"]
     classDef default fill:#F1EFE8,stroke:#888780,color:#2C2C2A
@@ -121,14 +121,17 @@ against real files, but none is specific to the files tested.
    branch inside an existing kernel, and it does not belong to the family that
    first needed it.
 
-7. **Support is declared, and everything else is rejected by name.** One
-   capability table lists the graphs, weight formats, tokenization algorithms
-   and pre-tokenizers implemented. Preflight checks a model against it before
-   download, and a miss names the identifier and its value — *"tensor
-   blk.0.ffn_down.weight is Q4_1, which is not implemented"* — rather than
-   failing somewhere during the load. A server engine can fall back to running
-   a model's reference implementation, slowly; a browser has no reference
-   implementation to run, so rejecting by name is the only honest outcome.
+7. **Support is declared, and judged stage by stage.** One capability table
+   lists the graphs, weight formats, tokenization algorithms and
+   pre-tokenizers implemented. Preflight reports how far the build can take a
+   model — read, download, describe, fit, upload, run — and names what stops
+   each stage it cannot reach: *"format Q4_1 is not supported (3 tensors,
+   first blk.0.ffn_down.weight)"*, rather than failing somewhere during the
+   load. A server engine can fall back to running a model's reference
+   implementation, slowly; a browser has no reference implementation to run,
+   so naming the miss is the only honest outcome. Judging each stage on its
+   own keeps every stage testable against real files before the stages after
+   it exist.
 
 8. **Policy is measured per model, and an unmeasured model is labelled.** How
    to sample, what precision the cache uses, and which controls the interface
@@ -274,21 +277,38 @@ presenting an untested model as tuned would claim something nobody checked.
 
 ## Why preflight exists
 
-A model is rejected **before** its weights are downloaded. The metadata block
-and the tensor index sit at the front of the file and are a small fraction of
-it, and they answer every compatibility question — including the one only the
-tensor index can answer: which weight formats are actually present.
+Preflight judges a model **before** its weights are downloaded. The metadata
+block and the tensor index sit at the front of the file and are a small
+fraction of it, and they answer every compatibility question — including the
+one only the tensor index can answer: which weight formats are actually
+present.
 
 That question cannot be answered from the filename. A file named for one
 format routinely contains others; in the evidence below, three of four files
 named `Q4_0` also carry other formats.
 
-The four gates are principle 7 applied: architecture implemented, every tensor
-format implemented, tokenization algorithm and pre-tokenizer implemented, and
-the residency plan fits the
-**granted** device limits. The planner is a pure function of the tensor index
-and the limits, which is what lets it run before a single weight byte is
-fetched.
+The gates are principle 7 applied, one per stage, each needing every stage
+before it:
+
+| Stage | Needs |
+|---|---|
+| Read | the file is GGUF and its index reads |
+| Download | a readable file — so every model that reads can be cached |
+| Describe | its architecture is implemented and can describe the file |
+| Fit | the residency plan fits the **granted** device limits and the budget |
+| Upload | its weights reach the GPU and read back identical |
+| Run | the graph, every weight format, the tokenizer and pre-tokenizer |
+
+Every check that can run does, so a verdict lists everything a model still
+needs, each item tagged with the stage it stops; the stage reached is the one
+before the earliest blocked. A stage the build does not implement is
+blocked by name for every model, so no verdict claims more than exists. The
+planner is a pure function of the tensor index and the limits, which is what
+lets Fit be judged before a single weight byte is fetched.
+
+A model already downloaded is judged from its copy on this device, not the
+network, and a fresh download is read back from that copy before it is
+offered.
 
 The gates and the unpack dispatch consult **one** capability table. Two lists
 will diverge, and a picker that reports "compatible" for a model that then

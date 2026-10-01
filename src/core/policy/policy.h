@@ -31,7 +31,7 @@ struct LoadPolicy {
     // activations. WebGPU does not report device memory, so this is measured
     // per model on the devices it is listed for. The default covers a model of
     // about 1 GB with a working cache; a larger unmeasured model is rejected
-    // by the fit gate, by name, rather than attempted.
+    // at preflight's Fit stage, by name, rather than attempted.
     std::uint64_t memory_budget = 2ull * 1024 * 1024 * 1024;
 };
 

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { FIRST_FETCH_BYTES, MAX_INDEX_BYTES, PreflightError, preflight } from '../../web/preflight.js';
+import { FIRST_FETCH_BYTES, MAX_INDEX_BYTES, PreflightError, preflight, rangesOfFile } from '../../web/preflight.js';
 
 // A file of `totalSize` bytes whose index ends at `indexEnd`, served by a
 // fake fetchRange that records every range asked for, and read by a fake
@@ -61,4 +61,11 @@ test('a server that sends nothing ends the check instead of looping', async () =
     fetchRange: async () => ({ bytes: new ArrayBuffer(0), totalSize: 100 }),
     readIndex: async () => assert.fail('nothing to read'),
   }), /sent no bytes/);
+});
+
+test('a file on this device serves its own ranges, with its own size', async () => {
+  const file = new Blob([Uint8Array.from({ length: 100 }, (_, i) => i)]);
+  const { bytes, totalSize } = await rangesOfFile(file)(10, 20);
+  assert.equal(totalSize, 100);
+  assert.deepEqual([...new Uint8Array(bytes)], [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]);
 });

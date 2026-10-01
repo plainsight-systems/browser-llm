@@ -14,14 +14,14 @@ namespace bllm::capability {
 // no other reason.
 //
 // Contract 3. One table from each identifier a GGUF file carries to the
-// implementation that runs it. Supported means present here. The gates, format
+// implementation that runs it. Supported means present here. Preflight, format
 // dispatch, tokenizer selection and graph selection all find implementations
 // through these lookups, so what the picker reports and what the loader runs
 // cannot disagree. There is no second list.
 //
 // Several identifiers may name one implementation (principle 2). A lookup
 // returns the implementation, or null if the harness has none; null is not an
-// error here, and the gates turn it into a rejection that names what is
+// error here, and preflight turns it into a blocker that names what is
 // missing.
 
 [[nodiscard]] const arch::Architecture* find_architecture(std::string_view general_architecture) noexcept;

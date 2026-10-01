@@ -21,7 +21,7 @@ namespace bllm::gguf {
 //     needs to be resident. When a read reaches bytes that are not,
 //     the result is NeedMoreBytes with how many bytes to supply.
 //   - Records every tensor, whatever its format. A format the harness cannot
-//     run is not an error here; the gates decide, and name the tensor.
+//     run is not an error here; preflight decides, and names the tensor.
 //   - Leaves `out` untouched unless the read succeeds.
 [[nodiscard]] ReadResult read_index(ByteSource& source, TensorIndex& out);
 
