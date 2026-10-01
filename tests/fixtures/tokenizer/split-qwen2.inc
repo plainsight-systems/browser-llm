@@ -16,6 +16,8 @@
 {"digits", "12345678", {"1", "2", "3", "4", "5", "6", "7", "8"}},
 {"numbers in prose", "In 2026 there were 1,234,567 tokens and 3.14159 pies.", {"In", " ", "2", "0", "2", "6", " there", " were", " ", "1", ",", "2", "3", "4", ",", "5", "6", "7", " tokens", " and", " ", "3", ".", "1", "4", "1", "5", "9", " pies", "."}},
 {"contractions", "don't won't I'M they'll we'd you've she's", {"don", "'t", " won", "'t", " I", "'M", " they", "'ll", " we", "'d", " you", "'ve", " she", "'s"}},
+{"a contraction in capitals", "'LLama", {"'LL", "ama"}},
+{"a contraction in long s", "'ſun", {"'ſ", "un"}},
 {"punctuation runs", "Wait... what?!?! (really) [yes] {no} <maybe>", {"Wait", "...", " what", "?!?!", " (", "really", ")", " [", "yes", "]", " {", "no", "}", " <", "maybe", ">"}},
 {"code", "def f(x):\n    return x**2 + 1  # square\n", {"def", " f", "(x", "):\n", "   ", " return", " x", "**", "2", " +", " ", "1", " ", " #", " square", "\n"}},
 {"url", "https://example.com/a/b?c=1&d=two#frag", {"https", "://", "example", ".com", "/a", "/b", "?c", "=", "1", "&d", "=two", "#frag"}},

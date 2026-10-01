@@ -77,6 +77,11 @@ TEXTS = [
     ("numbers in prose", "In 2026 there were 1,234,567 tokens and 3.14159 pies."),
     # Both splits match contractions case-insensitively.
     ("contractions", "don't won't I'M they'll we'd you've she's"),
+    # Contractions match under case folding, where capitals and long s fold
+    # to their small letters. Letters follow each, so a contraction splits
+    # where letters alone would not.
+    ("a contraction in capitals", "'LLama"),
+    ("a contraction in long s", "'\u017fun"),
     ("punctuation runs", "Wait... what?!?! (really) [yes] {no} <maybe>"),
     ("code", "def f(x):\n    return x**2 + 1  # square\n"),
     ("url", "https://example.com/a/b?c=1&d=two#frag"),
