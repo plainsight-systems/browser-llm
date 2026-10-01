@@ -23,12 +23,10 @@ namespace bllm::tokenizer::bpe {
 // One piece can be long: a word of 10,000 letters is one piece. The cost must
 // not grow with the square of the piece's length.
 //
-// Optimization (practice): a min-heap over a chain of symbols, O(n log n) in
-// the piece's length, as tiktoken does for pieces of 100 bytes or more and
-// Hugging Face tokenizers' hot/cold queue does for long words. It bounds the
-// cost of a long or hostile piece. Both switch to a plain rescan for short
-// pieces, where locality beats the heap; most pieces are a few bytes, and that
-// switch is not made here.
+// Optimization (practice): two strategies by length, as tiktoken and Hugging
+// Face tokenizers both choose. A short piece is rescanned, its pair ranks in
+// fixed arrays on the stack; a long one goes through a min-heap over a chain
+// of symbols, O(n log n), which bounds the cost of a long or hostile piece.
 void merge(std::span<const TokenId> symbols, const MergeTable& merges, std::vector<TokenId>& out);
 
 }  // namespace bllm::tokenizer::bpe

@@ -34,10 +34,21 @@ std::vector<TokenId> tokens(std::initializer_list<std::uint32_t> ids) {
     return out;
 }
 
+// Merges `symbols` both ways: as they are, a short piece, and after 100
+// symbols of x, which no rule takes, making a piece long enough for the heap.
+// Both must agree; the result is the short one.
 std::vector<TokenId> merged(const MergeTable& merges, std::initializer_list<std::uint32_t> symbols) {
-    std::vector<TokenId> out;
-    bpe::merge(tokens(symbols), merges, out);
-    return out;
+    std::vector<TokenId> short_out;
+    bpe::merge(tokens(symbols), merges, short_out);
+
+    std::vector<TokenId> padded(100, t(x));
+    const auto piece = tokens(symbols);
+    padded.insert(padded.end(), piece.begin(), piece.end());
+    std::vector<TokenId> long_out;
+    bpe::merge(padded, merges, long_out);
+    CHECK(std::vector<TokenId>(long_out.begin(), long_out.begin() + 100) == std::vector<TokenId>(100, t(x)));
+    CHECK(std::vector<TokenId>(long_out.begin() + 100, long_out.end()) == short_out);
+    return short_out;
 }
 
 }  // namespace
