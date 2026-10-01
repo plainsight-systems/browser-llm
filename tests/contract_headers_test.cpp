@@ -19,3 +19,5 @@
 #include "core/sampler/sampler.h"
 #include "core/tokenizer/pretokenize.h"
 #include "core/tokenizer/tokenizer.h"
+#include "core/tokenizer/unicode.h"
+#include "core/tokenizer/unicode_tables.h"

@@ -18,6 +18,7 @@ add_executable(charlotte_tests
     gguf_checked_test.cpp
     gguf_arrays_test.cpp
     test_data_test.cpp
+    tokenizer_unicode_test.cpp
     gguf_parse_test.cpp
     gguf_formats_test.cpp
     gguf_malformed_test.cpp
