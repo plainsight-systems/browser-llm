@@ -24,7 +24,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .cache/test-data
-          key: test-data-${{ hashFiles('tests/fixtures/external.json') }}
+          key: test-data-${{ hashFiles('tests/fixtures/external.json', 'tests/fixtures/tokenizer/manifest.json') }}
 
       - name: Fetch test data
         run: python3 tools/fetch_test_data.py

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Fetches the test data listed in tests/fixtures/external.json.
+"""Fetches the test data listed in tests/fixtures/external.json, and the model
+headers pinned in tests/fixtures/tokenizer/manifest.json.
 
 Some test inputs are too large to commit, or are licensed for use rather than
 redistribution: Unicode's normalization conformance file, model headers. Each
@@ -19,6 +20,8 @@ import sys
 import urllib.request
 
 MANIFEST = pathlib.Path("tests/fixtures/external.json")
+# Written by tools/make_tokenizer_fixtures.py, which pins each header it read.
+TOKENIZER_MANIFEST = pathlib.Path("tests/fixtures/tokenizer/manifest.json")
 DESTINATION = pathlib.Path(".cache/test-data")
 
 
@@ -32,8 +35,17 @@ def download(url, length):
         return response.read()
 
 
-def main():
+def entries():
     files = json.loads(MANIFEST.read_text())["files"]
+    for model_id, pins in json.loads(TOKENIZER_MANIFEST.read_text()).items():
+        header = pins["header"]
+        files.append({"name": f"tokenizer/{model_id}.header", "url": header["url"],
+                      "bytes": header["bytes"], "sha256": header["sha256"]})
+    return files
+
+
+def main():
+    files = entries()
     failed = False
     for entry in files:
         path = DESTINATION / entry["name"]
