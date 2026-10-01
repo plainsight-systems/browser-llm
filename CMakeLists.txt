@@ -34,10 +34,14 @@ add_library(charlotte_core STATIC
     src/core/gguf/index.cpp
     src/core/gguf/reader.cpp
     src/core/preflight/preflight.cpp
+    src/core/tokenizer/bpe/merge_table.cpp
+    src/core/tokenizer/load.cpp
     src/core/tokenizer/nfc.cpp
     src/core/tokenizer/pretokenize.cpp
+    src/core/tokenizer/special.cpp
     src/core/tokenizer/unicode.cpp
     src/core/tokenizer/unicode_tables.cpp
+    src/core/tokenizer/vocabulary.cpp
     src/core/residency/plan.cpp
     src/core/gpu/dispatch_math.cpp
 )
