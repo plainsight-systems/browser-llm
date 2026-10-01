@@ -25,7 +25,7 @@ EMSDK_IMAGE := emscripten/emsdk:6.0.8
 # directory is incompatible -- see tools/ensure_container_cache.sh.
 CONTAINER_SRC := /src
 
-.PHONY: test test-data test-native test-web check wasm wasm-diag dist serve serve-dev clean
+.PHONY: test test-data test-native test-web bench check wasm wasm-diag dist serve serve-dev clean
 
 ## Every unit test. No browser, no GPU.
 test: test-native test-web
@@ -40,6 +40,17 @@ test-native: test-data
 	cmake --preset native-debug
 	cmake --build --preset native-debug
 	ctest --preset native-debug
+
+## Tokenizer throughput on a pinned corpus, release build. The corpus is this
+## repository's docs and sources at BENCH_COMMIT, so every run measures the
+## same bytes; the figures in the tokenizer's optimization commits come from it.
+BENCH_COMMIT := 1d74007d019ab5687f2f9d901f4c499b6e62e3b7
+bench: test-data
+	cmake --preset native-release
+	cmake --build --preset native-release --target charlotte_bench_tokenizer
+	./tools/make_bench_corpus.sh $(BENCH_COMMIT) .cache/bench/corpus.txt
+	@echo "machine: $$(uname -sm), $$(sysctl -n machdep.cpu.brand_string 2>/dev/null || grep -m1 'model name' /proc/cpuinfo | cut -d: -f2)"
+	./build/native-release/bench/charlotte_bench_tokenizer .cache/bench/corpus.txt
 
 ## JavaScript unit tests, in Node. No dependencies to install.
 test-web:
