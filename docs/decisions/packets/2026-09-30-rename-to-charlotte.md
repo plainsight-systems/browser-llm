@@ -1,6 +1,6 @@
 # BLLM-003: Rename the project to Charlotte
 
-**Status:** approved
+**Status:** accepted
 **Change class:** cross-cutting (identity only; no behavior change)
 
 ## Intent
@@ -121,3 +121,13 @@
 - Served locally: the page is titled Charlotte, loads `charlotte.mjs`, passes
   the GPU check on Apple Metal (Chrome), and preflights Qwen3 0.6B against
   Hugging Face.
+- After merge (`e204aed`): the `test` and `pages` workflows passed. The
+  deployed page at `https://plainsight-systems.github.io/charlotte/` is titled
+  Charlotte, passes the GPU check (Apple Metal, Chrome), and preflights
+  Qwen3 0.6B from Hugging Face, naming every rejection. The old Pages URL
+  returns 404, as expected. The README's hero image resolves on GitHub.
+
+### Acceptance
+
+Accepted 2026-09-30. All four criteria met. The local folder is renamed last,
+after this record, because it moves the working directory.

@@ -4,11 +4,6 @@ This file tracks active and accepted work.
 
 ## Active
 
-- **BLLM-003: Rename the project to Charlotte.** Packet:
-  `packets/2026-09-30-rename-to-charlotte.md`. Identity only: living
-  documents, the page and the build take the new name; historical records
-  keep the old one with a rename note; the internal `bllm` prefix stays.
-
 - **BLLM-002: GGUF reading and Q4_0 layout.** Packet:
   `packets/2026-08-31-model-selection-and-weight-loading.md`. Decides
   Qwen3-0.6B / Q4_0 / GGUF and delivers the container reader plus the Q4_0
@@ -21,6 +16,10 @@ This file tracks active and accepted work.
   scoped when it is started.
 
 ## Accepted
+
+- **BLLM-003: Rename the project to Charlotte** — accepted 2026-09-30.
+  `packets/2026-09-30-rename-to-charlotte.md`. Identity only; deployed at
+  `plainsight-systems.github.io/charlotte/` and verified there.
 
 - **BLLM-001: Repo skeleton and build system** — accepted 2026-08-31.
   `packets/2026-08-29-repo-skeleton-and-build-system.md`.
