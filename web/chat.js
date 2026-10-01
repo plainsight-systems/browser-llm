@@ -50,7 +50,7 @@ function conversationPanel(model, chat, render, session, { generate, cancel }) {
   const thinking = offersThinking(chat)
     ? h('input', { type: 'checkbox', checked: true, 'aria-label': 'Thinking' })
     : null;
-  const button = h('button', { type: 'submit', className: 'action', text: 'Send' });
+  const button = h('button', { type: 'submit', className: 'action primary', text: 'Send' });
 
   const send = async () => {
     const text = input.value.trim();

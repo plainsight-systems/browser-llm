@@ -36,13 +36,13 @@ const CONTENT = {
   failed: ({ model, action, error }, { retry }) => [
     heading(`Could not ${action} ${model.name}`),
     h('p', { text: error.message }),
-    buttons(['Try again', retry]),
+    buttons(['Try again', retry, 'primary']),
   ],
 
   downloadable: ({ model, verdict }, { download }) => [
     heading(`${model.name} can run here`),
     facts(verdict),
-    buttons([`Download ${formatBytes(verdict.totalSize)}`, download]),
+    buttons([`Download ${formatBytes(verdict.totalSize)}`, download, 'primary']),
   ],
 
   downloading: ({ model, received, total }, { cancel }) => [
@@ -53,7 +53,7 @@ const CONTENT = {
 
   cached: ({ model }, { load, remove }) => [
     heading(`${model.name} is downloaded`),
-    buttons(['Load', load], ['Remove', remove]),
+    buttons(['Load', load, 'primary'], ['Remove', remove]),
   ],
 
   loading: ({ model, done, total }) => [heading(`Loading ${model.name}`), progress(done, total)],
@@ -75,5 +75,8 @@ function progress(done, total) {
     h('span', { text: label }));
 }
 
-const buttons = (...pairs) => h('div', { className: 'actions' },
-  pairs.map(([text, onclick]) => h('button', { type: 'button', className: 'action', text, onclick })));
+// Each action is [text, onclick] or [text, onclick, 'primary'] for the step
+// the state leads to.
+const buttons = (...actions) => h('div', { className: 'actions' },
+  actions.map(([text, onclick, kind]) =>
+    h('button', { type: 'button', className: kind === 'primary' ? 'action primary' : 'action', text, onclick })));
