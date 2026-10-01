@@ -25,6 +25,12 @@ constexpr char32_t kVowelCount = 21;
 constexpr char32_t kTrailCount = 28;      // including "no trailing consonant"
 constexpr char32_t kSyllableCount = kLeadCount * kVowelCount * kTrailCount;
 
+// The lowest code point NFC can change or that can change a neighbour: below
+// it every character's NFC quick check is Yes and its combining class is 0
+// (DerivedNormalizationProps.txt and UnicodeData.txt, Unicode 16.0). Text of
+// such characters alone is already in NFC, as most prompts are.
+constexpr char32_t kFirstChangeable = 0x0300;
+
 std::uint8_t combining_class(char32_t c) {
     const auto table = tables::combining();
     const auto range = std::lower_bound(table.begin(), table.end(), c,
@@ -111,6 +117,18 @@ std::vector<char32_t> compose_all(const std::vector<char32_t>& text) {
 }  // namespace
 
 bool to_nfc(std::string_view text, std::string& out) {
+    // Read until a character NFC could change. If there is none, the text is
+    // its own NFC; it was still decoded throughout, so it is well formed.
+    std::size_t at = 0;
+    for (Utf8Char c{}; at < text.size(); at += c.length) {
+        if (!decode_utf8(text, at, c)) return false;
+        if (c.code_point >= kFirstChangeable) break;
+    }
+    if (at == text.size()) {
+        out.assign(text);
+        return true;
+    }
+
     std::vector<char32_t> decomposed;
     decomposed.reserve(text.size());
     for (std::size_t at = 0; at < text.size();) {

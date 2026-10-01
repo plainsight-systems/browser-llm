@@ -73,6 +73,21 @@ TEST_CASE("canonical order keeps marks of the same class in the order they came"
     CHECK(nfc(text) == "#" + below + above);
 }
 
+TEST_CASE("text below U+0300 is its own NFC, as the full algorithm also finds") {
+    // The fast path returns such text as it is. Ending it with a character
+    // the full path must handle (U+4E00, which composes with nothing) sends
+    // every character below U+0300 through decomposition, reordering and
+    // composition instead; none may change, nor any neighbour.
+    std::string below;
+    for (char32_t c = 0; c < 0x0300; ++c) append_utf8(c, below);
+    CHECK(nfc(below) == below);
+    CHECK(nfc(below + "\xE4\xB8\x80") == below + "\xE4\xB8\x80");
+    // And the fast path still refuses what is not UTF-8.
+    std::string out;
+    CHECK_FALSE(to_nfc("plain \xC0\x80", out));
+    CHECK_FALSE(to_nfc("truncated \xC3", out));
+}
+
 TEST_CASE("NFC refuses ill-formed UTF-8 and leaves the output untouched") {
     std::string out = "unchanged";
     CHECK_FALSE(to_nfc("ab\xC0\x80", out));
