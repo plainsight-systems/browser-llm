@@ -6,6 +6,7 @@
 #include "core/arch/gemma3/gemma3.h"
 #include "core/arch/llama/llama.h"
 #include "core/arch/qwen3/qwen3.h"
+#include "core/tokenizer/pretokenize.h"
 
 namespace bllm::capability {
 namespace {
@@ -36,7 +37,10 @@ constexpr std::array kArchitectures{
 };
 constexpr std::array<Row<gguf::TensorType, formats::Format>, 0> kFormats{};
 constexpr std::array<Row<std::string_view, tokenizer::Algorithm>, 0> kTokenizers{};
-constexpr std::array<Row<std::string_view, tokenizer::PreTokenizer>, 0> kPreTokenizers{};
+constexpr std::array kPreTokenizers{
+    Row<std::string_view, tokenizer::PreTokenizer>{"llama-bpe", &tokenizer::kLlamaBpe},
+    Row<std::string_view, tokenizer::PreTokenizer>{"qwen2", &tokenizer::kQwen2},
+};
 
 }  // namespace
 

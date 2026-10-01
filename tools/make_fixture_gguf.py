@@ -281,6 +281,10 @@ CASES = {
         kv(b"general.architecture", STRING, gstr(b"qwen3")),
         kv(b"tokenizer.ggml.model", STRING, gstr(b"gpt2")),
         kv(b"tokenizer.ggml.pre", STRING, gstr(b"qwen2"))),
+    "unknown_pretokenizer": lambda: _one_tensor_with(
+        kv(b"general.architecture", STRING, gstr(b"qwen3")),
+        kv(b"tokenizer.ggml.model", STRING, gstr(b"gpt2")),
+        kv(b"tokenizer.ggml.pre", STRING, gstr(b"no-such-split"))),
     # Describe: one complete tiny model per architecture, and one file broken
     # in each way describe must name.
     "tiny_qwen3": lambda: tiny_model("qwen3"),

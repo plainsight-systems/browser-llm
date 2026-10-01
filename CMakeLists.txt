@@ -35,6 +35,7 @@ add_library(charlotte_core STATIC
     src/core/gguf/reader.cpp
     src/core/preflight/preflight.cpp
     src/core/tokenizer/nfc.cpp
+    src/core/tokenizer/pretokenize.cpp
     src/core/tokenizer/unicode.cpp
     src/core/tokenizer/unicode_tables.cpp
     src/core/residency/plan.cpp

@@ -91,9 +91,13 @@ TEST_CASE("a file that names no architecture, or names it wrongly, says which") 
 }
 
 TEST_CASE("the tokenizer and the pre-tokenizer are judged separately, each by name") {
+    // qwen2 is implemented and gpt2 is not: one is blocked, the other is not.
     const auto verdict = preflight_fixture("tokenizer_named");
     CHECK(blocked(verdict, Stage::Run, "tokenizer \"gpt2\" is not supported"));
-    CHECK(blocked(verdict, Stage::Run, "pre-tokenizer \"qwen2\" is not supported"));
+    CHECK(std::none_of(verdict.blockers.begin(), verdict.blockers.end(),
+                       [](const Blocker& b) { return b.detail.find("pre-tokenizer") != std::string::npos; }));
+    CHECK(blocked(preflight_fixture("unknown_pretokenizer"), Stage::Run,
+                  "pre-tokenizer \"no-such-split\" is not supported"));
 }
 
 TEST_CASE("no blocker names a stage the reader alone decides, and every one says something") {
