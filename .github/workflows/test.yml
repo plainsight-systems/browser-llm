@@ -20,6 +20,15 @@ jobs:
         run: ./tests/test_check_boundaries.sh
 
 
+      - name: Cache fetched test data
+        uses: actions/cache@v4
+        with:
+          path: .cache/test-data
+          key: test-data-${{ hashFiles('tests/fixtures/external.json') }}
+
+      - name: Fetch test data
+        run: python3 tools/fetch_test_data.py
+
       - name: Configure
         run: cmake --preset native-release
 

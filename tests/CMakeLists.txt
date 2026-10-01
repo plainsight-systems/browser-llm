@@ -17,6 +17,7 @@ add_executable(charlotte_tests
     quant_q4_0_test.cpp
     gguf_checked_test.cpp
     gguf_arrays_test.cpp
+    test_data_test.cpp
     gguf_parse_test.cpp
     gguf_formats_test.cpp
     gguf_malformed_test.cpp
@@ -35,6 +36,8 @@ target_include_directories(charlotte_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}"
 target_compile_definitions(charlotte_tests PRIVATE
     BLLM_SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../src/shaders"
     BLLM_GGUF_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/gguf"
+    # Fetched, not committed: tools/fetch_test_data.py (make test-data).
+    BLLM_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../.cache/test-data"
 )
 
 add_test(NAME charlotte_tests COMMAND charlotte_tests)

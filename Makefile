@@ -25,13 +25,18 @@ EMSDK_IMAGE := emscripten/emsdk:6.0.8
 # directory is incompatible -- see tools/ensure_container_cache.sh.
 CONTAINER_SRC := /src
 
-.PHONY: test test-native test-web check wasm wasm-diag dist serve serve-dev clean
+.PHONY: test test-data test-native test-web check wasm wasm-diag dist serve serve-dev clean
 
 ## Every unit test. No browser, no GPU.
 test: test-native test-web
 
+## Test data too large to commit, fetched and verified against its pinned
+## SHA-256 (tests/fixtures/external.json).
+test-data:
+	python3 tools/fetch_test_data.py
+
 ## C++ build and unit tests.
-test-native:
+test-native: test-data
 	cmake --preset native-debug
 	cmake --build --preset native-debug
 	ctest --preset native-debug

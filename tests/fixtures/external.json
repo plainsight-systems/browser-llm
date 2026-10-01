@@ -1,0 +1,10 @@
+{
+ "$comment": "Test data fetched rather than committed, each pinned by SHA-256. tools/fetch_test_data.py downloads it into .cache/test-data/<name>. A file with \"bytes\" is its first that many bytes, fetched by range request.",
+ "files": [
+  {
+   "name": "unicode/NormalizationTest-16.0.0.txt",
+   "url": "https://www.unicode.org/Public/16.0.0/ucd/NormalizationTest.txt",
+   "sha256": "d811971453e7075e1ad56fb1b301eece5aa80757b81f6156e74a1bfb3ae5ceb1"
+  }
+ ]
+}
