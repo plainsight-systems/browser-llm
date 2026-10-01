@@ -72,6 +72,10 @@ private:
     const PreTokenizer* pretokenizer_ = nullptr;
 };
 
+// The algorithm, as the capability table lists it: it splits text first, so a
+// file must name its pre-tokenizer.
+extern const Algorithm kByteLevel;
+
 // Reads the vocabulary and merges, and checks every byte has a token and every
 // normal token spells bytes. A token that does not is refused rather than
 // decoded by a guess: Hugging Face would give its text as written, llama.cpp

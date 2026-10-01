@@ -6,6 +6,7 @@
 #include "core/arch/gemma3/gemma3.h"
 #include "core/arch/llama/llama.h"
 #include "core/arch/qwen3/qwen3.h"
+#include "core/tokenizer/bpe/byte_level_bpe.h"
 #include "core/tokenizer/pretokenize.h"
 
 namespace bllm::capability {
@@ -36,7 +37,9 @@ constexpr std::array kArchitectures{
     Row<std::string_view, arch::Architecture>{"qwen3", &arch::kQwen3},
 };
 constexpr std::array<Row<gguf::TensorType, formats::Format>, 0> kFormats{};
-constexpr std::array<Row<std::string_view, tokenizer::Algorithm>, 0> kTokenizers{};
+constexpr std::array kTokenizers{
+    Row<std::string_view, tokenizer::Algorithm>{"gpt2", &tokenizer::bpe::kByteLevel},
+};
 constexpr std::array kPreTokenizers{
     Row<std::string_view, tokenizer::PreTokenizer>{"llama-bpe", &tokenizer::kLlamaBpe},
     Row<std::string_view, tokenizer::PreTokenizer>{"qwen2", &tokenizer::kQwen2},

@@ -91,18 +91,22 @@ TEST_CASE("a file that names no architecture, or names it wrongly, says which") 
 }
 
 TEST_CASE("the tokenizer and the pre-tokenizer are judged separately, each by name") {
-    // qwen2 is implemented and gpt2 is not: one is blocked, the other is not.
+    // gpt2 and qwen2 are both implemented: neither blocks.
     const auto verdict = preflight_fixture("tokenizer_named");
-    CHECK(blocked(verdict, Stage::Run, "tokenizer \"gpt2\" is not supported"));
     CHECK(std::none_of(verdict.blockers.begin(), verdict.blockers.end(),
-                       [](const Blocker& b) { return b.detail.find("pre-tokenizer") != std::string::npos; }));
+                       [](const Blocker& b) { return b.detail.find("tokenizer") != std::string::npos; }));
     CHECK(blocked(preflight_fixture("unknown_pretokenizer"), Stage::Run,
                   "pre-tokenizer \"no-such-split\" is not supported"));
 }
 
+TEST_CASE("a tokenizer that splits text first is blocked without its pre-tokenizer") {
+    CHECK(blocked(preflight_fixture("tokenizer_without_pre"), Stage::Run,
+                  "tokenizer \"gpt2\" needs a pre-tokenizer, and the file does not declare tokenizer.ggml.pre"));
+}
+
 TEST_CASE("no blocker names a stage the reader alone decides, and every one says something") {
     for (const char* name : {"valid", "no_architecture", "architecture_not_string",
-                             "tokenizer_named", "shared_format"}) {
+                             "tokenizer_named", "tokenizer_without_pre", "shared_format"}) {
         CAPTURE(name);
         for (const Blocker& b : preflight_fixture(name).blockers) {
             CHECK(b.stage > Stage::Download);

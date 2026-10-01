@@ -25,6 +25,8 @@ bool spells_bytes(std::string_view text) noexcept {
 
 }  // namespace
 
+const Algorithm kByteLevel{"gpt2", true};
+
 EncodeError ByteLevelBpe::encode(std::string_view text, std::vector<TokenId>& out) const {
     return encode_into(text, out, nullptr);
 }

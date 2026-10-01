@@ -281,6 +281,9 @@ CASES = {
         kv(b"general.architecture", STRING, gstr(b"qwen3")),
         kv(b"tokenizer.ggml.model", STRING, gstr(b"gpt2")),
         kv(b"tokenizer.ggml.pre", STRING, gstr(b"qwen2"))),
+    "tokenizer_without_pre": lambda: _one_tensor_with(
+        kv(b"general.architecture", STRING, gstr(b"qwen3")),
+        kv(b"tokenizer.ggml.model", STRING, gstr(b"gpt2"))),
     "unknown_pretokenizer": lambda: _one_tensor_with(
         kv(b"general.architecture", STRING, gstr(b"qwen3")),
         kv(b"tokenizer.ggml.model", STRING, gstr(b"gpt2")),
