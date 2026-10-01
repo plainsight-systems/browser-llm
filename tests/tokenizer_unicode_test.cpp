@@ -1,5 +1,7 @@
 #include <doctest/doctest.h>
 
+#include <cstdint>
+#include <ios>
 #include <span>
 #include <string>
 #include <string_view>
