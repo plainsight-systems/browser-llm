@@ -7,6 +7,7 @@
 #include "core/gguf/byte_source.h"
 #include "core/gguf/index.h"
 #include "core/tokenizer/bpe/merge_table.h"
+#include "core/tokenizer/bpe/piece_cache.h"
 #include "core/tokenizer/pretokenize.h"
 #include "core/tokenizer/special.h"
 #include "core/tokenizer/tokenizer.h"
@@ -39,11 +40,18 @@ public:
     // loaded by load_byte_level_bpe; an empty one has no pre-tokenizer.
     [[nodiscard]] EncodeError encode(std::string_view text, std::vector<TokenId>& out) const;
 
+    // The same, consulting `cache` for short pieces and recording what it
+    // finds. The result is identical; a cache last used by another tokenizer
+    // is emptied first.
+    [[nodiscard]] EncodeError encode(std::string_view text, std::vector<TokenId>& out, PieceCache& cache) const;
+
 private:
     friend LoadResult load_byte_level_bpe(gguf::ByteSource& source, const gguf::TensorIndex& index,
                                           const PreTokenizer& pretokenizer, ByteLevelBpe& out);
 
-    void encode_piece(std::string_view piece, std::vector<TokenId>& out, std::string& spelled,
+    [[nodiscard]] EncodeError encode_into(std::string_view text, std::vector<TokenId>& out,
+                                          PieceCache* cache) const;
+    void encode_piece(std::string_view piece, std::vector<TokenId>& out, PieceCache* cache, std::string& spelled,
                       std::vector<TokenId>& symbols) const;
 
     Vocabulary vocabulary_;

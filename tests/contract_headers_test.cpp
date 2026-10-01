@@ -21,6 +21,7 @@
 #include "core/tokenizer/bpe/byte_map.h"
 #include "core/tokenizer/bpe/merge.h"
 #include "core/tokenizer/bpe/merge_table.h"
+#include "core/tokenizer/bpe/piece_cache.h"
 #include "core/tokenizer/load.h"
 #include "core/tokenizer/nfc.h"
 #include "core/tokenizer/pretokenize.h"

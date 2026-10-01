@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "core/tokenizer/bpe/byte_level_bpe.h"
+#include "core/tokenizer/bpe/piece_cache.h"
 #include "core/tokenizer/pretokenize.h"
 #include "support/model_headers.h"
 
@@ -46,10 +47,24 @@ std::vector<std::uint32_t> encode(const bpe::ByteLevelBpe& bpe, std::string_view
     return ids;
 }
 
+std::vector<std::uint32_t> encode(const bpe::ByteLevelBpe& bpe, std::string_view text, bpe::PieceCache& cache) {
+    std::vector<TokenId> tokens;
+    REQUIRE(bpe.encode(text, tokens, cache) == EncodeError::Ok);
+    std::vector<std::uint32_t> ids;
+    for (const TokenId t : tokens) ids.push_back(static_cast<std::uint32_t>(t));
+    return ids;
+}
+
+// Every case without a cache, then three times through one cache (cold, then
+// warm), then through a one-slot cache whose every piece evicts the last.
 void check_cases(const bpe::ByteLevelBpe& bpe, std::span<const EncodeCase> cases) {
+    bpe::PieceCache cache;
+    bpe::PieceCache tiny{1};
     for (const EncodeCase& c : cases) {
         CAPTURE(c.name);
         CHECK(encode(bpe, c.text) == c.ids);
+        for (int pass = 0; pass < 3; ++pass) CHECK(encode(bpe, c.text, cache) == c.ids);
+        CHECK(encode(bpe, c.text, tiny) == c.ids);
     }
 }
 
@@ -71,4 +86,16 @@ TEST_CASE("encoding appends, and text that is not UTF-8 leaves the output untouc
     CHECK(out[0] == static_cast<TokenId>(7));
     CHECK(bpe.encode("ok \xC0\x80", out) == EncodeError::InvalidUtf8);
     CHECK(out.size() == 2);
+}
+
+TEST_CASE("a cache another tokenizer filled is emptied, never trusted") {
+    const auto qwen = load("qwen3-0.6b-q4_0", kQwen2);
+    const auto llama = load("llama-3.2-1b-instruct-q4_0", kLlamaBpe);
+    bpe::PieceCache cache;
+    for (const EncodeCase& c : kQwen3Cases) (void)encode(qwen, c.text, cache);
+    // The same words, now Llama's: every one must be Llama's own tokens.
+    for (const EncodeCase& c : kLlamaCases) {
+        CAPTURE(c.name);
+        CHECK(encode(llama, c.text, cache) == c.ids);
+    }
 }
