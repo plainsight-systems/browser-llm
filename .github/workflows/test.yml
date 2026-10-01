@@ -38,6 +38,35 @@ jobs:
       - name: Test
         run: ctest --preset native-release
 
+  sanitize:
+    # AddressSanitizer catches what tests can survive by luck: a write past a
+    # buffer, a reversed range handed to an algorithm, a use after free. It
+    # runs here, on Linux; its runtime hangs at start-up on current macOS.
+    name: Native unit tests under AddressSanitizer and UBSan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Cache fetched test data
+        uses: actions/cache@v4
+        with:
+          path: .cache/test-data
+          key: test-data-${{ hashFiles('tests/fixtures/external.json', 'tests/fixtures/tokenizer/manifest.json') }}
+
+      - name: Fetch test data
+        run: python3 tools/fetch_test_data.py
+
+      - name: Configure
+        run: cmake --preset native-sanitize
+
+      - name: Build
+        run: cmake --build --preset native-sanitize
+
+      - name: Test
+        run: ctest --preset native-sanitize
+
   web:
     name: JavaScript unit tests
     runs-on: ubuntu-latest

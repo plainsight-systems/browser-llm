@@ -48,6 +48,15 @@
         "CMAKE_BUILD_TYPE": "Release",
         "BLLM_ENABLE_DIAGNOSTICS": "ON"
       }
+    },
+    {
+      "name": "native-sanitize",
+      "displayName": "Native tests under AddressSanitizer and UBSan (Linux)",
+      "binaryDir": "${sourceDir}/build/native-sanitize",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_FLAGS": "-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all"
+      }
     }
   ],
   "buildPresets": [
@@ -70,6 +79,10 @@
     {
       "name": "native-diag",
       "configurePreset": "native-diag"
+    },
+    {
+      "name": "native-sanitize",
+      "configurePreset": "native-sanitize"
     }
   ],
   "testPresets": [
@@ -83,6 +96,13 @@
     {
       "name": "native-release",
       "configurePreset": "native-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "native-sanitize",
+      "configurePreset": "native-sanitize",
       "output": {
         "outputOnFailure": true
       }
