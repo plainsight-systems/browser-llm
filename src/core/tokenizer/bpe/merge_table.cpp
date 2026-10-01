@@ -1,6 +1,5 @@
 #include "core/tokenizer/bpe/merge_table.h"
 
-#include <algorithm>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -14,29 +13,52 @@ std::uint64_t pair_key(TokenId left, TokenId right) {
     return (std::uint64_t{static_cast<std::uint32_t>(left)} << 32) | static_cast<std::uint32_t>(right);
 }
 
+// A free slot. No pair has this key: it would need two tokens numbered
+// 2^32 - 1, and no vocabulary is that large (GGUF arrays hold under 2^24).
+constexpr std::uint64_t kEmpty = ~std::uint64_t{0};
+
+// 2^64 divided by the golden ratio. Multiplying by it and keeping the top bits
+// spreads keys that differ only in their low bits, as packed token pairs do,
+// across the table (Knuth's multiplicative hashing).
+constexpr std::uint64_t kGolden = 0x9E3779B97F4A7C15;
+
 }  // namespace
 
 std::optional<MergeTable> MergeTable::from_rules(std::span<const MergeRule> rules) {
+    // The smallest power of two that keeps the table at most three quarters full.
+    std::size_t slots = 16;
+    unsigned bits = 4;
+    while (slots * 3 < rules.size() * 4) {
+        slots *= 2;
+        ++bits;
+    }
     MergeTable table;
-    table.entries_.reserve(rules.size());
+    table.slots_.assign(slots, Slot{kEmpty, {}});
+    table.shift_ = 64 - bits;
+    const std::size_t mask = slots - 1;
     for (std::size_t rank = 0; rank < rules.size(); ++rank) {
         const MergeRule& r = rules[rank];
-        table.entries_.push_back({pair_key(r.left, r.right), {static_cast<std::uint32_t>(rank), r.result}});
+        const std::uint64_t key = pair_key(r.left, r.right);
+        if (key == kEmpty) return std::nullopt;
+        std::size_t at = static_cast<std::size_t>((key * kGolden) >> table.shift_);
+        while (table.slots_[at].pair != kEmpty) {
+            if (table.slots_[at].pair == key) return std::nullopt;   // the pair repeats
+            at = (at + 1) & mask;
+        }
+        table.slots_[at] = {key, {static_cast<std::uint32_t>(rank), r.result}};
     }
-    std::sort(table.entries_.begin(), table.entries_.end(),
-              [](const Entry& a, const Entry& b) { return a.pair < b.pair; });
-    const auto repeat = std::adjacent_find(table.entries_.begin(), table.entries_.end(),
-                                           [](const Entry& a, const Entry& b) { return a.pair == b.pair; });
-    if (repeat != table.entries_.end()) return std::nullopt;
+    table.size_ = rules.size();
     return table;
 }
 
 std::optional<Merge> MergeTable::find(TokenId left, TokenId right) const noexcept {
+    if (slots_.empty()) return std::nullopt;
     const std::uint64_t key = pair_key(left, right);
-    const auto at = std::lower_bound(entries_.begin(), entries_.end(), key,
-                                     [](const Entry& e, std::uint64_t k) { return e.pair < k; });
-    if (at == entries_.end() || at->pair != key) return std::nullopt;
-    return at->merge;
+    const std::size_t mask = slots_.size() - 1;
+    for (std::size_t at = static_cast<std::size_t>((key * kGolden) >> shift_);; at = (at + 1) & mask) {
+        if (slots_[at].pair == key) return slots_[at].merge;
+        if (slots_[at].pair == kEmpty) return std::nullopt;
+    }
 }
 
 LoadResult load_merges(gguf::ByteSource& source, const gguf::TensorIndex& index, const Vocabulary& vocabulary,

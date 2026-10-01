@@ -38,21 +38,27 @@ public:
     // and no vocabulary listed here repeats one.
     [[nodiscard]] static std::optional<MergeTable> from_rules(std::span<const MergeRule> rules);
 
-    [[nodiscard]] std::size_t size() const noexcept { return entries_.size(); }
+    [[nodiscard]] std::size_t size() const noexcept { return size_; }
 
     // The rule for `left` followed by `right`, if there is one.
     [[nodiscard]] std::optional<Merge> find(TokenId left, TokenId right) const noexcept;
 
 private:
-    struct Entry {
-        std::uint64_t pair;   // left in the high 32 bits, right in the low
+    struct Slot {
+        std::uint64_t pair;   // left in the high 32 bits, right in the low; kEmpty if free
         Merge merge;
     };
 
-    // Optimization (practice): a sorted vector of packed 64-bit pairs searched by
-    // bisection, contiguous where std::unordered_map allocates a node per entry
-    // (CACHE.3). Hugging Face tokenizers goes further, with a perfect hash.
-    std::vector<Entry> entries_;   // ordered by pair
+    // Optimization (practice): an open-addressing hash table, one flat array of
+    // slots probed linearly, at most three quarters full. The merge loop looks
+    // up every pair it meets, and a lookup is now usually one slot where
+    // bisecting 280,147 sorted pairs was about eighteen steps, each a likely
+    // cache miss. It costs memory: 8 MiB for Llama 3.2's merges where the sorted
+    // pairs took 4.5 MiB. Hugging Face tokenizers uses a perfect hash, which is
+    // smaller and probes once, at the cost of a slower build.
+    std::vector<Slot> slots_;   // a power of two
+    std::size_t size_ = 0;
+    unsigned shift_ = 64;       // a hash keeps its top log2(slots) bits
 };
 
 // Reads tokenizer.ggml.merges: each "left right", two tokens' text separated
