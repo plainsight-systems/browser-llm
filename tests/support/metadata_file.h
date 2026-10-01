@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
+#include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -19,6 +21,21 @@ public:
     MetadataFile& strings(std::string_view key, std::initializer_list<std::string_view> values) {
         array_header(key, gguf::ValueType::String, values.size());
         for (const std::string_view v : values) string(v);
+        ++entries_;
+        return *this;
+    }
+
+    // The same, for a list built in the test.
+    MetadataFile& strings(std::string_view key, std::span<const std::string> values) {
+        array_header(key, gguf::ValueType::String, values.size());
+        for (const std::string& v : values) string(v);
+        ++entries_;
+        return *this;
+    }
+
+    MetadataFile& int32s(std::string_view key, std::span<const std::int32_t> values) {
+        array_header(key, gguf::ValueType::Int32, values.size());
+        for (const std::int32_t v : values) put(&v, sizeof v);
         ++entries_;
         return *this;
     }

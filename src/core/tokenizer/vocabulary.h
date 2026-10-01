@@ -46,6 +46,7 @@ enum class LoadError {
     UnknownMergeToken, // a merge names a token the vocabulary lacks
     DuplicateMerge,
     MissingByte,       // a byte-level vocabulary lacks a byte's token
+    UnmappedCharacter, // a byte-level token holds a character no byte stands for; the subject names it
 };
 
 struct LoadResult {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -29,6 +30,11 @@ namespace bllm::tokenizer::bpe {
 //      itself a token whole.
 //
 // BOS is never added: the chat template writes it as text.
+//
+// Decoding a token turns each character of a normal token back into the byte
+// it stands for; any other token is its text as written. No clean-up follows:
+// llama.cpp removes the space before punctuation when decoding llama-bpe, but
+// that changes text the user wrote, and it needs tokens not yet generated.
 class ByteLevelBpe {
 public:
     ByteLevelBpe() = default;
@@ -44,6 +50,11 @@ public:
     // finds. The result is identical; a cache last used by another tokenizer
     // is emptied first.
     [[nodiscard]] EncodeError encode(std::string_view text, std::vector<TokenId>& out, PieceCache& cache) const;
+
+    // Appends the bytes `token` stands for. They can end partway through a
+    // character; Utf8Stream makes text of them. Precondition: loaded, and the
+    // token is below vocabulary().size().
+    void decode(TokenId token, std::string& out) const;
 
 private:
     friend LoadResult load_byte_level_bpe(gguf::ByteSource& source, const gguf::TensorIndex& index,
@@ -61,8 +72,10 @@ private:
     const PreTokenizer* pretokenizer_ = nullptr;
 };
 
-// Reads the vocabulary and merges, and checks every byte has a token. `out`
-// is left untouched unless it succeeds.
+// Reads the vocabulary and merges, and checks every byte has a token and every
+// normal token spells bytes. A token that does not is refused rather than
+// decoded by a guess: Hugging Face would give its text as written, llama.cpp
+// a marker naming the character. `out` is left untouched unless it succeeds.
 [[nodiscard]] LoadResult load_byte_level_bpe(gguf::ByteSource& source, const gguf::TensorIndex& index,
                                              const PreTokenizer& pretokenizer, ByteLevelBpe& out);
 

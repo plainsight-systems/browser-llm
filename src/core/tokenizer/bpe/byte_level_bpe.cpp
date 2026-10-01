@@ -11,6 +11,19 @@
 #include "core/tokenizer/unicode.h"
 
 namespace bllm::tokenizer::bpe {
+namespace {
+
+// Whether every character of `text` stands for a byte.
+bool spells_bytes(std::string_view text) noexcept {
+    for (std::size_t at = 0; at < text.size();) {
+        Utf8Char c{};
+        if (!decode_utf8(text, at, c) || !byte_of(c.code_point)) return false;
+        at += c.length;
+    }
+    return true;
+}
+
+}  // namespace
 
 EncodeError ByteLevelBpe::encode(std::string_view text, std::vector<TokenId>& out) const {
     return encode_into(text, out, nullptr);
@@ -80,11 +93,32 @@ void ByteLevelBpe::encode_piece(std::string_view piece, std::vector<TokenId>& ou
     if (cache != nullptr) cache->insert(piece, std::span<const TokenId>{out}.subspan(first));
 }
 
+void ByteLevelBpe::decode(TokenId token, std::string& out) const {
+    const std::string_view text = vocabulary_.text(token);
+    if (vocabulary_.type(token) != TokenType::Normal) {
+        out.append(text);
+        return;
+    }
+    // Every character stands for a byte: load_byte_level_bpe checked it.
+    for (std::size_t at = 0; at < text.size();) {
+        Utf8Char c{};
+        (void)decode_utf8(text, at, c);
+        out.push_back(static_cast<char>(*byte_of(c.code_point)));
+        at += c.length;
+    }
+}
+
 LoadResult load_byte_level_bpe(gguf::ByteSource& source, const gguf::TensorIndex& index,
                                const PreTokenizer& pretokenizer, ByteLevelBpe& out) {
     ByteLevelBpe bpe;
     if (auto r = load_vocabulary(source, index, bpe.vocabulary_); !r.ok()) return r;
     if (auto r = load_merges(source, index, bpe.vocabulary_, bpe.merges_); !r.ok()) return r;
+    for (std::size_t id = 0; id < bpe.vocabulary_.size(); ++id) {
+        const auto token = static_cast<TokenId>(id);
+        if (bpe.vocabulary_.type(token) == TokenType::Normal && !spells_bytes(bpe.vocabulary_.text(token))) {
+            return {LoadError::UnmappedCharacter, std::string(bpe.vocabulary_.text(token))};
+        }
+    }
 
     std::string spelled;
     for (std::size_t byte = 0; byte < 256; ++byte) {

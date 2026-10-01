@@ -18,7 +18,11 @@ namespace bllm::tokenizer {
 //     as the characters that spell them.
 //   - An algorithm that splits text first names its pre-tokenizer with
 //     tokenizer.ggml.pre. One that does not, such as SentencePiece, needs none.
-//   - Decoding is a stream (Utf8Stream below).
+//   - Decoding gives each token's bytes back, special tokens included as the
+//     text that encodes to them, and rewrites nothing: decoding what was
+//     encoded gives the text back, normalized if the algorithm normalizes.
+//     Whether a control token is shown is the caller's choice; it has the
+//     token's type. The bytes become text through a stream (Utf8Stream below).
 
 // A token's identifier. Its own type, so it cannot be passed where a count or
 // a position is meant.

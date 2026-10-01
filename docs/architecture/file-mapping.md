@@ -240,8 +240,10 @@ Four rules hold for every contract:
    planned by the residency plan and created by upload.
 9. **Tokenizer** — `core/tokenizer`. Encoding turns rendered text into
    identifiers; special tokens written in the text encode as their single
-   identifiers. Decoding is a stream: bytes that end mid-character are held
-   until the next token completes them.
+   identifiers. Decoding gives each token's bytes back, special tokens as the
+   text that encodes to them, and rewrites nothing, so decoding what was
+   encoded gives the text back. It is a stream: bytes that end mid-character
+   are held until the next token completes them.
 10. **Sampler** — `core/sampler`. The GPU reduces the logits to the top-k
     candidates, and the sampler chooses among them. Randomness is a pure
     function of the seed and the token's position, so a seed reproduces a run.
