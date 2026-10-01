@@ -18,6 +18,7 @@
 #include "core/runtime/runtime.h"
 #include "core/sampler/sampler.h"
 #include "core/tokenizer/bpe/byte_map.h"
+#include "core/tokenizer/bpe/merge.h"
 #include "core/tokenizer/bpe/merge_table.h"
 #include "core/tokenizer/load.h"
 #include "core/tokenizer/nfc.h"

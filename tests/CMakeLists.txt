@@ -19,6 +19,7 @@ add_executable(charlotte_tests
     gguf_arrays_test.cpp
     test_data_test.cpp
     tokenizer_merge_table_test.cpp
+    tokenizer_merge_test.cpp
     tokenizer_nfc_test.cpp
     tokenizer_split_test.cpp
     tokenizer_unicode_test.cpp
