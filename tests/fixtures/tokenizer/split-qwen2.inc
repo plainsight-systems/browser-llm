@@ -29,6 +29,7 @@
 {"arabic", "مرحبا بالعالم", {"مرحبا", " بالعالم"}},
 {"devanagari", "नमस्ते दुनिया", {"नमस", "्त", "े", " द", "ुन", "िय", "ा"}},
 {"mixed scripts", "Tokyo 東京 2026 🚄", {"Tokyo", " 東京", " ", "2", "0", "2", "6", " 🚄"}},
+{"words merging cannot make", "Tôi ở Việt Nam, có nhiều việc.", {"Tôi", " ở", " Việt", " Nam", ",", " có", " nhiều", " việc", "."}},
 {"emoji", "I 💙 tokens 🎉", {"I", " 💙", " tokens", " 🎉"}},
 {"emoji joined by zero-width joiners", "family: 👨\342\200\215👩\342\200\215👧\342\200\215👦", {"family", ":", " 👨\342\200\215👩\342\200\215👧\342\200\215👦"}},
 {"flags", "🇳🇿🇯🇵", {"🇳🇿🇯🇵"}},

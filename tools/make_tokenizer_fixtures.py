@@ -97,6 +97,9 @@ TEXTS = [
     ("arabic", "مرحبا بالعالم"),
     ("devanagari", "नमस्ते दुनिया"),
     ("mixed scripts", "Tokyo 東京 2026 🚄"),
+    # " Việt", " nhiều" and " việc" are Llama tokens its merges never make:
+    # each piece is one token only where a whole piece is looked up first.
+    ("words merging cannot make", "Tôi ở Việt Nam, có nhiều việc."),
     ("emoji", "I 💙 tokens 🎉"),
     ("emoji joined by zero-width joiners", "family: 👨\u200d👩\u200d👧\u200d👦"),
     ("flags", "🇳🇿🇯🇵"),
