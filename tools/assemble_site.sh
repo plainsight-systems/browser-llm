@@ -24,5 +24,5 @@ for file in ${files}; do
     mkdir -p "${out}/$(dirname "${file}")"
     cp "web/${file}" "${out}/${file}"
 done
-cp build/wasm-release/browser_llm.mjs build/wasm-release/browser_llm.wasm "${out}/"
+cp build/wasm-release/charlotte.mjs build/wasm-release/charlotte.wasm "${out}/"
 touch "${out}/.nojekyll"

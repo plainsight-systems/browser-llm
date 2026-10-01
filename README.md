@@ -1,4 +1,8 @@
-# browser-llm
+<p align="center">
+  <img src="web/assets/charlotte-readme.png" alt="An original screenprint-style illustration of a small spider in a glowing web, with words woven into the threads." width="100%" />
+</p>
+
+# Charlotte
 
 A self-built inference harness that runs an open-weight model entirely in the
 browser. C++ compiled to WebAssembly, with compute executed on WebGPU. No
@@ -10,7 +14,7 @@ and to keep the execution path inspectable.
 
 Internal R&D under Plainsight Systems LLC.
 
-**Running at <https://plainsight-systems.github.io/browser-llm/>**
+**Running at <https://plainsight-systems.github.io/charlotte/>**
 
 ## Running it locally
 

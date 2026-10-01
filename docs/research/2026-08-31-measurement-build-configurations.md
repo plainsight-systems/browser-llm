@@ -2,6 +2,8 @@
 
 **Date:** 2026-08-31
 
+> The project was later renamed from browser-llm to Charlotte (BLLM-003, 2026-09-30). This record keeps the name it was written under.
+
 Method notes from a prior in-house C++ inference harness, generalised. The
 problem this solves: instrumentation that is present when you measure
 throughput makes the throughput number wrong, and instrumentation that is

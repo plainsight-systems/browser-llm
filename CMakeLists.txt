@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(browser_llm LANGUAGES CXX)
+project(charlotte LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -24,7 +24,7 @@ include(EmbedShaders)
 option(BLLM_ENABLE_DIAGNOSTICS
        "Compile diagnostic instrumentation into the build (perturbs timing)" OFF)
 
-add_library(browser_llm_core STATIC
+add_library(charlotte_core STATIC
     src/core/capability/capability.cpp
     src/core/gguf/index.cpp
     src/core/gguf/reader.cpp
@@ -33,17 +33,17 @@ add_library(browser_llm_core STATIC
 )
 
 if(BLLM_ENABLE_DIAGNOSTICS)
-    target_compile_definitions(browser_llm_core PUBLIC BLLM_DIAGNOSTICS_ENABLED=1)
+    target_compile_definitions(charlotte_core PUBLIC BLLM_DIAGNOSTICS_ENABLED=1)
     message(STATUS
-        "browser-llm: diagnostics ENABLED — timings from this build are not quotable")
+        "charlotte: diagnostics ENABLED — timings from this build are not quotable")
 endif()
 
-target_include_directories(browser_llm_core PUBLIC
+target_include_directories(charlotte_core PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
 )
 
 bllm_embed_shaders(
-    TARGET  browser_llm_core
+    TARGET  charlotte_core
     OUTPUT  "${CMAKE_BINARY_DIR}/generated/bllm/shaders_generated.h"
     SHADERS "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/vector_add.wgsl"
 )
@@ -54,7 +54,7 @@ if(EMSCRIPTEN)
     # link Dawn, the other implementation, because nothing it builds needs a
     # GPU: these sources build for wasm only, and the native test binary
     # covers the platform-neutral logic.
-    target_sources(browser_llm_core PRIVATE
+    target_sources(charlotte_core PRIVATE
         src/core/gpu/device.cpp
         src/core/gpu/self_check.cpp
     )
@@ -62,17 +62,17 @@ if(EMSCRIPTEN)
     # Not merely preprocessed away — not compiled at all in a clean build, so
     # the symbol cannot reach the shipped module.
     if(BLLM_ENABLE_DIAGNOSTICS)
-        target_sources(browser_llm_core PRIVATE src/core/gpu/readback_bench.cpp)
+        target_sources(charlotte_core PRIVATE src/core/gpu/readback_bench.cpp)
     endif()
 
     # -----------------------------------------------------------------------
     # Browser target. The only Emscripten-aware translation unit.
     # -----------------------------------------------------------------------
-    add_executable(browser_llm src/wasm/bindings.cpp)
-    target_link_libraries(browser_llm PRIVATE browser_llm_core)
+    add_executable(charlotte src/wasm/bindings.cpp)
+    target_link_libraries(charlotte PRIVATE charlotte_core)
 
-    target_compile_options(browser_llm_core PUBLIC --use-port=emdawnwebgpu)
-    target_link_options(browser_llm PRIVATE
+    target_compile_options(charlotte_core PUBLIC --use-port=emdawnwebgpu)
+    target_link_options(charlotte PRIVATE
         --use-port=emdawnwebgpu
         -sMODULARIZE=1
         -sEXPORT_ES6=1
@@ -93,8 +93,8 @@ if(EMSCRIPTEN)
         # Deliberately absent: -pthread. GitHub Pages cannot set COOP/COEP,
         # so SharedArrayBuffer is unavailable and pthreads cannot be used.
     )
-    set_target_properties(browser_llm PROPERTIES
-        OUTPUT_NAME "browser_llm"
+    set_target_properties(charlotte PROPERTIES
+        OUTPUT_NAME "charlotte"
         SUFFIX ".mjs"
     )
 else()

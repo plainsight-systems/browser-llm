@@ -90,13 +90,13 @@ trap 'rm -f "${PROMPT_FILE}"' EXIT
 {
   cat <<'PROMPTEOF'
 You are performing an independent review of a work packet and the code it
-covers, in the browser-llm repository. You are the second reader: the packet's
+covers, in the Charlotte repository. You are the second reader: the packet's
 author already believes the work is correct. Your job is to find where that
 belief is wrong.
 
 PROJECT CONTEXT
 ---------------
-browser-llm is a from-scratch LLM inference harness that runs entirely in the
+Charlotte is a from-scratch LLM inference harness that runs entirely in the
 browser. Internal R&D under Plainsight Systems LLC; no operating brand.
 
 Stack:

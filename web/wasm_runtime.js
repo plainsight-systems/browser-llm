@@ -1,7 +1,7 @@
 // The runtime: the C++ module, behind the operations the worker offers the
 // page. Every call into C++ goes through here.
 
-import createModule from './browser_llm.mjs';
+import createModule from './charlotte.mjs';
 
 // Starts the module and the device check, which reports through `onDevice`.
 // Resolves with the runtime once the module is instantiated.

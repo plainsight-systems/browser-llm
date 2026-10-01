@@ -4,6 +4,11 @@ This file tracks active and accepted work.
 
 ## Active
 
+- **BLLM-003: Rename the project to Charlotte.** Packet:
+  `packets/2026-09-30-rename-to-charlotte.md`. Identity only: living
+  documents, the page and the build take the new name; historical records
+  keep the old one with a rename note; the internal `bllm` prefix stays.
+
 - **BLLM-002: GGUF reading and Q4_0 layout.** Packet:
   `packets/2026-08-31-model-selection-and-weight-loading.md`. Decides
   Qwen3-0.6B / Q4_0 / GGUF and delivers the container reader plus the Q4_0

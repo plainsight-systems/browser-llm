@@ -4,11 +4,11 @@ This file is the canonical entry point for durable project context.
 
 ## Product Identity
 
-- **Product:** browser-llm (working name)
+- **Product:** Charlotte. Named `browser-llm` until 2026-09-30 (BLLM-003).
 - **Operating brand:** None. Internal R&D under the parent entity.
 - **Parent entity:** Plainsight Systems LLC
-- **Repository:** <https://github.com/plainsight-systems/browser-llm> (public).
-  Deployed: <https://plainsight-systems.github.io/browser-llm/>
+- **Repository:** <https://github.com/plainsight-systems/charlotte> (public).
+  Deployed: <https://plainsight-systems.github.io/charlotte/>
 
 ## Purpose
 

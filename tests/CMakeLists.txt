@@ -9,7 +9,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(doctest)
 
-add_executable(browser_llm_tests
+add_executable(charlotte_tests
     dispatch_math_test.cpp
     shader_embed_test.cpp
     unique_handle_test.cpp
@@ -24,14 +24,14 @@ add_executable(browser_llm_tests
     main_test.cpp
 )
 
-target_link_libraries(browser_llm_tests PRIVATE browser_llm_core doctest::doctest)
+target_link_libraries(charlotte_tests PRIVATE charlotte_core doctest::doctest)
 
 # The shader test reads the on-disk .wgsl to compare against the embedded copy.
-target_include_directories(browser_llm_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_include_directories(charlotte_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 
-target_compile_definitions(browser_llm_tests PRIVATE
+target_compile_definitions(charlotte_tests PRIVATE
     BLLM_SHADER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../src/shaders"
     BLLM_GGUF_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/gguf"
 )
 
-add_test(NAME browser_llm_tests COMMAND browser_llm_tests)
+add_test(NAME charlotte_tests COMMAND charlotte_tests)

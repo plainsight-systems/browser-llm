@@ -8,8 +8,8 @@ set -eu
 cd "$(dirname "$0")/.."
 
 SYMBOL=bllm_run_readback_bench
-CLEAN=build/wasm-release/browser_llm.mjs
-DIAG=build/wasm-diag/browser_llm.mjs
+CLEAN=build/wasm-release/charlotte.mjs
+DIAG=build/wasm-diag/charlotte.mjs
 status=0
 checked=0
 

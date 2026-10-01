@@ -3,6 +3,8 @@
 **Status:** accepted
 **Change class:** architectural
 
+> The project was later renamed from browser-llm to Charlotte (BLLM-003, 2026-09-30). This record keeps the name it was written under.
+
 ## Intent
 
 - **What is changing:** The repository gains its physical shape and build
