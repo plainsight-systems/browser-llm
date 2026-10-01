@@ -210,6 +210,12 @@ Four rules hold for every contract:
    - Attention never stores a block-by-context matrix of scores, which at
      these sizes would run to gigabytes; kernels work within the working
      buffers.
+   - A sliding-window layer's cache is a ring: its window, a prefill block,
+     and the policy's rollback reserve, never more than the context offered.
+     A step writes up to a block of new tokens while its first query reads a
+     window behind them, so window plus block is the least a step needs; the
+     reserve is how far a turn can roll back. Position p lives in slot p mod
+     slots. A full-attention layer holds the whole context offered.
    - The context offered is the largest the memory budget allows, capped at
      the context the model was trained for.
    - An output head stored as a byte-for-byte copy of the token embedding is
@@ -225,11 +231,13 @@ Four rules hold for every contract:
    written at load; then weights, then activations. Bind groups are built at
    load; a token costs one uniform write and its dispatches. The runtime picks
    the regime from the number of tokens in the step.
-8. **KV cache** — `core/cache/kv`. Full length for every layer, including
-   sliding-window layers: the window is applied by attention, not by storage,
-   so truncation resets a counter. Capacity and window come from the model
-   description, storage precision from policy, packing from the format. Its
-   storage is planned by the residency plan and created by upload.
+8. **KV cache** — `core/cache/kv`. Full length for full-attention layers; a
+   ring of the planned slots for sliding-window layers. Truncation resets a
+   counter. A rollback within the policy's reserve keeps the cache; a deeper
+   one empties it, because a ring's overwritten entries can only be rebuilt
+   from the first token. Capacity and window come from the model description,
+   storage precision from policy, packing from the format. Its storage is
+   planned by the residency plan and created by upload.
 9. **Tokenizer** — `core/tokenizer`. Encoding turns rendered text into
    identifiers; special tokens written in the text encode as their single
    identifiers. Decoding is a stream: bytes that end mid-character are held
@@ -242,7 +250,8 @@ Four rules hold for every contract:
     crossing per streamed token (WASM.2).
 12. **Policy** — `core/policy`. A model's measured configuration from
     `web/models.json`: cache precision, sampling settings per mode, and the
-    template variables it exposes, and the memory budget. WebGPU does not
+    template variables it exposes, the memory budget, and the rollback reserve
+    for sliding-window caches. WebGPU does not
     report device memory, so the budget is measured per model like everything
     else here. Cache precision and the budget cross at load. Sampling
     settings depend on the turn's mode, so they cross with each generate,

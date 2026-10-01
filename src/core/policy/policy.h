@@ -33,6 +33,11 @@ struct LoadPolicy {
     // about 1 GB with a working cache; a larger unmeasured model is rejected
     // at preflight's Fit stage, by name, rather than attempted.
     std::uint64_t memory_budget = 2ull * 1024 * 1024 * 1024;
+    // Tokens a sliding-window layer's cache keeps beyond what one step needs,
+    // so a turn can roll the cache back that far without restarting it:
+    // enough to regenerate a long reply. A deeper rollback restarts the cache
+    // from the first token.
+    std::uint32_t rollback_reserve = 4096;
 };
 
 // Defaults are llama.cpp's, the most widely exercised settings for models

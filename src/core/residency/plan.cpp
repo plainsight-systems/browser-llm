@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <span>
 
 #include "core/gguf/checked.h"
 
@@ -163,6 +164,31 @@ gguf::TensorType storage_type(policy::CachePrecision precision) {
     return gguf::TensorType::F16;
 }
 
+// What one layer's cache costs: the bytes of one slot of keys (and as many
+// again of values), and the most slots the layer ever holds.
+struct CacheCost {
+    std::uint64_t slot_bytes;
+    std::uint64_t ring;
+};
+
+// Slots a layer holds at a context of `context` tokens.
+std::uint64_t slots_at(const CacheCost& layer, std::uint64_t context) {
+    return std::min(context, layer.ring);
+}
+
+// The cache's bytes at a context of `context` tokens, before alignment
+// padding. False when a size overflows or a layer's keys outgrow a binding.
+bool cache_bytes_at(std::span<const CacheCost> layers, std::uint64_t context, std::uint64_t binding,
+                    std::uint64_t& out) {
+    out = 0;
+    for (const CacheCost& layer : layers) {
+        std::uint64_t length = 0;
+        if (!checked_mul(slots_at(layer, context), layer.slot_bytes, length) || length > binding) return false;
+        if (!checked_add(out, 2 * length, out)) return false;   // length <= binding, so 2 * length cannot wrap
+    }
+    return true;
+}
+
 // Sizes the cache to the largest context the budget and the binding limit
 // allow, and places it.
 PlanResult place_cache(const model::ModelDescription& model, const DeviceLimits& limits,
@@ -170,20 +196,22 @@ PlanResult place_cache(const model::ModelDescription& model, const DeviceLimits&
     const gguf::FormatLayout& layout = *gguf::format_layout(storage_type(policy.cache_precision));
     const std::uint64_t limit = range_limit(limits);
 
-    // Bytes one token adds to one layer's keys (and as many to its values).
-    std::vector<std::uint64_t> per_token;
-    std::uint64_t all_layers = 0;
-    std::uint64_t binding_context = model.trained_context;
+    // A full-attention layer's window is the trained context, so its ring
+    // never binds; a sliding-window layer's ring is its window, a prefill
+    // block and the rollback reserve.
+    std::vector<CacheCost> layers;
+    layers.reserve(model.layers.size());
     for (std::size_t i = 0; i < model.layers.size(); ++i) {
         const model::LayerDescription& l = model.layers[i];
         if (l.head_dimension % layout.block_elements != 0) {
             return failure(PlanError::UnsupportedCachePrecision, "layer " + std::to_string(i));
         }
-        const std::uint64_t bytes =
-            std::uint64_t{l.key_value_heads} * (l.head_dimension / layout.block_elements) * layout.block_bytes;
-        per_token.push_back(bytes);
-        all_layers += 2 * bytes;
-        binding_context = std::min(binding_context, limit / bytes);
+        CacheCost cost{0, std::uint64_t{l.attention_window} + kPrefillBlock + policy.rollback_reserve};
+        const std::uint64_t blocks = std::uint64_t{l.key_value_heads} * (l.head_dimension / layout.block_elements);
+        if (!checked_mul(blocks, layout.block_bytes, cost.slot_bytes)) {
+            return failure(PlanError::Overflow, "layer " + std::to_string(i));
+        }
+        layers.push_back(cost);
     }
     // The binding never limits the cache below a prefill block: the "key"
     // working buffer holds kPrefillBlock tokens of the same width at 4 bytes a
@@ -194,22 +222,44 @@ PlanResult place_cache(const model::ModelDescription& model, const DeviceLimits&
     // Alignment padding the cache may add: at most one granule per range.
     const std::uint64_t slack = 2 * model.layers.size() * (limits.storage_offset_alignment + kBindingGranule);
     const std::uint64_t fixed = out.weight_bytes + out.scratch_bytes + slack;
-    const std::uint64_t budget = policy.memory_budget;
-    const std::uint64_t budget_context = budget > fixed ? (budget - fixed) / all_layers : 0;
-    if (budget_context < shortest) {
-        out.total_bytes = fixed + shortest * all_layers;
-        return failure(PlanError::ExceedsBudget);
-    }
-    out.context_offered = static_cast<std::uint32_t>(std::min(binding_context, budget_context));
-
-    Packer packer{out.buffers, Pool::Cache, limits};
-    for (const std::uint64_t bytes : per_token) {
-        PlannedCacheLayer layer{};
-        const std::uint64_t length = out.context_offered * bytes;
-        if (!packer.place(length, false, layer.keys) || !packer.place(length, false, layer.values)) {
+    const auto fits = [&](std::uint64_t context) {
+        std::uint64_t bytes = 0;
+        std::uint64_t total = 0;
+        return cache_bytes_at(layers, context, limit, bytes) && checked_add(fixed, bytes, total) &&
+               total <= policy.memory_budget;
+    };
+    if (!fits(shortest)) {
+        std::uint64_t bytes = 0;
+        if (!cache_bytes_at(layers, shortest, limit, bytes) || !checked_add(fixed, bytes, out.total_bytes)) {
             return failure(PlanError::Overflow);
         }
-        out.cache.push_back(layer);
+        return failure(PlanError::ExceedsBudget);
+    }
+
+    // The cost never falls as the context grows, so the largest context that
+    // fits is found by bisection between the shortest and the trained context.
+    std::uint64_t low = shortest;
+    std::uint64_t high = model.trained_context;
+    while (low < high) {
+        const std::uint64_t mid = low + (high - low + 1) / 2;
+        if (fits(mid)) {
+            low = mid;
+        } else {
+            high = mid - 1;
+        }
+    }
+    out.context_offered = static_cast<std::uint32_t>(low);
+
+    Packer packer{out.buffers, Pool::Cache, limits};
+    out.cache.reserve(layers.size());
+    for (const CacheCost& layer : layers) {
+        PlannedCacheLayer planned{};
+        planned.slots = static_cast<std::uint32_t>(slots_at(layer, out.context_offered));
+        const std::uint64_t length = std::uint64_t{planned.slots} * layer.slot_bytes;   // checked by fits()
+        if (!packer.place(length, false, planned.keys) || !packer.place(length, false, planned.values)) {
+            return failure(PlanError::Overflow);
+        }
+        out.cache.push_back(planned);
     }
     return {};
 }

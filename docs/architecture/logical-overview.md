@@ -196,7 +196,8 @@ The cache is keyed on **the token sequence**, never on the message list, and it
 is touched at two levels:
 
 - **once per turn**, the diff truncates it to the longest common prefix — a
-  length counter, with no data movement;
+  length counter, with no data movement. A sliding-window layer keeps a ring,
+  so a rollback deeper than the policy's reserve empties the cache instead;
 - **in every layer, on every token**, both regimes append new K and V and read
   the cache back for attention.
 

@@ -18,7 +18,9 @@ namespace bllm::cache {
 // from the cache's storage so it is tested directly.
 //
 // The runtime truncates the cache to the returned length and prefills the
-// rest. When the whole incoming sequence is cached, the runtime still
+// rest. The cache may keep less than the common prefix: a rollback deeper
+// than the rollback reserve empties it, and the runtime prefills from the
+// first token. When the whole incoming sequence is cached, the runtime still
 // recomputes its last token: generation needs that token's logits, and the
 // cache holds keys and values, not logits.
 

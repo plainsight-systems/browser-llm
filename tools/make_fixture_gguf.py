@@ -128,11 +128,11 @@ def f32_zeros(dims):
 
 
 def tiny_model(arch, layers=2, *, extra=(), omit_key=None, omit_tensor=None, reshape=None,
-               head_count_kv=KV, output_copy=False):
+               head_count_kv=KV, output_copy=False, context=64):
     """A tiny `arch` model. `reshape` is (tensor name, dims) to break a shape."""
     keys = {
         "block_count": (U32, struct.pack("<I", layers)),
-        "context_length": (U32, struct.pack("<I", 64)),
+        "context_length": (U32, struct.pack("<I", context)),
         "embedding_length": (U32, struct.pack("<I", E)),
         "feed_forward_length": (U32, struct.pack("<I", F)),
         "attention.head_count": (U32, struct.pack("<I", H)),
@@ -274,6 +274,14 @@ CASES = {
     "tiny_gemma3": lambda: tiny_model("gemma3", layers=7, extra=[
         kv(b"gemma3.attention.sliding_window", U32, struct.pack("<I", 16))]),
     "tiny_gemma3_no_window": lambda: tiny_model("gemma3", layers=7),
+    # Trained for longer than a window layer's ring (16 + 512 + 4,096 slots),
+    # so the ring, not the context, sizes the window layers' cache.
+    "tiny_gemma3_long": lambda: tiny_model("gemma3", layers=7, context=8192, extra=[
+        kv(b"gemma3.attention.sliding_window", U32, struct.pack("<I", 16))]),
+    # A pattern longer than the model: every layer attends over the window.
+    "tiny_gemma3_long_all_window": lambda: tiny_model("gemma3", layers=7, context=8192, extra=[
+        kv(b"gemma3.attention.sliding_window", U32, struct.pack("<I", 16)),
+        kv(b"gemma3.attention.sliding_window_pattern", U32, struct.pack("<I", 8))]),
     "tiny_gemma3_pattern_per_layer": lambda: tiny_model("gemma3", layers=7, extra=[
         kv(b"gemma3.attention.sliding_window", U32, struct.pack("<I", 16)),
         kv(b"gemma3.attention.sliding_window_pattern", ARRAY,

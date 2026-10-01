@@ -134,6 +134,82 @@ TEST_CASE("the context offered is capped by what the model was trained for") {
     REQUIRE(plan.cache.size() == p.model.layers.size());
     // 1 key/value head of width 4 at f16: 8 bytes a token, for keys and for values.
     CHECK(plan.cache[0].keys.length == std::uint64_t{plan.context_offered} * 8);
+    for (const auto& layer : plan.cache) CHECK(layer.slots == plan.context_offered);   // full attention
+}
+
+namespace {
+
+// Gemma's pattern over seven layers: a window layer, except the sixth.
+bool global_layer(std::size_t layer) { return layer == 5; }
+
+// The slots a window layer's ring holds: the fixture's window of 16, a
+// prefill block, and the default rollback reserve.
+constexpr std::uint32_t kRing = 16 + residency::kPrefillBlock + 4096;
+
+}  // namespace
+
+TEST_CASE("a sliding-window layer's cache is a ring of its window, a prefill block and the reserve") {
+    const auto p = describe("tiny_gemma3_long");
+    ResidencyPlan plan;
+    REQUIRE(residency::plan_residency(p.index, p.model, kDefaults, policy::LoadPolicy{}, plan).ok());
+    check_invariants(plan, kDefaults);
+    CHECK(plan.context_offered == 8192);
+    REQUIRE(plan.cache.size() == 7);
+    for (std::size_t i = 0; i < plan.cache.size(); ++i) {
+        const std::uint32_t slots = global_layer(i) ? 8192 : kRing;
+        CHECK(plan.cache[i].slots == slots);
+        CHECK(plan.cache[i].keys.length == std::uint64_t{slots} * 8);
+        CHECK(plan.cache[i].values.length == std::uint64_t{slots} * 8);
+    }
+}
+
+TEST_CASE("a ring that would reach the context offered is the context offered") {
+    const auto p = describe("tiny_gemma3_long");
+    policy::LoadPolicy generous{};
+    generous.rollback_reserve = 8192;
+    ResidencyPlan plan;
+    REQUIRE(residency::plan_residency(p.index, p.model, kDefaults, generous, plan).ok());
+    for (const auto& layer : plan.cache) CHECK(layer.slots == plan.context_offered);
+}
+
+TEST_CASE("only full-attention layers cost the budget a token at a time") {
+    const auto p = describe("tiny_gemma3_long");
+    ResidencyPlan roomy;
+    REQUIRE(residency::plan_residency(p.index, p.model, kDefaults, policy::LoadPolicy{}, roomy).ok());
+
+    // Past the ring, one token costs the one global layer 16 bytes (8 of keys,
+    // 8 of values). Take away 1,000 tokens' worth at that rate; had every
+    // layer been full length, the same bytes would be 143 tokens of seven.
+    policy::LoadPolicy tight{};
+    tight.memory_budget = roomy.total_bytes - 16 * 1000;
+    ResidencyPlan plan;
+    REQUIRE(residency::plan_residency(p.index, p.model, kDefaults, tight, plan).ok());
+    check_invariants(plan, kDefaults);
+    CHECK(plan.total_bytes <= tight.memory_budget);
+    CHECK(plan.context_offered <= 8192 - 1000);
+    // The planner reserves up to 260 bytes of alignment padding per range,
+    // 14 ranges: at most 228 tokens of the global layer.
+    CHECK(plan.context_offered >= 8192 - 1000 - 228);
+    for (std::size_t i = 0; i < plan.cache.size(); ++i) {
+        if (!global_layer(i)) CHECK(plan.cache[i].slots == kRing);
+    }
+}
+
+TEST_CASE("a model whose every layer uses a window is offered its trained context") {
+    const auto p = describe("tiny_gemma3_long_all_window");
+    ResidencyPlan roomy;
+    REQUIRE(residency::plan_residency(p.index, p.model, kDefaults, policy::LoadPolicy{}, roomy).ok());
+    for (const auto& layer : roomy.cache) CHECK(layer.slots == kRing);
+
+    // Full-length caches would need 7 layers x 16 bytes x (8192 - kRing)
+    // more than the rings: 399,616 bytes. A budget 100,000 bytes over the
+    // rings still offers the whole trained context.
+    policy::LoadPolicy tight{};
+    tight.memory_budget = roomy.total_bytes + 100'000;
+    ResidencyPlan plan;
+    REQUIRE(residency::plan_residency(p.index, p.model, kDefaults, tight, plan).ok());
+    check_invariants(plan, kDefaults);
+    CHECK(plan.context_offered == 8192);
 }
 
 TEST_CASE("the context offered is the most the budget allows, and fits within it") {

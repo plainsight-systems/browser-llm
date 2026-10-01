@@ -34,9 +34,14 @@ namespace bllm::residency {
 //     Attention never stores a block-by-context matrix of scores: at 512
 //     tokens, 32 heads and a 40,000-token context that is 2.6 GB. Kernels work
 //     within these buffers.
+//   - A layer's cache holds one slot per token of the context offered, or, for
+//     a sliding-window layer, never more than its window, a prefill block and
+//     the policy's rollback reserve. A step writes up to kPrefillBlock new
+//     tokens while its first query still reads a window behind them, so a
+//     ring of window + kPrefillBlock is the least a step needs; the reserve is
+//     how far a turn can roll back. Position p lives in slot p mod slots.
 //   - The context offered is the largest that fits the memory budget and the
-//     binding limit, capped at the context the model was trained for. Every
-//     layer's cache is full length, sliding-window layers included.
+//     binding limit, capped at the context the model was trained for.
 //   - The fit counts every tensor. An output head stored as a byte-for-byte
 //     copy of the token embedding — tied weights written twice — is marked a
 //     candidate duplicate and given buffers of its own, which upload does not
@@ -81,10 +86,12 @@ struct PlannedTensor {
     std::optional<gguf::TensorId> candidate_duplicate_of;
 };
 
-// One layer's cache storage, at the context offered.
+// One layer's cache storage. Position p lives in slot p mod slots; for a
+// full-attention layer slots is the context offered, so no slot is reused.
 struct PlannedCacheLayer {
     BufferRange keys;
     BufferRange values;
+    std::uint32_t slots;
 };
 
 // A working buffer, named for what it holds.
