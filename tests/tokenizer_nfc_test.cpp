@@ -88,6 +88,31 @@ TEST_CASE("text below U+0300 is its own NFC, as the full algorithm also finds") 
     CHECK_FALSE(to_nfc("truncated \xC3", out));
 }
 
+TEST_CASE("only the spans NFC could change are normalized, the rest copied") {
+    // Each text and its NFC from Python's unicodedata (Unicode 16.0). The
+    // spans fall at the start, middle and end of plain text, back to back,
+    // and around a starter that composes with what follows it.
+    struct Case {
+        std::string_view name;
+        std::string_view text;
+        std::string_view nfc;
+    };
+    constexpr Case kCases[] = {
+        {"a mark at the very start", "\xCC\x81" "abc", "\xCC\x81" "abc"},
+        {"a mark after its starter, mid text", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxcafe\xCC\x81 and more yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxcaf\xC3\xA9 and more yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"},
+        {"two sequences apart", "e\xCC\x81 plain text  plain text  plain text  plain text  plain text a\xCC\x88", "\xC3\xA9 plain text  plain text  plain text  plain text  plain text \xC3\xA4"},
+        {"a sequence ending the text", "plain text then o\xCC\x82", "plain text then \xC3\xB4"},
+        {"marks out of order after a starter", "q\xCC\x87\xCC\xA3 then q", "q\xCC\xA3\xCC\x87 then q"},
+        {"Hangul jamo between ASCII", "x \xE1\x84\x92\xE1\x85\xA1\xE1\x86\xAB y", "x \xED\x95\x9C y"},
+        {"a CJK run with a mark", "abc \xE4\xB8\x80\xE4\xBA\x8C\xCC\x81 def", "abc \xE4\xB8\x80\xE4\xBA\x8C\xCC\x81 def"},
+        {"a starter that composes, then plain", "A\xCC\x8A then Angstrom \xE2\x84\xAB", "\xC3\x85 then Angstrom \xC3\x85"},
+    };
+    for (const Case& c : kCases) {
+        CAPTURE(c.name);
+        CHECK(nfc(c.text) == c.nfc);
+    }
+}
+
 TEST_CASE("NFC refuses ill-formed UTF-8 and leaves the output untouched") {
     std::string out = "unchanged";
     CHECK_FALSE(to_nfc("ab\xC0\x80", out));

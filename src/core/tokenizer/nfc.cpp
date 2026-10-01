@@ -29,9 +29,11 @@ constexpr char32_t kSyllableCount = kLeadCount * kVowelCount * kTrailCount;
 // it every character's NFC quick check is Yes and its combining class is 0
 // (DerivedNormalizationProps.txt and UnicodeData.txt, Unicode 16.0). Text of
 // such characters alone is already in NFC, as most prompts are.
-// Optimization (practice): the quick check of UAX #15, which normalizers such
-// as ICU's apply before normalizing; it took NFC on 128 KiB of English from
-// 8.8 ms to 0.1 ms.
+// Optimization (practice): the quick check of UAX #15, applied span by span,
+// as normalizers such as ICU's do: only the stretches around characters NFC
+// could change are normalized. On this repository's docs and sources, 385 KB
+// with 346 characters past ASCII scattered through, Qwen3's whole encode fell
+// from 43 ms to 15 ms.
 constexpr char32_t kFirstChangeable = 0x0300;
 
 std::uint8_t combining_class(char32_t c) {
@@ -117,34 +119,52 @@ std::vector<char32_t> compose_all(const std::vector<char32_t>& text) {
     return out;
 }
 
+// Appends the NFC of `span`, which the caller has checked is well-formed
+// UTF-8. `scratch` is reused from span to span.
+void normalize_span(std::string_view span, std::vector<char32_t>& scratch, std::string& out) {
+    scratch.clear();
+    for (std::size_t at = 0; at < span.size();) {
+        Utf8Char c{};
+        (void)decode_utf8(span, at, c);
+        decompose(c.code_point, scratch);
+        at += c.length;
+    }
+    put_in_canonical_order(scratch);
+    for (const char32_t c : compose_all(scratch)) append_utf8(c, out);
+}
+
 }  // namespace
 
 bool to_nfc(std::string_view text, std::string& out) {
-    // Read until a character NFC could change. If there is none, the text is
-    // its own NFC; it was still decoded throughout, so it is well formed.
-    std::size_t at = 0;
-    for (Utf8Char c{}; at < text.size(); at += c.length) {
-        if (!decode_utf8(text, at, c)) return false;
-        if (c.code_point >= kFirstChangeable) break;
-    }
-    if (at == text.size()) {
-        out.assign(text);
-        return true;
-    }
-
-    std::vector<char32_t> decomposed;
-    decomposed.reserve(text.size());
+    // The boundary before a character below U+0300 is stable: that character
+    // composes with nothing before it, and as a starter it blocks everything
+    // after it from composing with anything before. So only a span from the
+    // last such character before one that NFC could change, through the end of
+    // the changeable run, is normalized; the rest is copied as it is. Every
+    // byte is still decoded, so ill-formed UTF-8 is refused anywhere.
+    std::string normalized;
+    normalized.reserve(text.size());
+    std::vector<char32_t> scratch;
+    std::size_t copied = 0;   // text before this is in `normalized`
+    std::size_t stable = 0;   // where the latest character below U+0300 starts
     for (std::size_t at = 0; at < text.size();) {
         Utf8Char c{};
         if (!decode_utf8(text, at, c)) return false;
-        decompose(c.code_point, decomposed);
-        at += c.length;
+        if (c.code_point < kFirstChangeable) {
+            stable = at;
+            at += c.length;
+            continue;
+        }
+        std::size_t end = at + c.length;
+        for (Utf8Char next{}; end < text.size(); end += next.length) {
+            if (!decode_utf8(text, end, next)) return false;
+            if (next.code_point < kFirstChangeable) break;
+        }
+        normalized.append(text, copied, stable - copied);
+        normalize_span(text.substr(stable, end - stable), scratch, normalized);
+        copied = stable = at = end;
     }
-    put_in_canonical_order(decomposed);
-
-    std::string normalized;
-    normalized.reserve(text.size());
-    for (const char32_t c : compose_all(decomposed)) append_utf8(c, normalized);
+    normalized.append(text, copied, text.size() - copied);
     out = std::move(normalized);
     return true;
 }
