@@ -225,7 +225,7 @@ def main():
             check_same_tokenizer(model_id, metadata, path)
             reference = tokenizers.Tokenizer.from_file(path)
 
-            cases = []
+            cases, settled = [], 0
             for name, text in TEXTS + rendered_prompts(model_id):
                 hf = reference.encode(text, add_special_tokens=False).ids
                 cpp = llama_cpp_ids(llama_tokenize, str(vocabulary), text)
@@ -234,6 +234,7 @@ def main():
                 elif (model_id, name) in DECISIONS:
                     follows, _why = DECISIONS[(model_id, name)]
                     cases.append((name, text, hf if follows == "hf" else cpp))
+                    settled += 1
                 else:
                     disagreements.append((model_id, name, text, hf, cpp))
 
@@ -244,7 +245,8 @@ def main():
                 "reference": {"repo": repo, "revision": revision,
                               "tokenizers": tokenizers.__version__, "llama.cpp": llama_commit},
             }
-            print(f"{model_id}: {len(cases)} cases agree", file=sys.stderr)
+            print(f"{model_id}: {len(cases)} cases, {len(cases) - settled} where the references "
+                  f"agree and {settled} settled in DECISIONS", file=sys.stderr)
 
     if disagreements:
         for model_id, name, text, hf, cpp in disagreements:
