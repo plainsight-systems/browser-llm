@@ -126,6 +126,14 @@ TEST_CASE("every byte has its own character, and each character gives its byte b
     }
     CHECK_FALSE(bpe::byte_of(U' ').has_value());     // a space is spelled "Ġ"
     CHECK_FALSE(bpe::byte_of(0x144).has_value());    // past the 68 moved bytes
+    // No other character gives a byte: none up to well past the map's end, and
+    // none at the far end of the code points.
+    for (char32_t c = 0; c < 0x300; ++c) {
+        CAPTURE(static_cast<std::uint32_t>(c));
+        CHECK(bpe::byte_of(c).has_value() == seen.contains(c));
+    }
+    CHECK_FALSE(bpe::byte_of(0x10FFFF).has_value());
+    CHECK_FALSE(bpe::byte_of(0xFFFFFFFF).has_value());
 }
 
 TEST_CASE("each listed model's vocabulary loads, and every text finds its own token") {
