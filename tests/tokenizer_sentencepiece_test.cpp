@@ -135,11 +135,21 @@ TEST_CASE("Gemma 3 encodes every fixture text to the references' token IDs") {
 TEST_CASE("Gemma 3 decodes every fixture's token IDs back to its text") {
     // Whole, and a token at a time through a stream that emits only whole
     // characters. Some tokens are single bytes of a character, so the stream
-    // has bytes to hold.
+    // has bytes to hold. A typed ▁ comes back as a space: the vocabulary
+    // spells both alike.
     const auto spm = gemma();
     std::size_t split_characters = 0;
     for (const EncodeCase& c : kGemmaCases) {
         CAPTURE(c.name);
+        std::string expected;
+        for (std::size_t at = 0; at < c.text.size();) {
+            if (c.text.substr(at, kSpace.size()) == kSpace) {
+                expected.push_back(' ');
+                at += kSpace.size();
+            } else {
+                expected.push_back(c.text[at++]);
+            }
+        }
         std::string whole;
         std::string streamed;
         Utf8Stream stream;
@@ -154,8 +164,8 @@ TEST_CASE("Gemma 3 decodes every fixture's token IDs back to its text") {
             streamed += emitted;
         }
         CHECK(stream.finish(streamed));
-        CHECK(whole == c.text);
-        CHECK(streamed == c.text);
+        CHECK(whole == expected);
+        CHECK(streamed == expected);
     }
     CHECK(split_characters > 0);
 }

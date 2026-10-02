@@ -35,7 +35,8 @@
    "repo": "google/gemma-3-1b-it",
    "revision": "dcc83ea841ab6100d6b47a070329e1ba4cf78752",
    "tokenizers": "0.23.1",
-   "llama.cpp": "dcd387a412ca54e172a8d60eb71ef6753850c8ca"
+   "llama.cpp": "dcd387a412ca54e172a8d60eb71ef6753850c8ca",
+   "sentencepiece": "0.2.2"
   }
  }
 }
