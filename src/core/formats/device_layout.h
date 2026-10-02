@@ -101,8 +101,13 @@ inline constexpr DeviceLayout kQ6_KLayout{gguf::TensorType::Q6_K, 210, detail::k
         }
         covered += s.width;
     }
-    const gguf::FormatLayout* stored = gguf::format_layout(layout.type);
-    return covered == layout.block_bytes && stored != nullptr && stored->block_bytes == layout.block_bytes;
+    // The file format's block size, looked up by value: GCC does not treat a
+    // pointer comparison here as a constant expression under sanitizers.
+    std::uint32_t stored_bytes = 0;
+    for (const gguf::FormatLayout& stored : gguf::kFormatLayouts) {
+        if (stored.type == layout.type) stored_bytes = stored.block_bytes;
+    }
+    return covered == layout.block_bytes && stored_bytes == layout.block_bytes;
 }
 
 static_assert(keeps_its_promise(kF32Layout) && keeps_its_promise(kQ4_0Layout) &&
