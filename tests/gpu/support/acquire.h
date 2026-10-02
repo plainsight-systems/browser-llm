@@ -12,10 +12,10 @@
 
 namespace bllm::testing {
 
-// Test-only: a device acquired as the harness acquires one, for every GPU
-// test. The request is pumped to completion on the calling thread
-// (pump.h), so its callback writes into an Acquired on this stack frame,
-// which outlives it. A device that cannot be had fails the test; it never
+// Test-only: a device acquired as the harness acquires one, for the GPU
+// tests that need a device. The request is pumped to completion on the
+// calling thread (pump.h), so its callback writes into an Acquired on this
+// stack frame, which outlives it. A device that cannot be had fails the test; it never
 // skips.
 //
 // Guidelines, by corpus:

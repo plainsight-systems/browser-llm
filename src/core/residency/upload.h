@@ -126,8 +126,9 @@ namespace bllm::residency {
 //     16 and 64 MiB, in the release build. 16 MiB is the starting choice:
 //     the size the page already reads the cache in. Two things grow with the
 //     chunk size, the chunk and the writer's staging, which is about the
-//     chunk's size again (piece_writer.h); everything else the Upload holds
-//     is sized by the model's tensor count, not its bytes.
+//     chunk's size again (piece_writer.h). The rest the Upload holds — the
+//     plan, its routes and pieces, names and the write list — grows with the
+//     model's tensors and pieces, and is small beside those two.
 //   - Whether reading overlaps copying, in the diagnostic build, as a
 //     timeline: when the page has chunk n + 1 read, against when the queue
 //     acknowledges chunk n. The overlap is real only where the read finishes

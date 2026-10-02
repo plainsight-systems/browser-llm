@@ -175,7 +175,9 @@ TEST_CASE("a write the device rejects makes finish Validation, never Ok") {
     auto upload = begin(*device, m);
     // A destroyed buffer refuses every write to it.
     wgpuBufferDestroy(upload->buffer(residency::BufferIndex{0}));
-    // Each chunk's scopes report before the next is accepted, or with it.
+    // A chunk's scopes and its acceptance arrive in no set order, so the
+    // stream stops only if the refusal has already arrived; finish always
+    // sees it.
     const UploadError streamed = stream(instance.get(), *upload, m);
     CHECK((streamed == UploadError::Ok || streamed == UploadError::Validation));
     CHECK(finish(instance.get(), *upload) == UploadError::Validation);
