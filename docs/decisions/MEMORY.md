@@ -58,6 +58,20 @@ Decided 2026-08-31, on acceptance of BLLM-001:
   WebGPU cannot be cancelled, so a late callback must be identifiable as late
   rather than allowed to report a second result.
 
+Decided 2026-10-02:
+
+- **The design of a change lives in its file headers, not in a packet.** Each
+  header states the contract and design and cites the guidelines behind it by
+  ID from the `cpp-guidelines` and `cpp-perf-guidelines` corpora; the headers
+  are reviewed before the implementation. With the files and contracts laid
+  out, a packet restated them. Supersedes the packet step of the inherited
+  workflow (`workflow.md`).
+- **Optimizations are designed in, not held until a baseline exists.** The
+  harness is meant to show both browser-driven and at-scale optimizations;
+  each is labelled `Optimization (browser)` or `Optimization (practice)` with
+  its reason, and measured where it can be. Supersedes the inherited rule that
+  an optimization needs a baseline before it is accepted.
+
 Decided 2026-08-28 during repo bootstrap:
 
 - **Core implementation language is C++ compiled to WebAssembly via Emscripten.**
@@ -116,5 +130,6 @@ Not yet decided. These block the first implementation packet:
 ## Active Workflow Pointers
 
 - Queue: `QUEUE.md`
-- Packets: `packets/`
+- Packets: `packets/` (BLLM-001 to BLLM-003; new work is designed in file
+  headers, `workflow.md`)
 - Workflow: `workflow.md`
