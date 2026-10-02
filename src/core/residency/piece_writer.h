@@ -46,7 +46,9 @@ namespace bllm::residency {
 //     one-block tensors does — so the bound counts all of them:
 //       max_chunk + kMaxBlockBytes + routes × kMaxStreams × 6,
 //     8,418 bytes beyond the chunk for Gemma 3's 342 routes. A native test
-//     drives a chunk of many adjacent one-block routes to that bound.
+//     drives the case the bound is set by — a full chunk that completes a
+//     held block, then many adjacent one-block routes, each padded — and
+//     checks what it staged against the bound.
 //   - Bytes outside every route — the header, the padding between tensors —
 //     are skipped. A chunk that does not start where the last one ended, or
 //     the file ending with a route unfilled, is a named failure.
@@ -101,8 +103,8 @@ public:
     [[nodiscard]] WriteError accept(std::uint64_t file_offset, std::span<const std::byte> chunk,
                                     std::vector<Write>& out);
 
-    // Called once the file has ended at `file_size`: Unfinished unless every
-    // route was filled.
+    // Called once the file has ended at `file_size`: Unfinished unless the
+    // chunks reached it and every route was filled.
     [[nodiscard]] WriteError finish(std::uint64_t file_size) const;
 
 private:
@@ -113,7 +115,14 @@ private:
         std::uint8_t count = 0;
     };
 
+    // Lays out route_'s next blocks — `held`, one block or none, then
+    // `blocks` — as its streams: a write per stream, appended to `out`, from
+    // the chunk itself or from staging_ past `staged`, which it advances.
+    void write_blocks(std::span<const std::byte> held, std::span<const std::byte> blocks,
+                      std::size_t& staged, std::vector<Write>& out);
+
     std::span<const Route> routes_;
+    std::size_t max_chunk_;
     std::size_t route_ = 0;            // the first route not yet filled
     std::uint64_t blocks_done_ = 0;    // of route_, the blocks already written
     std::uint64_t next_offset_ = 0;    // where the next chunk must start

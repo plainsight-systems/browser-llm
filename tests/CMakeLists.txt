@@ -36,6 +36,7 @@ add_executable(charlotte_tests
     preflight_test.cpp
     arch_describe_test.cpp
     residency_plan_test.cpp
+    residency_piece_writer_test.cpp
     residency_routes_test.cpp
     main_test.cpp
 )
