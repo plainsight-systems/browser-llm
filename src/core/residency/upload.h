@@ -69,7 +69,7 @@ namespace bllm::residency {
 //     n + 1 can overlap the GPU's copy of chunk n, as GPU.7 describes;
 //     waiting on every chunk would leave the copy engine idle between them.
 //     Whether the overlap happens is the browser's to decide, so it is
-//     claimed only for a target whose timeline shows it (measured below).
+//     claimed only once a timeline shows it (how upload is measured, below).
 //   - Failure is a value (E.27), one for each cause, mapped exactly from
 //     webgpu.h:
 //       - the witness, by witness_result below: its mapping read by
@@ -120,20 +120,23 @@ namespace bllm::residency {
 //     callback it has queued, outlive whoever else lets the device or the
 //     instance go.
 //
-// Measured on the development machine, at WebGPU's default limits, and
-// labelled with it:
+// How upload is measured: on the development machine, at WebGPU's default
+// limits, each figure labelled with it.
 //   - Load throughput and the wasm heap's high-water mark, with chunks of 4,
 //     16 and 64 MiB, in the release build. 16 MiB is the starting choice:
-//     the size the page already reads the cache in. Only the chunk grows
-//     with what is loaded, and only to its fixed size; everything else the
-//     Upload holds is sized by the model's tensor count, not its bytes.
+//     the size the page already reads the cache in. Two things grow with the
+//     chunk size, the chunk and the writer's staging, which is about the
+//     chunk's size again (piece_writer.h); everything else the Upload holds
+//     is sized by the model's tensor count, not its bytes.
 //   - Whether reading overlaps copying, in the diagnostic build, as a
 //     timeline: when the page has chunk n + 1 read, against when the queue
 //     acknowledges chunk n. The overlap is real only where the read finishes
 //     first (GPU.7); otherwise the two-chunk pipeline is not claimed.
 //   - Release and diagnostic figures are reported apart, each labelled with
-//     its build, and cold and warm loads apart, with the clock's resolution
-//     (WASM.11, TLM.6).
+//     its build, and cold and warm loads apart. Each carries the clock's
+//     resolution, whether the page was cross-origin isolated, and how many
+//     loads were discarded as warm-up; it is taken with DevTools closed and
+//     the page visible (WASM.11, TLM.6).
 //
 // Guidelines, by corpus:
 //   C++ Core Guidelines
@@ -165,8 +168,10 @@ namespace bllm::residency {
 //     WASM.11 State the measurement conditions or the browser number means
 //            nothing — each figure carries its build, load and clock.
 //     TLM.6  Diagnostic mode is not benchmark mode — the overlap timeline
-//            comes from the diagnostic build and is never quoted as
-//            throughput.
+//            comes from the diagnostic build, each figure names its build,
+//            and none from the diagnostic build is quoted as throughput.
+//            Its build-script refusal is for a product's benchmark
+//            pipeline; one development machine has none (MEMORY.md).
 //     GPU.1  Keep data on the device; budget every round trip — the shipped
 //            path reads back four bytes, once per load, as its proof of
 //            success: a serialized round trip measured 0.5 ms median in

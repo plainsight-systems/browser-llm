@@ -50,10 +50,9 @@ Decided 2026-08-31, on acceptance of BLLM-001:
   the same code can later link native Dawn for deterministic kernel tests.
 - **Single-threaded, no pthreads.** GitHub Pages cannot set COOP/COEP, so
   `SharedArrayBuffer` is unavailable. The harness runs in a plain Web Worker.
-- **The device is asked for the adapter's advertised maxima** via
-  `requiredLimits` rather than accepting WebGPU's defaults. Always
-  satisfiable, so it costs no portability — but limits therefore vary per
-  device and are known only after acquisition.
+- ~~The device is asked for the adapter's advertised maxima.~~ Superseded by
+  BLLM-002 and the one-target decision below: the device requests WebGPU's
+  default limits explicitly (`core/gpu/device.cpp`).
 - **Async runs are serialised and generation-stamped** (`core/run_guard`).
   WebGPU cannot be cancelled, so a late callback must be identifiable as late
   rather than allowed to report a second result.
