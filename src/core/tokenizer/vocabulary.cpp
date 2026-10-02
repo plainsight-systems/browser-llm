@@ -1,18 +1,36 @@
 #include "core/tokenizer/vocabulary.h"
 
-#include <algorithm>
+#include <cstdint>
 #include <string>
 #include <utility>
 
 #include "core/tokenizer/load.h"
 
 namespace bllm::tokenizer {
+namespace {
+
+// FNV-1a, 64-bit: short, and well spread for keys of a few bytes, as token
+// texts are. The slot comes from its top bits after mixing, the tag from its
+// low bits as they are.
+std::uint64_t text_hash(std::string_view text) noexcept {
+    std::uint64_t hash = 0xCBF29CE484222325;
+    for (const char c : text) hash = (hash ^ static_cast<unsigned char>(c)) * 0x100000001B3;
+    return hash;
+}
+
+}  // namespace
 
 std::optional<TokenId> Vocabulary::find(std::string_view text) const noexcept {
-    const auto at = std::lower_bound(by_text_.begin(), by_text_.end(), text,
-                                     [&](TokenId id, std::string_view t) { return this->text(id) < t; });
-    if (at == by_text_.end() || this->text(*at) != text) return std::nullopt;
-    return *at;
+    if (slots_.empty()) return std::nullopt;
+    const std::uint64_t hash = text_hash(text);
+    const auto tag = static_cast<std::uint32_t>(hash);
+    const std::size_t mask = slots_.size() - 1;
+    for (std::size_t at = first_slot(hash);; at = (at + 1) & mask) {
+        const Slot& slot = slots_[at];
+        if (slot.token == kFree) return std::nullopt;
+        const auto token = static_cast<TokenId>(slot.token);
+        if (slot.tag == tag && this->text(token) == text) return token;
+    }
 }
 
 LoadResult load_vocabulary(gguf::ByteSource& source, const gguf::TensorIndex& index, Vocabulary& out) {
@@ -33,13 +51,29 @@ LoadResult load_vocabulary(gguf::ByteSource& source, const gguf::TensorIndex& in
         vocabulary.types_.push_back(static_cast<TokenType>(types[i]));
     }
 
-    vocabulary.by_text_.resize(types.size());
-    for (std::size_t i = 0; i < types.size(); ++i) vocabulary.by_text_[i] = static_cast<TokenId>(i);
-    const auto by_text = [&](TokenId a, TokenId b) { return vocabulary.text(a) < vocabulary.text(b); };
-    std::sort(vocabulary.by_text_.begin(), vocabulary.by_text_.end(), by_text);
-    const auto repeat = std::adjacent_find(vocabulary.by_text_.begin(), vocabulary.by_text_.end(),
-                                           [&](TokenId a, TokenId b) { return vocabulary.text(a) == vocabulary.text(b); });
-    if (repeat != vocabulary.by_text_.end()) return {LoadError::DuplicateToken, std::string(vocabulary.text(*repeat))};
+    // The smallest power of two that keeps the table at most three quarters full.
+    std::size_t slots = 16;
+    unsigned bits = 4;
+    while (slots * 3 < types.size() * 4) {
+        slots *= 2;
+        ++bits;
+    }
+    vocabulary.slots_.assign(slots, Vocabulary::Slot{Vocabulary::kFree, 0});
+    vocabulary.shift_ = 64 - bits;
+    const std::size_t mask = slots - 1;
+    for (std::size_t i = 0; i < types.size(); ++i) {
+        const std::string_view text = vocabulary.text(static_cast<TokenId>(i));
+        const std::uint64_t hash = text_hash(text);
+        const auto tag = static_cast<std::uint32_t>(hash);
+        std::size_t at = vocabulary.first_slot(hash);
+        for (; vocabulary.slots_[at].token != Vocabulary::kFree; at = (at + 1) & mask) {
+            const Vocabulary::Slot& slot = vocabulary.slots_[at];
+            if (slot.tag == tag && vocabulary.text(static_cast<TokenId>(slot.token)) == text) {
+                return {LoadError::DuplicateToken, std::string(text)};
+            }
+        }
+        vocabulary.slots_[at] = {static_cast<std::uint32_t>(i), tag};
+    }
 
     out = std::move(vocabulary);
     return {};

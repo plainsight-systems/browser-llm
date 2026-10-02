@@ -79,6 +79,34 @@ TEST_CASE("a vocabulary gives each token's text and type, and each text's token"
     CHECK_FALSE(v.find("").has_value());
 }
 
+TEST_CASE("among many tokens, each text finds its own, and only a token's text finds one") {
+    // 20,000 tokens, so slots crowd and lookups probe past one another.
+    std::vector<std::string> texts;
+    for (int i = 0; i < 20'000; ++i) texts.push_back("t" + std::to_string(i));
+    texts.push_back("");   // a token may be empty
+    const std::vector<std::int32_t> types(texts.size(), 1);
+    Vocabulary v;
+    REQUIRE(load(MetadataFile{}
+                     .strings("tokenizer.ggml.tokens", std::span<const std::string>{texts})
+                     .int32s("tokenizer.ggml.token_type", std::span<const std::int32_t>{types}),
+                 v)
+                .ok());
+    for (std::size_t i = 0; i < texts.size(); ++i) {
+        if (v.find(texts[i]) != id(static_cast<std::uint32_t>(i))) FAIL("token " << i << " does not find itself");
+    }
+    for (int i = 0; i < 20'000; ++i) {
+        const std::string n = std::to_string(i);
+        // A token's text with a byte more, one less, or one changed.
+        for (const std::string& other : {"t" + n + "x", "u" + n, "t" + n.substr(0, n.size() - 1) + "~"}) {
+            if (v.find(other).has_value()) FAIL(other << " finds a token");
+        }
+    }
+    CHECK_FALSE(v.find("t").has_value());
+    CHECK_FALSE(v.find("t20000").has_value());
+    // An empty vocabulary finds nothing.
+    CHECK_FALSE(Vocabulary{}.find("t0").has_value());
+}
+
 TEST_CASE("a vocabulary that cannot be read as one is refused, by name") {
     Vocabulary v;
     auto r = load(MetadataFile{}.strings("tokenizer.ggml.tokens", {"a"}), v);
