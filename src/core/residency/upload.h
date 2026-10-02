@@ -122,11 +122,17 @@ namespace bllm::residency {
 //   - Load throughput and the wasm heap's high-water mark, with chunks of 4,
 //     16 and 64 MiB, in the release build. 16 MiB is the starting choice:
 //     the size the page already reads the cache in.
-//   - The budget, on the floor: upload raises the heap's high-water above
-//     what it was before begin by no more than its routes, one chunk and the
-//     writer's staging (piece_writer.h); more is a defect, not a tuning
-//     result. Device memory is the plan's buffers, packed within the limits
-//     the device granted (plan.h) — on the floor, the defaults. Load time
+//   - The budget, on the floor: what upload adds to the heap is the Upload
+//     itself — its copy of the plan, its routes, tensor names and write
+//     list, and its callbacks' shared state, all sized by the model's tensor
+//     count, never by its bytes — plus one chunk and the writer's staging
+//     (piece_writer.h). Only the chunk grows with what is loaded, and only
+//     to its fixed size; a high-water that grows with the model's bytes is
+//     a defect, not a tuning result. Device memory is the plan's buffers,
+//     whose sum the load policy's memory budget bounds and each within the
+//     limits the device granted (plan.h) — on the floor, the defaults — plus
+//     the witness's own small buffer. Allocation can still fail, on either
+//     side, as the error vocabulary says. Load time
 //     has no number in advance: the floor's first measurement is the
 //     baseline, and a later change that slows its warm load by more than the
 //     baseline's run-to-run spread is a regression to explain before it
