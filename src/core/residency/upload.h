@@ -12,6 +12,7 @@
 
 #include "core/gpu/device.h"
 #include "core/gpu/wgpu_handles.h"
+#include "core/residency/mapping.h"
 #include "core/residency/piece_writer.h"
 #include "core/residency/plan.h"
 #include "core/residency/routes.h"
@@ -38,16 +39,21 @@ namespace bllm::residency {
 //     buffer the device refused is a named failure before any byte is
 //     written (E.27). Ready is not proof the device is alive — a lost device
 //     pops its scopes clean — and nothing claims it is; finish is.
+//   - Every write runs inside validation and internal error scopes, pushed
+//     before the first write and popped by finish before the witness: a
+//     write the device rejects never reaches the queue, so a witness written
+//     after it could still map, and only a scope shows the rejection.
 //   - Success is shown, never assumed. A lost device still reports queued
 //     work as done and error scopes as clean, and WebGPU does not order its
 //     lost callback before them, so neither a clean status nor the absence
 //     of a loss report is evidence. A completed mapping is: a lost device
 //     refuses one (tests/gpu/device_test.cpp holds that on every adapter CI
-//     runs). So finish writes a witness last, four bytes unique to this
-//     upload into a small buffer of its own, maps it, and reports Ok only if
-//     the mapping completes and reads those bytes back: the queue runs in
-//     order, so every write before it ran, on a live device. It costs one
-//     4-byte round trip per load, about half a millisecond (GPU.1).
+//     runs). So once the write phase's scopes pop clean, finish writes a
+//     witness, four bytes unique to this upload into a small buffer of its
+//     own, maps it, and reports Ok only if the mapping completes and reads
+//     those bytes back: the queue runs in order, and no write was rejected,
+//     so every write ran, on a live device. It costs one 4-byte round trip
+//     per load, about half a millisecond (GPU.1).
 //   - Each write is one wgpuQueueWriteBuffer, from the chunk or the staging
 //     area in the wasm heap. writeBuffer copies the bytes before it returns,
 //     so the heap's chunk and staging are free for the next chunk at once.
@@ -62,15 +68,13 @@ namespace bllm::residency {
 //     claimed only for a target whose timeline shows it (measured below).
 //   - Failure is a value (E.27), one for each cause, mapped exactly from
 //     webgpu.h:
-//       - the witness, by witness_result below, from its mapping's status
-//         and the bytes it gave back: Success with the expected four bytes is
-//         Ok, the only Ok finish gives; Success with no range is Internal;
-//         Success with other bytes is WitnessMismatch; CallbackCancelled (the
-//         instance went away) is Cancelled; Error (a mapping this harness
-//         should not have asked for) is Internal; Aborted is DeviceLost if
-//         gpu::DeviceStatus (device.h) already says the device is lost, and
-//         otherwise Unconfirmed, since the lost callback may not have arrived
-//         and the cause is not guessed; any other status is Internal.
+//       - the witness, by witness_result below: its mapping read by
+//         mapping_result (mapping.h), then its bytes. A mapping that is Ok
+//         with the expected four bytes is Ok, the only Ok finish gives; Ok
+//         with other bytes is WitnessMismatch; Cancelled, Internal and
+//         DeviceLost are themselves; Unexplained is Unconfirmed.
+//       - a popped scope's error, around creation or around the writes:
+//         its type, as below.
 //       - a popped scope's error type: OutOfMemory is OutOfMemory, Validation
 //         is Validation, Internal and Unknown are Internal.
 //       - a scope pop that fails: CallbackCancelled (the instance went away)
@@ -90,15 +94,19 @@ namespace bllm::residency {
 //     device's status. So a caller's userdata must stay valid until its
 //     callback has run — after the Upload is destroyed, if work was pending.
 //
-// Tested: witness_result's every branch natively, without a device; and on
-// Dawn (tests/gpu), finish on a live device is Ok, finish after the device is
-// destroyed is DeviceLost or Unconfirmed and never Ok, and destroying the
-// Upload with the witness's mapping pending reports Cancelled once.
+// Tested: mapping_result and witness_result branch by branch, without a
+// device; and on Dawn (tests/gpu), finish on a live device is Ok; a write
+// the device rejects makes finish Validation, never Ok; finish after the
+// device is destroyed is DeviceLost or Unconfirmed, never Ok; and destroying
+// the Upload with the witness's mapping pending reports Cancelled, once.
 //   - Completion is reported through callbacks and never waited for: the
 //     build does not use ASYNCIFY, and the worker must stay responsive.
-//   - The Upload holds its own counted reference to the device
-//     (wgpuDeviceAddRef, released by its RAII handle), so the device outlives
-//     the Upload, whoever else lets it go.
+//   - The Upload holds its own counted references to the device and to its
+//     instance (released by their RAII handles), and so does the state its
+//     callbacks share: WebGPU's callbacks are the instance's, and dropping
+//     an instance's last reference cancels them. So the Upload, and every
+//     callback it has queued, outlive whoever else lets the device or the
+//     instance go.
 //
 // Measured, and reported with the target it ran on — desktop-chromium-floor
 // (Chrome or Edge stable, an integrated GPU, WebGPU's default limits) and
@@ -159,13 +167,12 @@ enum class UploadError {
     Unfinished,         // the file ended before every weight was filled
 };
 
-// What finish reports for its witness, from what the mapping gave back.
-// Deterministic, so every branch is tested without a device. `mapped` is the
-// mapped range's bytes, empty where there was none; `status` is read when the
-// mapping's callback runs. The mapping is the table above.
-[[nodiscard]] UploadError witness_result(WGPUMapAsyncStatus map, std::span<const std::byte> mapped,
-                                         std::span<const std::byte, 4> expected,
-                                         const gpu::DeviceStatus& status) noexcept;
+// What finish reports for its witness: the mapping's outcome, by
+// mapping_result, then the bytes it gave back, compared with those written.
+// Deterministic, so every branch is tested without a device. `mapped` is
+// consulted only when the mapping is Ok.
+[[nodiscard]] UploadError witness_result(Mapped mapping, std::span<const std::byte> mapped,
+                                         std::span<const std::byte, 4> expected) noexcept;
 
 // Invoked exactly once per call that takes it, from the browser's event loop.
 using UploadCallback = void (*)(UploadError error, void* userdata);
@@ -233,6 +240,7 @@ public:
 private:
     Upload(gpu::DeviceHandle device, ResidencyPlan plan, std::vector<Route> routes, std::size_t max_chunk);
 
+    gpu::Instance instance_;     // a reference of its own: its callbacks are the instance's
     gpu::DeviceHandle device_;   // a reference of its own, taken in begin
     gpu::Buffer witness_;        // MAP_READ | COPY_DST, 4 bytes, written last and read back
     std::shared_ptr<const gpu::DeviceStatus> device_status_;

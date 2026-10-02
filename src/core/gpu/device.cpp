@@ -111,7 +111,8 @@ void Device::request(RequestCallback callback, void* userdata) {
     request(instance.get(), callback, userdata);
 }
 
-void Device::request(WGPUInstance instance, RequestCallback callback, void* userdata) {
+void Device::request(WGPUInstance instance, RequestCallback callback, void* userdata,
+                     const WGPURequestAdapterOptions* options) {
     if (instance == nullptr) {
         callback(nullptr, "no WebGPU instance was given", userdata);
         return;
@@ -245,7 +246,7 @@ void Device::request(WGPUInstance instance, RequestCallback callback, void* user
         wgpuAdapterRequestDevice(adapter, &device_desc, device_cb);
     };
 
-    wgpuInstanceRequestAdapter(pending->device->instance_.get(), nullptr, adapter_cb);
+    wgpuInstanceRequestAdapter(pending->device->instance_.get(), options, adapter_cb);
 }
 
 }  // namespace bllm::gpu

@@ -89,7 +89,16 @@ public:
     // Natively the caller runs the callbacks, through the same instance, with
     // wgpuInstanceProcessEvents (callback_mode.h). A null instance is a
     // failure reported through `callback`, at once, like any other (E.27).
-    static void request(WGPUInstance instance, RequestCallback callback, void* userdata);
+    // `options`, if given, steers the adapter chosen: a test asks for one
+    // backend by it.
+    //
+    // An adapter of Dawn's Null backend is refused, by name: it accepts work
+    // and computes nothing, and natively, where no real backend is reachable,
+    // Dawn can hand one out. A harness that ran on it would report results it
+    // never computed — the self-check reads back zeros and fails, but a test
+    // that checked less would pass. Tested natively by asking for it.
+    static void request(WGPUInstance instance, RequestCallback callback, void* userdata,
+                        const WGPURequestAdapterOptions* options = nullptr);
 
     // The same, from an instance of its own: the browser's path, where the
     // event loop runs every callback and nothing else needs the instance.

@@ -91,6 +91,7 @@ set(BLLM_GPU_HEADERS
     core/gpu/readback_bench.h
     core/gpu/self_check.h
     core/gpu/wgpu_handles.h
+    core/residency/mapping.h
     core/residency/upload.h
     core/residency/upload_check.h
 )

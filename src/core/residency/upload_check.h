@@ -31,10 +31,11 @@ namespace bllm::residency {
 //     the model is kept to compare against.
 //   - Every comparison rests on a completed mapping, which a lost device
 //     refuses (upload.h), so a check on a lost device fails and never ends
-//     with zero mismatches having compared nothing. A chunk's mapping maps as
-//     the witness's does: CallbackCancelled is Cancelled; Error, and Success
-//     with no range, are Internal; Aborted is DeviceLost where Upload's
-//     device_status() already says so, and otherwise MapFailed. Its callbacks keep
+//     with zero mismatches having compared nothing. A chunk's mapping is read
+//     by mapping_result (mapping.h), the witness's own classifier: Ok is
+//     compared; Cancelled, Internal and DeviceLost are themselves;
+//     Unexplained is MapFailed. It holds its own references to the device
+//     and the instance, as Upload does. Its callbacks keep
 //     their state alive on their own, as Upload's do: its destructor marks
 //     them cancelled, so destroying a check with a comparison pending reports
 //     Cancelled instead of touching freed memory.
