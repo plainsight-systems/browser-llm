@@ -97,6 +97,12 @@ enum class WriteError {
 
 class PieceWriter {
 public:
+    // The most one chunk's writes can stage, by the bound above: what the
+    // writer allocates, and what a reader of its writes must hold.
+    [[nodiscard]] static constexpr std::size_t staging_bound(std::size_t routes, std::size_t max_chunk) noexcept {
+        return max_chunk + formats::kMaxBlockBytes + routes * formats::kMaxStreams * 6;
+    }
+
     // `routes` in file order, as plan_routes gives them; `max_chunk` the
     // largest chunk accept will be given. Precondition: `routes` outlives
     // the writer.

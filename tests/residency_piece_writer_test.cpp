@@ -242,7 +242,7 @@ TEST_CASE("staging holds the case its bound is set by: a held block, then many p
         if (!points_into(w.bytes, chunk)) staged += w.bytes.size();
         apply(f, w, device);
     }
-    CHECK(staged <= max_chunk + formats::kMaxBlockBytes + f.routes.size() * formats::kMaxStreams * 6);
+    CHECK(staged <= PieceWriter::staging_bound(f.routes.size(), max_chunk));
     CHECK(staged > max_chunk);   // the padding and the held block's bytes are counted
     CHECK(writer.finish(f.file.size()) == WriteError::Ok);
     CHECK(device == expected(f));

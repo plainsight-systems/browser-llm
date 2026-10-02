@@ -44,7 +44,7 @@ std::span<std::byte> take(std::span<std::byte> staging, std::size_t& staged, std
 PieceWriter::PieceWriter(std::span<const Route> routes, std::size_t max_chunk)
     : routes_(routes),
       max_chunk_(max_chunk),
-      staging_(max_chunk + formats::kMaxBlockBytes + routes.size() * formats::kMaxStreams * 6) {
+      staging_(staging_bound(routes.size(), max_chunk)) {
     while (route_ < routes_.size() && routes_[route_].blocks == 0) ++route_;
 }
 
