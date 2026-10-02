@@ -80,6 +80,10 @@ enum class RouteError {
     // A confirmed duplicate the plan does not mark a candidate, or an id no
     // tensor has. The subject names it, or gives the id.
     NotACandidate,
+    // A tensor whose rows are not a whole number of unpack's 32-weight
+    // groups, which no kernel can step through (format.h). The subject names
+    // it.
+    RowNotSteppable,
 };
 
 struct RouteResult {

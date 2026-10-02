@@ -62,6 +62,7 @@ UploadError from_route(RouteError error) {
         case RouteError::UnsupportedFormat: return UploadError::UnsupportedFormat;
         case RouteError::OutOfRange: return UploadError::OutOfRange;
         case RouteError::NotACandidate: return UploadError::NotACandidate;
+        case RouteError::RowNotSteppable: return UploadError::RowNotSteppable;
     }
     return UploadError::Internal;
 }

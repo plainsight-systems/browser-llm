@@ -212,3 +212,12 @@ TEST_CASE("a tensor with no rows is still refused when its format is not listed"
     CHECK(r.error == RouteError::UnsupportedFormat);
     CHECK(r.subject == "extra.weight");
 }
+
+TEST_CASE("a tensor whose rows are not a whole number of 32-weight groups is refused by name") {
+    const auto p = planned("tiny_qwen3_odd_row");
+    std::vector<Route> routes;
+    ResidencyPlan carried;
+    const auto r = residency::plan_routes(p.index, p.plan, p.bytes.size(), both, {}, routes, carried);
+    CHECK(r.error == RouteError::RowNotSteppable);
+    CHECK(r.subject == "extra.norm");
+}

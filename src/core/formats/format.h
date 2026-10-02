@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string_view>
 
 #include "core/formats/device_layout.h"
@@ -48,6 +49,14 @@ namespace bllm::formats {
 //     pass it as a uniform.
 //   - Weights decode in the kernel's load path, into registers, and are never
 //     written back out expanded (GDSA.18).
+//   - A kernel asks only for groups within a row, so every row must be a whole
+//     number of groups: steps_by_groups says whether a tensor's are. A tensor
+//     whose rows are not — possible only for F32, whose block is one weight —
+//     is refused by routes (RowNotSteppable) and reported by preflight, so no
+//     kernel is handed one.
+//   - Whether adjacent lanes read adjacent addresses depends on how a kernel
+//     maps lanes to groups; the layout makes it possible, and each kernel
+//     states its own mapping.
 //   Optimization (practice): the 32 weights come as eight vec4s, so a kernel
 //   takes dot products four lanes at a time.
 //   Optimization (browser): half-precision scales are read from u32 words
@@ -56,7 +65,12 @@ namespace bllm::formats {
 //
 // Each unpack is tested on the GPU against a CPU reference that mirrors
 // ggml's dequantize_row_* for the format, in its order of operations, over
-// real blocks; the references live in tests/support, as test oracles only.
+// blocks of edge and random finite values; the references live in
+// tests/support, as test oracles only. Every weight must equal the
+// reference's bit for bit, but where the format's decode is a multiply-add
+// (Q4_1), which WGSL and ggml alike may fuse: there it must equal the
+// multiply-add rounded twice or fused, bit for bit. NaN and infinity are not
+// inputs: no file this harness lists stores them.
 //
 // Block sizes belong to the file format and are read from core/gguf; a format
 // does not restate them. There is no CPU dequantizer: production never
@@ -73,8 +87,16 @@ namespace bllm::formats {
 //     GDSA.18 Store numbers as block-scaled codes decoded in the load path —
 //            unpack decodes into registers; nothing expands a weight in
 //            memory.
-//     GPU.2  Shape data for coalesced lane access — unpack reads the streams
-//            the layout lays out for adjacent lanes.
+//     GPU.2  Shape data for coalesced lane access — the layout makes it
+//            possible; each kernel's lane mapping claims it or not.
+
+// The weights unpack returns at a time: every kernel's step along a row.
+inline constexpr std::uint64_t kUnpackGroup = 32;
+
+// Whether a kernel can step through `tensor`'s rows, a group at a time.
+[[nodiscard]] constexpr bool steps_by_groups(const gguf::TensorEntry& tensor) noexcept {
+    return tensor.dimensions[0] % kUnpackGroup == 0;
+}
 
 namespace detail {
 // Not constexpr: reached only when a Format would be built wrong, which makes

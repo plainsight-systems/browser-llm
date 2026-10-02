@@ -307,6 +307,10 @@ CASES = {
     # all, no multiple of 4.
     "tiny_qwen3_odd_blocks": lambda: tiny_model(
         "qwen3", extra_tensors=[(b"extra.weight", [32, 3], T_Q4_0, q4_0_blocks(3))]),
+    # A row of 33 F32 weights: a whole number of F32's one-weight blocks, but
+    # not of the 32-weight groups unpack steps through.
+    "tiny_qwen3_odd_row": lambda: tiny_model(
+        "qwen3", extra_tensors=[(b"extra.norm", [33], T_F32, b"\0" * 132)]),
     # Seven layers: a run of six (five window layers, one global) and one more.
     "tiny_gemma3": lambda: tiny_model("gemma3", layers=7, extra=[
         kv(b"gemma3.attention.sliding_window", U32, struct.pack("<I", 16))]),

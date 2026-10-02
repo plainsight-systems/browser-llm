@@ -187,6 +187,7 @@ enum class UploadError {
     UnsupportedFormat,  // routes.h: a tensor's format is not listed
     OutOfRange,         // routes.h: a piece reads past the file or its buffer
     NotACandidate,      // routes.h: a confirmed duplicate the plan never marked
+    RowNotSteppable,    // routes.h: rows no kernel can step through 32 weights at a time
     OutOfMemory,        // the out-of-memory scope caught an error
     Validation,         // the validation scope caught an error: a defect here, not in the file
     Internal,           // an internal error, or a scope or queue error (see the mapping above)

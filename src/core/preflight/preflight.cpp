@@ -6,6 +6,7 @@
 
 #include "core/arch/architecture.h"
 #include "core/capability/capability.h"
+#include "core/formats/format.h"
 #include "core/model/model_description.h"
 #include "core/tokenizer/tokenizer.h"
 
@@ -138,6 +139,23 @@ void check_formats(const gguf::TensorIndex& index, Verdict& verdict) {
     }
 }
 
+// Run needs every row a whole number of unpack's groups (format.h), as
+// routes does; one blocker, naming how many tensors fall short and the first.
+void check_rows(const gguf::TensorIndex& index, Verdict& verdict) {
+    std::size_t short_rows = 0;
+    const gguf::TensorEntry* first = nullptr;
+    for (const gguf::TensorEntry& tensor : index.tensors()) {
+        if (formats::steps_by_groups(tensor)) continue;
+        if (first == nullptr) first = &tensor;
+        ++short_rows;
+    }
+    if (first == nullptr) return;
+    verdict.blockers.push_back(
+        {Stage::Run, "rows must be a multiple of " + std::to_string(formats::kUnpackGroup) + " weights (" +
+                         std::to_string(short_rows) + (short_rows == 1 ? " tensor" : " tensors") +
+                         ", first " + first->name + ", rows of " + std::to_string(first->dimensions[0]) + ")"});
+}
+
 // Run needs the tokenizer, and the pre-tokenizer when the tokenizer splits
 // text first. One that splits none ignores tokenizer.ggml.pre, as llama.cpp
 // does: its converter writes "default" there for SentencePiece files.
@@ -179,6 +197,7 @@ Verdict preflight(const gguf::TensorIndex& index, const residency::DeviceLimits&
         check_fit(index, *description, limits, policy, verdict);
     }
     check_formats(index, verdict);
+    check_rows(index, verdict);
     check_tokenizer(index, verdict);
 
     for (int s = static_cast<int>(kImplementedThrough) + 1;

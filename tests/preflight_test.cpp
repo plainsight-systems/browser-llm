@@ -83,6 +83,14 @@ TEST_CASE("an unsupported format is reported once, counting every tensor that us
     CHECK(blocked(verdict, Stage::Run, "format Q5_0 is not supported (2 tensors, first first.weight)"));
 }
 
+TEST_CASE("rows that are not a whole number of 32-weight groups block Run, counted and named") {
+    CHECK(blocked(preflight_fixture("tiny_qwen3_odd_row"), Stage::Run,
+                  "rows must be a multiple of 32 weights (1 tensor, first extra.norm, rows of 33)"));
+    const auto clean = preflight_fixture("tiny_qwen3");
+    CHECK(std::none_of(clean.blockers.begin(), clean.blockers.end(),
+                       [](const Blocker& b) { return b.detail.rfind("rows must", 0) == 0; }));
+}
+
 TEST_CASE("a file that names no architecture, or names it wrongly, says which") {
     CHECK(blocked(preflight_fixture("no_architecture"), Stage::Describe,
                   "the file does not declare general.architecture"));
