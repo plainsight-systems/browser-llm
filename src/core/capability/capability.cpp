@@ -11,6 +11,7 @@
 #include "core/formats/q4_0/q4_0.h"
 #include "core/formats/q4_1/q4_1.h"
 #include "core/formats/q6_k/q6_k.h"
+#include "core/formats/q8_0/q8_0.h"
 #include "core/tokenizer/bpe/byte_level_bpe.h"
 #include "core/tokenizer/bpe/sentencepiece_bpe.h"
 #include "core/tokenizer/pretokenize.h"
@@ -47,6 +48,7 @@ constexpr std::array kFormats{
     Row<gguf::TensorType, formats::Format>{gguf::TensorType::Q4_0, &formats::kQ4_0},
     Row<gguf::TensorType, formats::Format>{gguf::TensorType::Q4_1, &formats::kQ4_1},
     Row<gguf::TensorType, formats::Format>{gguf::TensorType::Q6_K, &formats::kQ6_K},
+    Row<gguf::TensorType, formats::Format>{gguf::TensorType::Q8_0, &formats::kQ8_0},
 };
 // Every format row names its Format's own type, and the Format's layout is
 // its type's (format.h): preflight and upload cannot disagree on a format.
