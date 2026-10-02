@@ -39,10 +39,14 @@ namespace bllm::residency {
 //     buffer the device refused is a named failure before any byte is
 //     written (E.27). Ready is not proof the device is alive — a lost device
 //     pops its scopes clean — and nothing claims it is; finish is.
-//   - Every write runs inside validation and internal error scopes, pushed
-//     before the first write and popped by finish before the witness: a
-//     write the device rejects never reaches the queue, so a witness written
-//     after it could still map, and only a scope shows the rejection.
+//   - Each chunk's writes run inside validation and internal error scopes,
+//     pushed and popped within the call that issues them: a write the device
+//     rejects never reaches the queue, so a witness written after it could
+//     still map, and only a scope shows the rejection. Scopes are one stack
+//     per device, so none is left open while the page reads; nothing else
+//     using the device between chunks can pop the upload's scopes or have
+//     its errors counted as the upload's. finish waits for every chunk's
+//     scopes to report before it writes the witness.
 //   - Success is shown, never assumed. A lost device still reports queued
 //     work as done and error scopes as clean, and WebGPU does not order its
 //     lost callback before them, so neither a clean status nor the absence
@@ -183,7 +187,9 @@ enum class UploadError {
     DeviceLost,         // the witness was refused, and the device reports itself lost
     Unconfirmed,        // the witness was refused, and the device has not said why
     WitnessMismatch,    // the witness mapped, but held other bytes than were written
-    OutOfOrder,         // a chunk did not start where the last one ended
+    OutOfOrder,         // a chunk did not start where the last one ended, or a call out of
+                        // turn: a chunk before the last was accepted, or after finish, or
+                        // finish twice
     ChunkTooLarge,
     Unfinished,         // the file ended before every weight was filled
 };
@@ -233,8 +239,9 @@ public:
     void write(std::uint64_t file_offset, std::span<const std::byte> chunk, UploadCallback accepted,
                void* userdata);
 
-    // Called after the last chunk: `done` once every queued write has
-    // completed, or with the error that stopped them.
+    // Called once, after the last chunk: `done` once every queued write has
+    // completed, or with the error that stopped them. A second call, or a
+    // write after it, is told OutOfOrder and changes nothing.
     void finish(UploadCallback done, void* userdata);
 
     // The plan as carried out: confirmed duplicates read what they copy.
@@ -268,9 +275,6 @@ private:
     Upload(const gpu::Device& device, ResidencyPlan plan, std::vector<Route> routes, std::uint64_t file_size,
            std::size_t max_chunk);
 
-    // Pushes the write phase's validation and internal scopes, once.
-    void open_write_scopes();
-
     gpu::Instance instance_;     // a reference of its own: its callbacks are the instance's
     gpu::DeviceHandle device_;   // a reference of its own, taken in begin
     std::shared_ptr<const gpu::DeviceStatus> device_status_;
@@ -282,9 +286,10 @@ private:
     std::vector<gpu::Buffer> buffers_;
     std::vector<Write> writes_;  // reused across chunks
     std::uint64_t chunks_written_ = 0;
-    bool scopes_open_ = false;   // the write phase's scopes are pushed and not yet popped
+    bool finishing_ = false;     // finish was called; no write or second finish is taken
     // Shared with callbacks in flight: the queue, the witness buffer, the
-    // first failure, and whether the Upload is gone.
+    // first failure, the chunks' scopes still to report, and whether the
+    // Upload is gone.
     std::shared_ptr<struct UploadState> pending_;
 };
 

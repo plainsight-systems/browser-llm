@@ -32,6 +32,14 @@ struct UploadState {
     std::uint64_t chunks_done = 0;
     std::optional<Waiting> waiting;
 
+    // Chunks whose scopes have not yet reported, and a finish waiting on them.
+    std::uint64_t scopes_pending = 0;
+    struct Finish {
+        UploadCallback done;
+        void* userdata;
+    };
+    std::optional<Finish> finish_waiting;
+
     // What a callback reports to its caller: Cancelled once the Upload is
     // gone, else the first failure.
     [[nodiscard]] UploadError outcome() const noexcept { return cancelled ? UploadError::Cancelled : failed; }
@@ -207,32 +215,41 @@ void map_witness(std::shared_ptr<UploadState> state, UploadCallback done, void* 
             witness_result(mapping_result(status, range != nullptr, *s.status), mapped, s.witness_bytes);
         if (range != nullptr) wgpuBufferUnmap(s.witness.get());
         if (s.failed == UploadError::Ok) s.failed = result;
-        m->done(result, m->userdata);
+        // The first failure, whichever callback recorded it: a chunk's work
+        // done may land after the witness was written.
+        m->done(s.outcome(), m->userdata);
     };
     info.userdata1 = hand_off(std::make_unique<WitnessMap>(WitnessMap{std::move(state), done, userdata}));
     wgpuBufferMapAsync(s.witness.get(), WGPUMapMode_Read, 0, s.witness_bytes.size(), info);
 }
 
-// The write phase's scopes, pushed in this order: validation, internal.
-struct Finishing {
+// The rest of finish, once every chunk's scopes have reported: the first
+// failure, or the witness. Cancellation is decided once, where the witness's
+// mapping lands, so an Upload destroyed before then reports Cancelled.
+void finish_now(std::shared_ptr<UploadState> state, UploadCallback done, void* userdata) {
+    UploadState& s = *state;
+    if (s.failed != UploadError::Ok) {
+        done(s.outcome(), userdata);
+        return;
+    }
+    map_witness(std::move(state), done, userdata);
+}
+
+// One chunk's scopes, pushed in this order: validation, internal.
+struct ChunkScopes {
     static constexpr std::size_t kScopes = 2;
     Scopes<kScopes> scopes;
     std::shared_ptr<UploadState> state;
-    UploadCallback done;
-    void* userdata;
 
     void popped() {
         UploadState& s = *state;
         if (const std::size_t i = scopes.first_failed(); i < kScopes && s.failed == UploadError::Ok) {
             s.failed = scopes.errors[i];
         }
-        if (s.failed != UploadError::Ok) {
-            done(s.outcome(), userdata);
-            return;
+        if (--s.scopes_pending == 0 && s.finish_waiting) {
+            const auto finish = *std::exchange(s.finish_waiting, std::nullopt);
+            finish_now(std::move(state), finish.done, finish.userdata);
         }
-        // Cancellation is decided once, where the witness's mapping lands, so
-        // an Upload destroyed at any point before then reports Cancelled.
-        map_witness(std::move(state), done, userdata);
     }
 };
 
@@ -330,30 +347,15 @@ void Upload::begin(const gpu::Device& device, const gguf::TensorIndex& index, co
     pop_scopes(dev, std::move(job));
 }
 
-Upload::~Upload() noexcept {
-    pending_->cancelled = true;
-    if (scopes_open_) {
-        // An Upload given up mid-load still leaves the device's scope stack
-        // as it found it; nothing waits on what these caught.
-        for (int i = 0; i < 2; ++i) {
-            WGPUPopErrorScopeCallbackInfo info = WGPU_POP_ERROR_SCOPE_CALLBACK_INFO_INIT;
-            info.mode = gpu::kCallbackMode;
-            info.callback = [](WGPUPopErrorScopeStatus, WGPUErrorType, WGPUStringView, void*, void*) {};
-            wgpuDevicePopErrorScope(device_.get(), info);
-        }
-    }
-}
-
-void Upload::open_write_scopes() {
-    if (scopes_open_) return;
-    wgpuDevicePushErrorScope(device_.get(), WGPUErrorFilter_Validation);
-    wgpuDevicePushErrorScope(device_.get(), WGPUErrorFilter_Internal);
-    scopes_open_ = true;
-}
+Upload::~Upload() noexcept { pending_->cancelled = true; }
 
 void Upload::write(std::uint64_t file_offset, std::span<const std::byte> chunk, UploadCallback accepted,
                    void* userdata) {
     UploadState& s = *pending_;
+    if (finishing_) {
+        accepted(UploadError::OutOfOrder, userdata);   // refused, and nothing changes
+        return;
+    }
     if (s.failed == UploadError::Ok && s.waiting) {
         // The page sends the next chunk only on acceptance; one sent before
         // is out of order, and the chunk still waiting hears it too.
@@ -370,11 +372,18 @@ void Upload::write(std::uint64_t file_offset, std::span<const std::byte> chunk, 
         return;
     }
 
-    open_write_scopes();
+    // The scopes open and close within this call, so none is left on the
+    // device's stack while the page reads the next chunk.
+    wgpuDevicePushErrorScope(device_.get(), WGPUErrorFilter_Validation);
+    wgpuDevicePushErrorScope(device_.get(), WGPUErrorFilter_Internal);
     for (const Write& w : writes_) {
         wgpuQueueWriteBuffer(s.queue.get(), buffers_[static_cast<std::size_t>(w.buffer)].get(), w.offset,
                              w.bytes.data(), w.bytes.size());
     }
+    ++s.scopes_pending;
+    auto scopes = std::make_shared<ChunkScopes>();
+    scopes->state = pending_;
+    pop_scopes(device_.get(), std::move(scopes));
     const std::uint64_t chunk_number = chunks_written_++;
     request_work_done(pending_);
 
@@ -389,22 +398,18 @@ void Upload::write(std::uint64_t file_offset, std::span<const std::byte> chunk, 
 }
 
 void Upload::finish(UploadCallback done, void* userdata) {
-    UploadState& s = *pending_;
-    if (s.failed == UploadError::Ok) s.failed = from_write(writer_.finish(file_size_));
-
-    auto job = std::make_shared<Finishing>();
-    job->state = pending_;
-    job->done = done;
-    job->userdata = userdata;
-    if (!scopes_open_) {
-        // Nothing was written, so there is no write phase to pop.
-        job->popped();
+    if (finishing_) {
+        done(UploadError::OutOfOrder, userdata);   // refused, and nothing changes
         return;
     }
-    // Popped whatever happened before, so the device's scope stack is left
-    // as it was found.
-    scopes_open_ = false;
-    pop_scopes(device_.get(), std::move(job));
+    finishing_ = true;
+    UploadState& s = *pending_;
+    if (s.failed == UploadError::Ok) s.failed = from_write(writer_.finish(file_size_));
+    if (s.scopes_pending == 0) {
+        finish_now(pending_, done, userdata);
+    } else {
+        s.finish_waiting = UploadState::Finish{done, userdata};
+    }
 }
 
 WGPUBuffer Upload::buffer(BufferIndex index) const noexcept {

@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <span>
 #include <string>
@@ -16,6 +17,7 @@
 #include "core/capability/capability.h"
 #include "core/formats/format.h"
 #include "core/gguf/reader.h"
+#include "core/gpu/callback_mode.h"
 #include "core/gpu/device.h"
 #include "core/gpu/wgpu_handles.h"
 #include "core/residency/plan.h"
@@ -107,17 +109,19 @@ void on_reported(UploadError error, void* userdata) {
     r.done = true;
 }
 
-// Streams the whole file, sending each chunk only once the last is accepted,
-// as the page does.
-void stream(WGPUInstance instance, Upload& upload, const Model& m) {
-    for (std::size_t at = 0; at < m.bytes.size(); at += kChunk) {
+// Streams the file, sending each chunk only once the last is accepted, as
+// the page does, and stops at the first chunk refused; returns its error.
+UploadError stream(WGPUInstance instance, Upload& upload, const Model& m, std::size_t from = 0,
+                   std::size_t to = SIZE_MAX) {
+    for (std::size_t at = from; at < std::min(to, m.bytes.size()); at += kChunk) {
         Reported accepted;
         const auto chunk = std::span(m.bytes).subspan(at, std::min(kChunk, m.bytes.size() - at));
         upload.write(at, chunk, on_reported, &accepted);
         pump_until(instance, accepted.done, "a chunk's acceptance");
         REQUIRE(accepted.calls == 1);
-        REQUIRE(accepted.error == UploadError::Ok);
+        if (accepted.error != UploadError::Ok) return accepted.error;
     }
+    return UploadError::Ok;
 }
 
 UploadError finish(WGPUInstance instance, Upload& upload) {
@@ -140,7 +144,7 @@ TEST_CASE("an upload on a live device finishes Ok, its witness read back") {
         auto upload = begin(*device, m);
         CHECK(!upload->routes().empty());
         CHECK(upload->buffer(residency::BufferIndex{0}) != nullptr);
-        stream(instance.get(), *upload, m);
+        REQUIRE(stream(instance.get(), *upload, m) == UploadError::Ok);
         CHECK(finish(instance.get(), *upload) == UploadError::Ok);
     }
 }
@@ -171,7 +175,9 @@ TEST_CASE("a write the device rejects makes finish Validation, never Ok") {
     auto upload = begin(*device, m);
     // A destroyed buffer refuses every write to it.
     wgpuBufferDestroy(upload->buffer(residency::BufferIndex{0}));
-    stream(instance.get(), *upload, m);
+    // Each chunk's scopes report before the next is accepted, or with it.
+    const UploadError streamed = stream(instance.get(), *upload, m);
+    CHECK((streamed == UploadError::Ok || streamed == UploadError::Validation));
     CHECK(finish(instance.get(), *upload) == UploadError::Validation);
 }
 
@@ -180,7 +186,7 @@ TEST_CASE("finish after the device is destroyed is DeviceLost or Unconfirmed, ne
     const auto device = acquire(instance.get());
     const Model m = load("tiny_qwen3");
     auto upload = begin(*device, m);
-    stream(instance.get(), *upload, m);
+    REQUIRE(stream(instance.get(), *upload, m) == UploadError::Ok);
     wgpuDeviceDestroy(device->handle());
     const UploadError e = finish(instance.get(), *upload);
     CAPTURE(static_cast<int>(e));
@@ -192,7 +198,7 @@ TEST_CASE("destroying the Upload with finish pending reports Cancelled, once") {
     const auto device = acquire(instance.get());
     const Model m = load("tiny_qwen3");
     auto upload = begin(*device, m);
-    stream(instance.get(), *upload, m);
+    REQUIRE(stream(instance.get(), *upload, m) == UploadError::Ok);
     Reported finished;
     upload->finish(on_reported, &finished);
     upload.reset();
@@ -208,7 +214,7 @@ TEST_CASE("releasing the caller's device and instance with work pending changes 
     gpu::Instance instance{wgpuCreateInstance(nullptr)};
     auto device = acquire(instance.get());
     auto upload = begin(*device, m);
-    stream(instance.get(), *upload, m);
+    REQUIRE(stream(instance.get(), *upload, m) == UploadError::Ok);
     Reported finished;
     upload->finish(on_reported, &finished);
     device.reset();
@@ -229,4 +235,69 @@ TEST_CASE("a tensor whose format is not listed is refused by name before any buf
     CHECK(ready.upload == nullptr);
     CHECK(ready.error == UploadError::UnsupportedFormat);
     CHECK(ready.subject == "extra.weight");
+}
+
+TEST_CASE("finish is taken once; a second finish, or a write after it, is OutOfOrder and changes nothing") {
+    const gpu::Instance instance{wgpuCreateInstance(nullptr)};
+    const auto device = acquire(instance.get());
+    const Model m = load("tiny_qwen3");
+    auto upload = begin(*device, m);
+    REQUIRE(stream(instance.get(), *upload, m) == UploadError::Ok);
+
+    Reported first;
+    upload->finish(on_reported, &first);
+    Reported second;
+    upload->finish(on_reported, &second);
+    CHECK(second.calls == 1);
+    CHECK(second.error == UploadError::OutOfOrder);
+    Reported late;
+    upload->write(0, std::span(m.bytes).first(kChunk), on_reported, &late);
+    CHECK(late.calls == 1);
+    CHECK(late.error == UploadError::OutOfOrder);
+
+    pump_until(instance.get(), first.done, "the first finish");
+    CHECK(first.calls == 1);
+    CHECK(first.error == UploadError::Ok);
+}
+
+namespace {
+
+struct Popped {
+    WGPUErrorType type = WGPUErrorType_Unknown;
+    bool done = false;
+};
+
+}  // namespace
+
+TEST_CASE("a scope someone else holds open across the load is neither popped by it nor counted in it") {
+    const gpu::Instance instance{wgpuCreateInstance(nullptr)};
+    const auto device = acquire(instance.get());
+    const Model m = load("tiny_qwen3");
+    auto upload = begin(*device, m);
+    REQUIRE(stream(instance.get(), *upload, m, 0, kChunk) == UploadError::Ok);
+
+    // Another user of the device opens a validation scope and makes an
+    // error inside it, between the upload's chunks.
+    wgpuDevicePushErrorScope(device->handle(), WGPUErrorFilter_Validation);
+    WGPUBufferDescriptor bad = WGPU_BUFFER_DESCRIPTOR_INIT;
+    bad.usage = WGPUBufferUsage_MapRead | WGPUBufferUsage_Storage;   // not a valid pair
+    bad.size = 4;
+    const gpu::Buffer refused{wgpuDeviceCreateBuffer(device->handle(), &bad)};
+
+    REQUIRE(stream(instance.get(), *upload, m, kChunk) == UploadError::Ok);
+    CHECK(finish(instance.get(), *upload) == UploadError::Ok);
+
+    // Its scope is still there, and still holds its own error.
+    Popped popped;
+    WGPUPopErrorScopeCallbackInfo info = WGPU_POP_ERROR_SCOPE_CALLBACK_INFO_INIT;
+    info.mode = gpu::kCallbackMode;
+    info.userdata1 = &popped;
+    info.callback = [](WGPUPopErrorScopeStatus, WGPUErrorType type, WGPUStringView, void* userdata, void*) {
+        auto& p = *static_cast<Popped*>(userdata);
+        p.type = type;
+        p.done = true;
+    };
+    wgpuDevicePopErrorScope(device->handle(), info);
+    pump_until(instance.get(), popped.done, "the other scope");
+    CHECK(popped.type == WGPUErrorType_Validation);
 }
