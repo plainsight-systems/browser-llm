@@ -53,7 +53,8 @@ namespace bllm::residency {
 //     and nothing reads past a piece's file bytes but its unpack.
 //
 // Compiled only when BLLM_DIAGNOSTICS_ENABLED; the shipped module holds no
-// trace of it, and a scan of the artifact proves that (TLM.8).
+// trace of it, and a scan of the artifact proves that (TLM.8). A load timed
+// in that build is a diagnostic figure, never a load-throughput one (TLM.6).
 //
 // Guidelines, by corpus:
 //   C++ Core Guidelines
@@ -72,6 +73,8 @@ namespace bllm::residency {
 //            this build only.
 //     TLM.8  Validate clean builds by artifact scan — the shipped module is
 //            checked to hold none of this.
+//     TLM.6  Diagnostic mode is not benchmark mode — what this build times
+//            is labelled diagnostic and kept apart from the release figures.
 
 enum class CheckError {
     Ok,

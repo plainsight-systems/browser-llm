@@ -67,6 +67,12 @@ namespace bllm::residency {
 //            block.
 //     WASM.9 Stream in bounded chunks — what is held is at most one block.
 //     MEM.9  Allocate at init, not in steady state — the staging area.
+//     CDSA.32 Transform static data once into the layout its consumer reads —
+//            this is that transform. Its caveat, that a load-time transform
+//            doubles peak memory while source and result coexist, is met by
+//            transforming a chunk at a time; and its conversion is tested
+//            against the untransformed reference: every stream's bytes,
+//            gathered back, are the stored blocks' fields in block order.
 
 // One write: `bytes` at `offset` in `buffer`. The span points into the chunk
 // or into the writer's staging, and is valid until the next call to accept.

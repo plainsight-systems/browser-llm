@@ -47,6 +47,20 @@ namespace bllm::formats {
 //   C++ performance guidelines
 //     GPU.2  Shape data for coalesced lane access before tuning the kernel —
 //            the streams.
+//     CACHE.4 Choose AoS, SoA, or AoSoA by which fields the hot loop touches —
+//            a piece is SoA: an unpack's lanes read one field across many
+//            blocks.
+//     CDSA.32 Transform static data once into the layout its consumer reads —
+//            once, at upload, never per token; each layout a named constant,
+//            checked against the stored block it is transformed from. It asks
+//            for a version on a persisted copy; none is kept — the transformed
+//            bytes live in device memory for one page, so the build that
+//            writes a layout is the build that reads it.
+//     GDSA.18 Store numbers as block-scaled codes decoded in the load path —
+//            the codes stay as the file holds them and an unpack decodes them
+//            as it loads, never into a full-precision buffer; the scales are a
+//            stream of their own, where lanes fetch them; and a layout is
+//            named apart from its numeric type, which Format pairs with it.
 //     EMB.6  Push computation to compile time with constexpr and consteval —
 //            the check is consteval, so it cannot drift to run time.
 

@@ -37,6 +37,11 @@ namespace bllm::gpu {
 //            program — natively Dawn has threads of its own; no harness state
 //            is reachable from one, and the one callback that can run on one
 //            touches none.
+//   C++ performance guidelines
+//     WASM.12 Keep the compute core natively buildable so it can be profiled
+//            properly — the harness's WebGPU code runs unchanged against
+//            Dawn natively and the browser's WebGPU; this mode is the one
+//            difference, and CMake, not the code, chooses it.
 #if !defined(BLLM_GPU_PROCESS_EVENTS)
 #error "BLLM_GPU_PROCESS_EVENTS is set by CMakeLists.txt: 1 natively, 0 in the browser"
 #endif

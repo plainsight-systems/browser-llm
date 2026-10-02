@@ -102,7 +102,8 @@ namespace bllm::residency {
 // releasing the caller's device and instance with work pending changes
 // nothing: the work completes once, never CallbackCancelled.
 //   - Completion is reported through callbacks and never waited for: the
-//     build does not use ASYNCIFY, and the worker must stay responsive.
+//     build does not use ASYNCIFY, and the worker must stay responsive
+//     (WASM.3).
 //   - The Upload holds its own counted references to the device and to its
 //     instance, taken with gpu::retain (wgpu_handles.h) and released by their
 //     RAII handles, and so does the state its callbacks share: WebGPU's callbacks are the instance's, and dropping
@@ -122,6 +123,9 @@ namespace bllm::residency {
 //     first (GPU.7); otherwise the two-chunk pipeline is not claimed.
 //   - Release and diagnostic figures are reported apart, never mixed
 //     (research/2026-08-31-measurement-build-configurations.md).
+//   - Every figure carries its conditions: the clock's resolution observed,
+//     whether the page was cross-origin isolated, that DevTools was closed,
+//     and whether the load was the page's first (WASM.11).
 //
 // Guidelines, by corpus:
 //   C++ Core Guidelines
@@ -143,6 +147,16 @@ namespace bllm::residency {
 //     GPU.7  Pipeline CPU and GPU work with queues, fences and multi-buffered
 //            resources — two chunks in flight, acknowledged on queue
 //            completion; claimed only once a timeline shows the overlap.
+//     WASM.3 Do not buy Asyncify to keep a blocking loop — completion
+//            arrives by callback, and the worker returns to its event loop.
+//     WASM.14 State the target matrix and budget for the weakest device —
+//            desktop-chromium-floor, at WebGPU's default limits, is the
+//            row every figure is reported for.
+//     WASM.11 State the measurement conditions or the browser number means
+//            nothing — the conditions above travel with each figure.
+//     TLM.6  Diagnostic mode is not benchmark mode — the overlap timeline
+//            comes from the diagnostic build and is never quoted as
+//            throughput.
 //     GPU.1  Keep data on the device; budget every round trip — the shipped
 //            path reads back four bytes, once per load, as its proof of
 //            success: a serialized round trip measured 0.5 ms median in
