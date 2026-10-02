@@ -98,12 +98,14 @@ namespace bllm::residency {
 // device; and on Dawn (tests/gpu), finish on a live device is Ok; a write
 // the device rejects makes finish Validation, never Ok; finish after the
 // device is destroyed is DeviceLost or Unconfirmed, never Ok; and destroying
-// the Upload with the witness's mapping pending reports Cancelled, once.
+// the Upload with the witness's mapping pending reports Cancelled, once; and
+// releasing the caller's device and instance with work pending changes
+// nothing: the work completes once, never CallbackCancelled.
 //   - Completion is reported through callbacks and never waited for: the
 //     build does not use ASYNCIFY, and the worker must stay responsive.
 //   - The Upload holds its own counted references to the device and to its
-//     instance (released by their RAII handles), and so does the state its
-//     callbacks share: WebGPU's callbacks are the instance's, and dropping
+//     instance, taken with gpu::retain (wgpu_handles.h) and released by their
+//     RAII handles, and so does the state its callbacks share: WebGPU's callbacks are the instance's, and dropping
 //     an instance's last reference cancels them. So the Upload, and every
 //     callback it has queued, outlive whoever else lets the device or the
 //     instance go.

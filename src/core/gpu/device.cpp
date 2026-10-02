@@ -128,8 +128,7 @@ void Device::request(WGPUInstance instance, RequestCallback callback, void* user
         .callback = callback,
         .userdata = userdata};
 
-    wgpuInstanceAddRef(instance);   // the Device's own reference, released with it
-    pending->device->instance_.reset(instance);
+    pending->device->instance_ = retain(instance);   // the Device's own reference
 
     WGPURequestAdapterCallbackInfo adapter_cb = {};
     adapter_cb.mode = kCallbackMode;

@@ -21,4 +21,19 @@ using CommandEncoder = UniqueHandle<WGPUCommandEncoder, wgpuCommandEncoderReleas
 using CommandBuffer = UniqueHandle<WGPUCommandBuffer, wgpuCommandBufferRelease>;
 using ComputePassEncoder = UniqueHandle<WGPUComputePassEncoder, wgpuComputePassEncoderRelease>;
 
+// A counted reference of one's own to a handle someone else holds. The types
+// above adopt the handle they are given — they release it, and never add a
+// reference — so wrapping a borrowed handle directly would release one never
+// taken. Every borrowed handle kept is taken through these. A null handle
+// gives an empty one.
+inline Instance retain(WGPUInstance handle) {
+    if (handle != nullptr) wgpuInstanceAddRef(handle);
+    return Instance{handle};
+}
+
+inline DeviceHandle retain(WGPUDevice handle) {
+    if (handle != nullptr) wgpuDeviceAddRef(handle);
+    return DeviceHandle{handle};
+}
+
 }  // namespace bllm::gpu

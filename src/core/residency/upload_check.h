@@ -99,8 +99,10 @@ public:
 
     // Checks the buffers `upload` filled, with the routes it used, naming
     // tensors by the names it kept. Takes its own references to upload's
-    // device and instance (Upload::instance()), as do its callbacks' shared
-    // state. Preconditions: `upload` has finished, and outlives the check —
+    // device and instance (Upload::instance()) with gpu::retain, as do its
+    // callbacks' shared state; tested on Dawn by releasing the caller's
+    // references with a comparison pending, which still completes once,
+    // never CallbackCancelled. Preconditions: `upload` has finished, and outlives the check —
     // it owns the buffers being checked, so it must anyway. `max_chunk` as for
     // Upload.
     UploadCheck(const Upload& upload, std::size_t max_chunk);

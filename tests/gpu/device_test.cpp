@@ -91,6 +91,16 @@ TEST_CASE("an adapter of Dawn's Null backend, which computes nothing, is refused
                             "computes nothing");
 }
 
+TEST_CASE("a retained instance stays usable after its first holder lets it go") {
+    gpu::Instance first{wgpuCreateInstance(nullptr)};
+    REQUIRE(first);
+    const gpu::Instance kept = gpu::retain(first.get());
+    first.reset();   // the first holder's reference goes; the kept one remains
+    const auto device = acquire(kept.get());
+    CHECK(device->handle() != nullptr);
+    CHECK_FALSE(gpu::retain(static_cast<WGPUInstance>(nullptr)));
+}
+
 TEST_CASE("a lost device says so, and why, even to holders that outlive it") {
     const gpu::Instance instance{wgpuCreateInstance(nullptr)};
     REQUIRE(instance);
