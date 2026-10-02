@@ -24,6 +24,10 @@ T_F32, T_F16, T_Q4_0 = 0, 1, 2
 # tensor in it, not reject the file.
 T_Q6_K = 14
 Q6_K_BLOCK_ELEMENTS, Q6_K_BLOCK_BYTES = 256, 210
+# A format no listed model uses, so the harness will never run it: what a
+# test of an unsupported format reports stays unsupported.
+T_Q5_0 = 6
+Q5_0_BLOCK_BYTES = 22
 
 
 def gstr(s: bytes) -> bytes:
@@ -233,8 +237,8 @@ CASES = {
     # Two tensors share a format, so a gate that reports per format must
     # report it once, with both counted.
     "shared_format": lambda: build([
-        (b"first.weight", [32], T_Q4_0, q4_0_blocks(1)),
-        (b"second.weight", [32], T_Q4_0, q4_0_blocks(1)),
+        (b"first.weight", [32], T_Q5_0, b"\0" * Q5_0_BLOCK_BYTES),
+        (b"second.weight", [32], T_Q5_0, b"\0" * Q5_0_BLOCK_BYTES),
         (b"norm.weight", [4], T_F32, b"\0" * 16),
     ]),
     "not_block_aligned": lambda: build(

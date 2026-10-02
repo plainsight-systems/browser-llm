@@ -7,6 +7,7 @@
 #include "core/arch/llama/llama.h"
 #include "core/arch/qwen3/qwen3.h"
 #include "core/formats/format.h"
+#include "core/formats/q4_0/q4_0.h"
 #include "core/tokenizer/bpe/byte_level_bpe.h"
 #include "core/tokenizer/bpe/sentencepiece_bpe.h"
 #include "core/tokenizer/pretokenize.h"
@@ -38,7 +39,9 @@ constexpr std::array kArchitectures{
     Row<std::string_view, arch::Architecture>{"llama", &arch::kLlama},
     Row<std::string_view, arch::Architecture>{"qwen3", &arch::kQwen3},
 };
-constexpr std::array<Row<gguf::TensorType, formats::Format>, 0> kFormats{};
+constexpr std::array kFormats{
+    Row<gguf::TensorType, formats::Format>{gguf::TensorType::Q4_0, &formats::kQ4_0},
+};
 // Every format row names its Format's own type, and the Format's layout is
 // its type's (format.h): preflight and upload cannot disagree on a format.
 static_assert([] {
