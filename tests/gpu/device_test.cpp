@@ -87,8 +87,8 @@ TEST_CASE("an adapter of Dawn's Null backend, which computes nothing, is refused
         &acquired, &options);
     pump_until(instance.get(), acquired.done, "a request for the Null backend");
     CHECK(acquired.device == nullptr);
-    CHECK(acquired.error == "the only WebGPU adapter is Dawn's Null backend, which accepts work and "
-                            "computes nothing");
+    CHECK(acquired.error == "the WebGPU adapter selected is Dawn's Null backend, which accepts work "
+                            "and computes nothing");
 }
 
 TEST_CASE("a retained instance stays usable after its first holder lets it go") {

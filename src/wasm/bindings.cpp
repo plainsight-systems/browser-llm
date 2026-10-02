@@ -246,9 +246,8 @@ void on_self_check(bllm::gpu::SelfCheckResult result, void* userdata) {
     json += "\"architecture\":\"" + json_escape(info.architecture) + "\",";
     json += "\"device\":\"" + json_escape(info.device) + "\",";
     json += "\"description\":\"" + json_escape(info.description) + "\",";
-    json += "\"backend\":\"" + json_escape(info.backend) + "\",";
-    json += "\"queried\":" + std::string(info.queried ? "true" : "false") +
-            "},\"limits\":{";
+    json += "\"backend\":\"" + json_escape(info.backend) + "\"";
+    json += "},\"limits\":{";
     json += "\"maxBufferSize\":" + std::to_string(limits.max_buffer_size) + ",";
     json += "\"maxStorageBufferBindingSize\":" +
             std::to_string(limits.max_storage_buffer_binding_size) + ",";

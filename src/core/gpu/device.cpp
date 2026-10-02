@@ -154,13 +154,12 @@ void Device::request(WGPUInstance instance, RequestCallback callback, void* user
         }
         const WGPUBackendType backend = info.backendType;
         p->device->adapter_info_ = AdapterInfo{
-            true,
             to_string(info.vendor), to_string(info.architecture),
             to_string(info.device), to_string(info.description),
             backend_name(backend)};
         wgpuAdapterInfoFreeMembers(info);
         if (backend == WGPUBackendType_Null) {
-            p->fail("the only WebGPU adapter is Dawn's Null backend, which accepts work and "
+            p->fail("the WebGPU adapter selected is Dawn's Null backend, which accepts work and "
                     "computes nothing");
             return;
         }

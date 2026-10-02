@@ -32,11 +32,10 @@ struct DeviceLimits {
     std::uint32_t min_storage_buffer_offset_alignment = 0;
 };
 
+// What the adapter says it is. Always queried: an adapter that cannot say is
+// refused (Device::request), since its backend decides whether it computes
+// at all. Fields it leaves empty are empty.
 struct AdapterInfo {
-    // False when wgpuAdapterGetInfo failed outright. Distinct from an adapter
-    // that legitimately reports empty strings for some fields — conflating the
-    // two would let a failed query render as a normal, sparsely-populated page.
-    bool queried = false;
     std::string vendor;
     std::string architecture;
     std::string device;
