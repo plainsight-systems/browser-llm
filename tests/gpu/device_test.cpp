@@ -1,0 +1,77 @@
+#include <doctest/doctest.h>
+
+#include <cstddef>
+#include <memory>
+#include <string>
+#include <utility>
+
+#include "core/gpu/device.h"
+#include "core/gpu/self_check.h"
+#include "core/gpu/wgpu_handles.h"
+#include "support/pump.h"
+
+using namespace bllm;
+using bllm::testing::pump_until;
+
+namespace {
+
+struct Acquired {
+    std::unique_ptr<gpu::Device> device;
+    std::string error;
+    bool done = false;
+};
+
+// A device from `instance`, as the harness acquires one: the limits it
+// requires, granted and read back. Fails the test, with the reason, if there
+// is none — no adapter is a failure here, never a skip.
+std::unique_ptr<gpu::Device> acquire(WGPUInstance instance) {
+    Acquired acquired;
+    gpu::Device::request(
+        instance,
+        [](std::unique_ptr<gpu::Device> device, const char* error, void* userdata) {
+            auto& a = *static_cast<Acquired*>(userdata);
+            a.device = std::move(device);
+            if (error != nullptr) a.error = error;
+            a.done = true;
+        },
+        &acquired);
+    pump_until(instance, acquired.done, "a device");
+    REQUIRE_MESSAGE(acquired.device != nullptr, acquired.error);
+    return std::move(acquired.device);
+}
+
+}  // namespace
+
+TEST_CASE("a device is acquired natively, with the limits the harness requires") {
+    const gpu::Instance instance{wgpuCreateInstance(nullptr)};
+    REQUIRE(instance);
+    const auto device = acquire(instance.get());
+    const auto& info = device->adapter_info();
+    MESSAGE("adapter: " << info.description << " (" << info.backend << ")");
+    CHECK(device->handle() != nullptr);
+    CHECK(device->queue() != nullptr);
+    CHECK(device->limits().max_buffer_size > 0);
+}
+
+TEST_CASE("the self-check runs vector_add on the GPU and reads back every value correctly") {
+    const gpu::Instance instance{wgpuCreateInstance(nullptr)};
+    REQUIRE(instance);
+    struct Checked {
+        gpu::SelfCheckResult result;
+        bool done = false;
+    } checked;
+    constexpr std::size_t kElements = 1 << 16;
+    gpu::run_self_check(
+        acquire(instance.get()), kElements,
+        [](gpu::SelfCheckResult result, void* userdata) {
+            auto& c = *static_cast<Checked*>(userdata);
+            c.result = std::move(result);
+            c.done = true;
+        },
+        &checked);
+    pump_until(instance.get(), checked.done, "the self-check's readback");
+    CHECK_MESSAGE(checked.result.ok, checked.result.error);
+    CHECK(checked.result.elements == kElements);
+    CHECK(checked.result.mismatches == 0);
+    CHECK(checked.result.device != nullptr);   // handed back on every path
+}

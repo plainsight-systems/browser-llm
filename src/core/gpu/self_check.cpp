@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "bllm/shaders_generated.h"
+#include "core/gpu/callback_mode.h"
 #include "core/gpu/dispatch_math.h"
 #include "core/gpu/wgpu_handles.h"
 
@@ -144,7 +145,7 @@ void run_self_check(std::unique_ptr<Device> device, std::size_t elements,
                                     std::move(expected), callback, userdata};
 
     WGPUBufferMapCallbackInfo map_cb = {};
-    map_cb.mode = WGPUCallbackMode_AllowSpontaneous;
+    map_cb.mode = kCallbackMode;
     map_cb.userdata1 = ctx;
     map_cb.callback = [](WGPUMapAsyncStatus status, WGPUStringView, void* ud1, void*) {
         auto* c = static_cast<ReadbackContext*>(ud1);

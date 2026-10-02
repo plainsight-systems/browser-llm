@@ -1,5 +1,6 @@
 #include "core/gpu/device.h"
 
+#include "core/gpu/callback_mode.h"
 #include "core/gpu/device_requirements.h"
 
 #include <cstdio>
@@ -87,6 +88,15 @@ struct PendingDeviceRequest {
 };
 
 void Device::request(RequestCallback callback, void* userdata) {
+    const Instance instance{wgpuCreateInstance(nullptr)};
+    if (!instance) {
+        callback(nullptr, "could not create a WebGPU instance; this browser may not support WebGPU", userdata);
+        return;
+    }
+    request(instance.get(), callback, userdata);
+}
+
+void Device::request(WGPUInstance instance, RequestCallback callback, void* userdata) {
     // Designated initialisers: positional init here silently misaligned when a
     // field was added, and the compiler only caught it because the types
     // happened to disagree.
@@ -97,14 +107,11 @@ void Device::request(RequestCallback callback, void* userdata) {
         .callback = callback,
         .userdata = userdata};
 
-    pending->device->instance_.reset(wgpuCreateInstance(nullptr));
-    if (!pending->device->instance_) {
-        pending->fail("could not create a WebGPU instance; this browser may not support WebGPU");
-        return;
-    }
+    wgpuInstanceAddRef(instance);   // the Device's own reference, released with it
+    pending->device->instance_.reset(instance);
 
     WGPURequestAdapterCallbackInfo adapter_cb = {};
-    adapter_cb.mode = WGPUCallbackMode_AllowSpontaneous;
+    adapter_cb.mode = kCallbackMode;
     adapter_cb.userdata1 = pending;
     adapter_cb.callback = [](WGPURequestAdapterStatus status, WGPUAdapter adapter,
                              WGPUStringView message, void* ud1, void*) {
@@ -166,7 +173,7 @@ void Device::request(RequestCallback callback, void* userdata) {
         device_desc.requiredLimits = &required;
 
         WGPURequestDeviceCallbackInfo device_cb = {};
-        device_cb.mode = WGPUCallbackMode_AllowSpontaneous;
+        device_cb.mode = kCallbackMode;
         device_cb.userdata1 = p;
         device_cb.callback = [](WGPURequestDeviceStatus s, WGPUDevice device,
                                 WGPUStringView msg, void* inner_ud1, void*) {

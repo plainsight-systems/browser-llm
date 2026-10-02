@@ -29,6 +29,20 @@ jobs:
       - name: Fetch test data
         run: python3 tools/fetch_test_data.py
 
+      - name: Cache native Dawn
+        uses: actions/cache@v4
+        with:
+          path: .cache/dawn
+          key: dawn-${{ runner.os }}-${{ hashFiles('cmake/dawn.json') }}
+
+      - name: Fetch native Dawn
+        run: python3 tools/fetch_dawn.py
+
+      # The runners have no GPU: the GPU tests run on Mesa's software Vulkan
+      # driver (lavapipe), which Dawn's Vulkan backend finds like any adapter.
+      - name: Install a software Vulkan driver
+        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers libvulkan1
+
       - name: Configure
         run: cmake --preset native-release
 
@@ -57,6 +71,20 @@ jobs:
 
       - name: Fetch test data
         run: python3 tools/fetch_test_data.py
+
+      - name: Cache native Dawn
+        uses: actions/cache@v4
+        with:
+          path: .cache/dawn
+          key: dawn-${{ runner.os }}-${{ hashFiles('cmake/dawn.json') }}
+
+      - name: Fetch native Dawn
+        run: python3 tools/fetch_dawn.py
+
+      # The runners have no GPU: the GPU tests run on Mesa's software Vulkan
+      # driver (lavapipe), which Dawn's Vulkan backend finds like any adapter.
+      - name: Install a software Vulkan driver
+        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers libvulkan1
 
       - name: Configure
         run: cmake --preset native-sanitize

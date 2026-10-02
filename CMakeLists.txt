@@ -68,30 +68,36 @@ bllm_embed_shaders(
     SHADERS "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/vector_add.wgsl"
 )
 
+# ---------------------------------------------------------------------------
+# GPU: the core code that holds WebGPU objects, apart from the core that needs
+# none. It needs an implementation of webgpu.h: in the wasm configuration
+# --use-port=emdawnwebgpu, over the browser's WebGPU; natively, Dawn itself,
+# prebuilt and pinned by cmake/dawn.json to the release the port comes from,
+# so both configurations run one webgpu.h and GPU code is tested natively.
+# ---------------------------------------------------------------------------
+add_library(charlotte_gpu STATIC
+    src/core/gpu/device.cpp
+    src/core/gpu/self_check.cpp
+)
+target_link_libraries(charlotte_gpu PUBLIC charlotte_core)
+
 if(EMSCRIPTEN)
-    # These need an implementation of webgpu.h. In the wasm configuration that
-    # comes from --use-port=emdawnwebgpu. The native configuration does not
-    # link Dawn, the other implementation, because nothing it builds needs a
-    # GPU: these sources build for wasm only, and the native test binary
-    # covers the platform-neutral logic.
-    target_sources(charlotte_core PRIVATE
-        src/core/gpu/device.cpp
-        src/core/gpu/self_check.cpp
-    )
+    target_compile_options(charlotte_gpu PUBLIC --use-port=emdawnwebgpu)
+    # The browser's event loop runs every callback (core/gpu/callback_mode.h).
+    target_compile_definitions(charlotte_gpu PUBLIC BLLM_GPU_PROCESS_EVENTS=0)
 
     # Not merely preprocessed away — not compiled at all in a clean build, so
     # the symbol cannot reach the shipped module.
     if(BLLM_ENABLE_DIAGNOSTICS)
-        target_sources(charlotte_core PRIVATE src/core/gpu/readback_bench.cpp)
+        target_sources(charlotte_gpu PRIVATE src/core/gpu/readback_bench.cpp)
     endif()
 
     # -----------------------------------------------------------------------
     # Browser target. The only Emscripten-aware translation unit.
     # -----------------------------------------------------------------------
     add_executable(charlotte src/wasm/bindings.cpp)
-    target_link_libraries(charlotte PRIVATE charlotte_core)
+    target_link_libraries(charlotte PRIVATE charlotte_gpu)
 
-    target_compile_options(charlotte_core PUBLIC --use-port=emdawnwebgpu)
     target_link_options(charlotte PRIVATE
         --use-port=emdawnwebgpu
         -sMODULARIZE=1
@@ -119,9 +125,34 @@ if(EMSCRIPTEN)
     )
 else()
     # -----------------------------------------------------------------------
-    # Native: tests only. No browser, no GPU required at this stage.
+    # Native: tests only. The platform-neutral tests need no GPU; the GPU
+    # tests run on Dawn, through this machine's GPU, or Mesa's software Vulkan
+    # driver in CI.
     # -----------------------------------------------------------------------
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/cmake/dawn.json" BLLM_DAWN_PINS)
+    string(JSON BLLM_DAWN_RELEASE GET "${BLLM_DAWN_PINS}" release)
+    string(TOLOWER "${CMAKE_HOST_SYSTEM_PROCESSOR}" BLLM_HOST_CPU)
+    if(BLLM_HOST_CPU STREQUAL "amd64")
+        set(BLLM_HOST_CPU x86_64)
+    elseif(BLLM_HOST_CPU STREQUAL "aarch64")
+        set(BLLM_HOST_CPU arm64)
+    endif()
+    set(BLLM_DAWN_DIR
+        "${CMAKE_CURRENT_SOURCE_DIR}/.cache/dawn/${BLLM_DAWN_RELEASE}/${CMAKE_HOST_SYSTEM_NAME}-${BLLM_HOST_CPU}")
+    find_package(Dawn CONFIG PATHS "${BLLM_DAWN_DIR}" NO_DEFAULT_PATH)
+    if(NOT Dawn_FOUND)
+        message(FATAL_ERROR
+            "charlotte: native Dawn ${BLLM_DAWN_RELEASE} not found in ${BLLM_DAWN_DIR}.\n"
+            "Fetch it with: python3 tools/fetch_dawn.py (or make dawn).")
+    endif()
+    find_package(Threads REQUIRED)
+    target_link_libraries(charlotte_gpu PUBLIC dawn::webgpu_dawn)
+    # Callbacks run only inside wgpuInstanceProcessEvents, on the caller's
+    # thread (core/gpu/callback_mode.h).
+    target_compile_definitions(charlotte_gpu PUBLIC BLLM_GPU_PROCESS_EVENTS=1)
+
     enable_testing()
     add_subdirectory(tests)
+    add_subdirectory(tests/gpu)
     add_subdirectory(bench)
 endif()

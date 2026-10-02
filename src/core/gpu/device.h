@@ -66,6 +66,13 @@ public:
                                      const char* error,
                                      void* userdata);
 
+    // Requests a device from `instance`, keeping a reference of its own to it.
+    // Natively the caller runs the callbacks, through the same instance, with
+    // wgpuInstanceProcessEvents (callback_mode.h).
+    static void request(WGPUInstance instance, RequestCallback callback, void* userdata);
+
+    // The same, from an instance of its own: the browser's path, where the
+    // event loop runs every callback and nothing else needs the instance.
     static void request(RequestCallback callback, void* userdata);
 
     ~Device() = default;
@@ -74,6 +81,7 @@ public:
     Device(Device&&) = delete;
     Device& operator=(Device&&) = delete;
 
+    WGPUInstance instance() const { return instance_.get(); }
     WGPUDevice handle() const { return device_.get(); }
     WGPUQueue queue() const { return queue_.get(); }
     const AdapterInfo& adapter_info() const { return adapter_info_; }

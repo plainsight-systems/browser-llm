@@ -25,9 +25,10 @@ EMSDK_IMAGE := emscripten/emsdk:6.0.8
 # directory is incompatible -- see tools/ensure_container_cache.sh.
 CONTAINER_SRC := /src
 
-.PHONY: test test-data test-native test-web bench check wasm wasm-diag dist serve serve-dev clean
+.PHONY: test test-data dawn test-native test-web bench check wasm wasm-diag dist serve serve-dev clean
 
-## Every unit test. No browser, no GPU.
+## Every unit test. No browser; the GPU tests run on this machine's GPU,
+## through native Dawn.
 test: test-native test-web
 
 ## Test data too large to commit, fetched and verified against its pinned
@@ -35,8 +36,13 @@ test: test-native test-web
 test-data:
 	python3 tools/fetch_test_data.py
 
-## C++ build and unit tests.
-test-native: test-data
+## Native Dawn, prebuilt and pinned (cmake/dawn.json): the webgpu.h the
+## native GPU tests run on.
+dawn:
+	python3 tools/fetch_dawn.py
+
+## C++ build and unit tests, the GPU tests among them.
+test-native: test-data dawn
 	cmake --preset native-debug
 	cmake --build --preset native-debug
 	ctest --preset native-debug
@@ -45,7 +51,7 @@ test-native: test-data
 ## repository's docs and sources at BENCH_COMMIT, so every run measures the
 ## same bytes; the figures in the tokenizer's optimization commits come from it.
 BENCH_COMMIT := 1d74007d019ab5687f2f9d901f4c499b6e62e3b7
-bench: test-data
+bench: test-data dawn
 	cmake --preset native-release
 	cmake --build --preset native-release --target charlotte_bench_tokenizer
 	./tools/make_bench_corpus.sh $(BENCH_COMMIT) .cache/bench/corpus.txt

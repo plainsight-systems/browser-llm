@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "bllm/shaders_generated.h"
+#include "core/gpu/callback_mode.h"
 #include "core/gpu/wgpu_handles.h"
 
 namespace bllm::gpu {
@@ -96,7 +97,7 @@ void on_mapped(WGPUMapAsyncStatus status, WGPUStringView, void* ud1, void*) {
         s->submit_one();
     }
     WGPUBufferMapCallbackInfo info = {};
-    info.mode = WGPUCallbackMode_AllowSpontaneous;
+    info.mode = kCallbackMode;
     info.userdata1 = s;
     info.callback = [](WGPUMapAsyncStatus st, WGPUStringView, void* u1, void*) {
         auto* b = static_cast<BenchState*>(u1);
@@ -118,7 +119,7 @@ void start_sequential_iteration(BenchState* s) {
     s->submit_one();
 
     WGPUBufferMapCallbackInfo info = {};
-    info.mode = WGPUCallbackMode_AllowSpontaneous;
+    info.mode = kCallbackMode;
     info.userdata1 = s;
     info.callback = on_mapped;
     wgpuBufferMapAsync(s->readback.get(), WGPUMapMode_Read, 0,
