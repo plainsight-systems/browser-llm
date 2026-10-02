@@ -49,9 +49,9 @@ namespace bllm::residency {
 //     of a loss report is evidence. A completed mapping is: a lost device
 //     refuses one (tests/gpu/device_test.cpp holds that on every adapter CI
 //     runs). So once the write phase's scopes pop clean, finish writes a
-//     witness, four bytes unique to this upload into a small buffer of its
-//     own, maps it, and reports Ok only if the mapping completes and reads
-//     those bytes back: the queue runs in order, and no write was rejected,
+//     witness, four nonzero bytes taken from the file's size, into a small
+//     buffer of its own that WebGPU zeroed, maps it, and reports Ok only if
+//     the mapping completes and reads those bytes back: the queue runs in order, and no write was rejected,
 //     so every write ran, on a live device. It costs one 4-byte round trip
 //     per load, about half a millisecond (GPU.1).
 //   - Each write is one wgpuQueueWriteBuffer, from the chunk or the staging
@@ -98,7 +98,7 @@ namespace bllm::residency {
 // device; and on Dawn (tests/gpu), finish on a live device is Ok; a write
 // the device rejects makes finish Validation, never Ok; finish after the
 // device is destroyed is DeviceLost or Unconfirmed, never Ok; and destroying
-// the Upload with the witness's mapping pending reports Cancelled, once; and
+// the Upload with finish pending reports Cancelled, once; and
 // releasing the caller's device and instance with work pending changes
 // nothing: the work completes once, never CallbackCancelled.
 //   - Completion is reported through callbacks and never waited for: the
@@ -265,20 +265,27 @@ public:
     [[nodiscard]] std::string_view tensor_name(gguf::TensorId tensor) const noexcept;
 
 private:
-    Upload(gpu::DeviceHandle device, ResidencyPlan plan, std::vector<Route> routes, std::size_t max_chunk);
+    Upload(const gpu::Device& device, ResidencyPlan plan, std::vector<Route> routes, std::uint64_t file_size,
+           std::size_t max_chunk);
+
+    // Pushes the write phase's validation and internal scopes, once.
+    void open_write_scopes();
 
     gpu::Instance instance_;     // a reference of its own: its callbacks are the instance's
     gpu::DeviceHandle device_;   // a reference of its own, taken in begin
-    gpu::Buffer witness_;        // MAP_READ | COPY_DST, 4 bytes, written last and read back
     std::shared_ptr<const gpu::DeviceStatus> device_status_;
     std::vector<std::string> tensor_names_;   // by TensorId, for the routed tensors
     ResidencyPlan plan_;
     std::vector<Route> routes_;
-    PieceWriter writer_;
+    PieceWriter writer_;         // over routes_; the Upload never moves, so the span holds
+    std::uint64_t file_size_;
     std::vector<gpu::Buffer> buffers_;
-    std::vector<Write> writes_;   // reused across chunks
-    std::shared_ptr<struct UploadState> pending_;   // shared with callbacks in flight
-    UploadError failed_ = UploadError::Ok;
+    std::vector<Write> writes_;  // reused across chunks
+    std::uint64_t chunks_written_ = 0;
+    bool scopes_open_ = false;   // the write phase's scopes are pushed and not yet popped
+    // Shared with callbacks in flight: the queue, the witness buffer, the
+    // first failure, and whether the Upload is gone.
+    std::shared_ptr<struct UploadState> pending_;
 };
 
 }  // namespace bllm::residency

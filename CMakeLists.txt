@@ -81,6 +81,7 @@ add_library(charlotte_gpu STATIC
     src/core/gpu/device.cpp
     src/core/gpu/self_check.cpp
     src/core/residency/mapping.cpp
+    src/core/residency/upload.cpp
     src/core/residency/witness.cpp
 )
 target_link_libraries(charlotte_gpu PUBLIC charlotte_core)
