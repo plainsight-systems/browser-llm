@@ -9,39 +9,14 @@
 #include "core/gpu/device.h"
 #include "core/gpu/self_check.h"
 #include "core/gpu/wgpu_handles.h"
+#include "support/acquire.h"
 #include "support/pump.h"
 
 using namespace bllm;
 using bllm::testing::pump_until;
 
-namespace {
-
-struct Acquired {
-    std::unique_ptr<gpu::Device> device;
-    std::string error;
-    bool done = false;
-};
-
-// A device from `instance`, as the harness acquires one: the limits it
-// requires, granted and read back. Fails the test, with the reason, if there
-// is none — no adapter is a failure here, never a skip.
-std::unique_ptr<gpu::Device> acquire(WGPUInstance instance) {
-    Acquired acquired;
-    gpu::Device::request(
-        instance,
-        [](std::unique_ptr<gpu::Device> device, const char* error, void* userdata) {
-            auto& a = *static_cast<Acquired*>(userdata);
-            a.device = std::move(device);
-            if (error != nullptr) a.error = error;
-            a.done = true;
-        },
-        &acquired);
-    pump_until(instance, acquired.done, "a device");
-    REQUIRE_MESSAGE(acquired.device != nullptr, acquired.error);
-    return std::move(acquired.device);
-}
-
-}  // namespace
+using bllm::testing::acquire;
+using bllm::testing::Acquired;
 
 TEST_CASE("a device is acquired natively, with the limits the harness requires") {
     const gpu::Instance instance{wgpuCreateInstance(nullptr)};
