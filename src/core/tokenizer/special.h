@@ -51,7 +51,7 @@ public:
     // is empty, and no two are the same.
     explicit SpecialTokens(std::vector<Entry> entries);
 
-    [[nodiscard]] std::size_t size() const noexcept { return tokens_.size(); }
+    [[nodiscard]] std::size_t size() const noexcept { return size_; }
 
     // Splits `text` into ordinary text and special tokens, in order, covering
     // it exactly. Ordinary runs are never empty. Precondition: `text` is no
@@ -59,13 +59,24 @@ public:
     void segment(std::string_view text, std::vector<Segment>& out) const;
 
 private:
-    // Ordered by first byte, then longest first, so the first match at a
-    // position is the longest.
-    std::vector<Entry> tokens_;
-    // The tokens starting with byte b are tokens_[starts_[b], starts_[b + 1]).
-    // Optimization (practice): a position whose byte starts no special token
-    // costs one check, not one per token; Gemma 3 has 6,414 of them.
-    std::array<std::uint32_t, 257> starts_{};
+    // Optimization (practice): a byte trie of the tokens' texts, laid out
+    // flat. A position whose byte starts no token costs one read of first_;
+    // from there each byte follows one edge, so a match costs its length, and
+    // the deepest token the walk passes is the longest match. Matching the
+    // tokens one by one cost Gemma 3, whose 6,414 special tokens mostly start
+    // "<", a scan of thousands at every "<" in the text: 14.0 ms over the
+    // bench corpus, now 0.8. Hugging Face matches with an Aho-Corasick
+    // automaton, linear in the text; a walk from each position finds the same
+    // matches, its depth bounded by the longest token.
+    static constexpr std::uint32_t kNone = ~std::uint32_t{0};
+
+    std::array<std::uint32_t, 256> first_{};   // the node each first byte leads to, or kNone
+    // Node n's edges are [edge_start_[n], edge_start_[n + 1]), ordered by byte.
+    std::vector<std::uint32_t> edge_start_;
+    std::vector<unsigned char> edge_byte_;
+    std::vector<std::uint32_t> edge_child_;
+    std::vector<std::uint32_t> token_;   // the token node n spells in full, or kNone
+    std::size_t size_ = 0;
 };
 
 }  // namespace bllm::tokenizer

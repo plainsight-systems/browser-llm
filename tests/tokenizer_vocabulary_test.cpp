@@ -145,6 +145,17 @@ TEST_CASE("special tokens are found in raw text, leftmost and longest") {
     CHECK(segments(special, "<s <|x") == S{"<s <|x"});
 }
 
+TEST_CASE("a longer special token that does not complete leaves the shorter one it began with") {
+    const SpecialTokens special{std::vector<SpecialTokens::Entry>{{"ab", id(1)}, {"abcd", id(2)}, {"b", id(3)}}};
+    CHECK(special.size() == 3);
+    using S = std::vector<std::string>;
+    CHECK(segments(special, "abcd") == S{"#2"});
+    CHECK(segments(special, "abc") == S{"#1", "c"});
+    CHECK(segments(special, "abcab") == S{"#1", "c", "#1"});
+    CHECK(segments(special, "xbabcdab") == S{"x", "#3", "#2", "#1"});
+    CHECK(segments(special, "a") == S{"a"});   // a prefix of tokens, but none itself
+}
+
 TEST_CASE("every byte has its own character, and each character gives its byte back") {
     std::set<char32_t> seen;
     for (std::uint32_t byte = 0; byte < 256; ++byte) {
