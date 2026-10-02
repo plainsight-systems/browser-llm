@@ -26,7 +26,8 @@ namespace bllm::formats {
 // formats/<format>/ defines one as a constexpr constant), it takes its type
 // from its layout, so the two cannot name different types, and it has no
 // state without a layout. Its constructor refuses, at compile time, a layout
-// that breaks the promise device_layout.h states. The capability table then
+// that breaks the promise device_layout.h states, and an empty unpack: a
+// format with nothing to read its weights is not a format this build runs. The capability table then
 // checks at compile time that every row's type is its Format's type. So a
 // format the table lists always has a layout that matches it and keeps its
 // promise, and preflight and upload cannot disagree on how a format runs.
@@ -44,9 +45,10 @@ namespace bllm::formats {
 //            is no Format without a layout.
 
 namespace detail {
-// Not constexpr: reached only when a layout breaks its promise, which makes
-// the Format's construction fail to compile.
+// Not constexpr: reached only when a Format would be built wrong, which makes
+// its construction fail to compile.
 void layout_breaks_its_promise();
+void format_has_no_unpack();
 }  // namespace detail
 
 class Format {
@@ -56,6 +58,7 @@ public:
                      std::string_view pack_wgsl = {})
         : layout_(&layout), unpack_wgsl_(unpack_wgsl), pack_wgsl_(pack_wgsl) {
         if (!keeps_its_promise(layout)) detail::layout_breaks_its_promise();
+        if (unpack_wgsl.empty()) detail::format_has_no_unpack();
     }
 
     [[nodiscard]] constexpr gguf::TensorType type() const noexcept { return layout_->type; }

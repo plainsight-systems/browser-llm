@@ -30,8 +30,10 @@ namespace bllm::residency {
 //     upload issued; it is deterministic (piece_writer.h). Nothing the size of
 //     the model is kept to compare against.
 //   - Its callbacks keep the state they need alive on their own, as Upload's
-//     do, so destroying a check with a comparison pending reports Cancelled
-//     instead of touching freed memory (upload.h).
+//     do, and read the device's status first: its destructor marks them
+//     cancelled, so destroying a check with a comparison pending reports
+//     Cancelled instead of touching freed memory, and a lost device is
+//     reported as DeviceLost, never as zero mismatches (upload.h).
 //   - For each chunk, every write's range is copied into one mappable staging
 //     buffer, back to back, in one command buffer; the staging buffer is
 //     mapped once, and each range is compared with the write's bytes. The
@@ -39,7 +41,8 @@ namespace bllm::residency {
 //     writer's staging the writes point into are still intact when compared.
 //     The readback is bounded by a chunk, as the upload was.
 //   - The result names every mismatch: the buffer, the offset of its first
-//     differing byte, and the tensor the route belongs to. Zero mismatches
+//     differing byte, and the tensor the route belongs to, by the name the
+//     Upload kept. Zero mismatches
 //     means every byte written is on the device where the plan put it.
 //     Padding upload never wrote is not compared: WebGPU zeroes new buffers,
 //     and nothing reads past a piece's file bytes but its unpack.
@@ -56,8 +59,10 @@ namespace bllm::residency {
 //     E.27   Use error codes systematically — CheckError, and mismatches as
 //            data, never a log line.
 //   C++ performance guidelines
-//     WASM.9 Verify every byte, or claim no integrity — every byte written is
-//            compared, none sampled, against bytes regenerated exactly.
+//     WASM.9 Stream assets in bounded chunks; its Caveats: "A sampled
+//            verification proves very little... Verify every byte, in a
+//            diagnostic pass, or do not claim integrity." — every byte written
+//            is compared, none sampled, a chunk at a time.
 //     GPU.1  Budget every round trip — the whole model is read back once, in
 //            this build only.
 //     TLM.8  Validate clean builds by artifact scan — the shipped module is
@@ -86,12 +91,15 @@ public:
     UploadCheck(const UploadCheck&) = delete;
     UploadCheck& operator=(const UploadCheck&) = delete;
 
-    // Checks the buffers `upload` filled, with the routes it used. Takes its
-    // own reference to upload's device. `index` names the tensors in a
-    // mismatch. Preconditions: `upload` has finished, and it and `index`
-    // outlive the check — upload owns the buffers being checked, so it must
-    // anyway. `max_chunk` as for Upload.
-    UploadCheck(const Upload& upload, const gguf::TensorIndex& index, std::size_t max_chunk);
+    // Checks the buffers `upload` filled, with the routes it used, naming
+    // tensors by the names it kept. Takes its own reference to upload's
+    // device. Preconditions: `upload` has finished, and outlives the check —
+    // it owns the buffers being checked, so it must anyway. `max_chunk` as for
+    // Upload.
+    UploadCheck(const Upload& upload, std::size_t max_chunk);
+
+    // Marks pending callbacks cancelled, then releases the staging buffer.
+    ~UploadCheck() noexcept;
 
     // Compares the ranges the chunk at `file_offset` covers; `accepted` once
     // they are compared and the page may send the next.
@@ -107,7 +115,6 @@ public:
 private:
     gpu::DeviceHandle device_;
     const Upload& upload_;   // finished; outlives the check
-    const gguf::TensorIndex& index_;
     PieceWriter writer_;      // regenerates upload's writes
     gpu::Buffer staging_;     // MAP_READ | COPY_DST, sized to the largest chunk's writes
     std::vector<Write> writes_;

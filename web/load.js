@@ -14,8 +14,9 @@
 //      The view over the heap is made afresh for each chunk and never kept,
 //      since growing the heap detaches it (WASM.1). The module answers when it
 //      may take the next — after the queue has finished the chunk before, so
-//      reading chunk n + 1 from the cache overlaps the GPU copying chunk n
-//      (src/core/residency/upload.h).
+//      reading chunk n + 1 from the cache can overlap the GPU copying chunk
+//      n; whether it does is measured per target, and claimed only where a
+//      timeline shows it (src/core/residency/upload.h).
 //   3. finish: answered once every write has completed, or with the failure
 //      that stopped them.
 //
@@ -36,8 +37,8 @@
 //   WASM.2 Batch work across the JS boundary — ceil(size / chunk) + 2
 //          crossings, one chunk per crossing, by pointer and length.
 //   WASM.9 Stream in bounded chunks — the page holds one chunk.
-//   GPU.7  Pipeline CPU and GPU work — reading the next chunk overlaps the
-//          GPU copying the last.
+//   GPU.7  Pipeline CPU and GPU work — reading the next chunk is free to
+//          overlap the GPU copying the last; claimed only where measured.
 
 export const LOAD_CHUNK_BYTES = 16 * 2 ** 20;
 

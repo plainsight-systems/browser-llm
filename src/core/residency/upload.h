@@ -4,10 +4,13 @@
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <string>
+#include <string_view>
 #include <vector>
 
 #include <webgpu/webgpu.h>
 
+#include "core/gpu/device.h"
 #include "core/gpu/wgpu_handles.h"
 #include "core/residency/piece_writer.h"
 #include "core/residency/plan.h"
@@ -30,10 +33,11 @@ namespace bllm::residency {
 //     diagnostic build adds COPY_SRC to the weights, to read them back
 //     (upload_check.h). WebGPU zeroes a new buffer, so padding is never
 //     written.
-//   - Creation is checked: it runs inside out-of-memory and validation error
-//     scopes, and ready is reported only once both scopes are popped clean.
-//     A buffer the device could not give is a named failure before any byte
-//     is written, never a write into an invalid buffer (E.27).
+//   - Creation is checked: it runs inside out-of-memory, validation and
+//     internal error scopes, and ready is reported only once all three are
+//     popped clean and the device is not lost. A buffer the device could not
+//     give is a named failure before any byte is written, never a write into
+//     an invalid buffer (E.27).
 //   - Each write is one wgpuQueueWriteBuffer, from the chunk or the staging
 //     area in the wasm heap. writeBuffer copies the bytes before it returns,
 //     so the heap's chunk and staging are free for the next chunk at once.
@@ -46,20 +50,30 @@ namespace bllm::residency {
 //     waiting on every chunk would leave the copy engine idle between them.
 //     Whether the overlap happens is the browser's to decide, so it is
 //     claimed only for a target whose timeline shows it (measured below).
-//   - Failure is a value (E.27), one for each cause, mapped exactly: the
-//     out-of-memory scope's error is OutOfMemory, the validation scope's
-//     Validation, an internal error Internal; a scope that cannot be popped,
-//     and any callback whose status says the device is gone, DeviceLost; a
-//     chunk out of order, too large, or the file ending short, their own
-//     values; routes' refusals, theirs. After a failure, later calls report it
-//     and write nothing; the buffers are released with the Upload (R.1).
+//   - Failure is a value (E.27), one for each cause, mapped exactly from
+//     webgpu.h:
+//       - device loss first, from gpu::DeviceStatus (device.h), which every
+//         callback reads before anything else: a lost device resolves error
+//         scopes clean and queued work as done, so no status reports it.
+//         Lost, for any reason, is DeviceLost.
+//       - a popped scope's error type: OutOfMemory is OutOfMemory, Validation
+//         is Validation, Internal and Unknown are Internal.
+//       - a scope pop that fails: CallbackCancelled (the instance went away)
+//         is Cancelled; Error (no scope to pop, a defect here) is Internal.
+//       - queued work done: CallbackCancelled is Cancelled; Error (a queue
+//         error) is Internal.
+//       - a chunk out of order, too large, or the file ending short, and
+//         routes' refusals: their own values.
+//     After a failure, later calls report it and write nothing; the buffers
+//     are released with the Upload (R.1).
 //   - The state a callback needs lives apart from the Upload, shared between
 //     the Upload and each callback still in flight (R.20, R.21: the one
-//     shared ownership here, because either may end first). Destroying an
-//     Upload with work queued marks that state cancelled; each pending
-//     callback still fires exactly once, with Cancelled, and touches nothing
-//     freed. The state holds its own device reference, so the device outlives
-//     every callback too.
+//     shared ownership here, because either may end first). The Upload's
+//     destructor marks that state cancelled before any member is released;
+//     each pending callback still runs exactly once, reports Cancelled, and
+//     touches only that state, which holds its own device reference and the
+//     device's status. So a caller's userdata must stay valid until its
+//     callback has run — after the Upload is destroyed, if work was pending.
 //   - Completion is reported through callbacks and never waited for: the
 //     build does not use ASYNCIFY, and the worker must stay responsive.
 //   - The Upload holds its own counted reference to the device
@@ -140,10 +154,14 @@ public:
     // nothing outlives the call by accident (I.11, R.20). `max_chunk` is the
     // largest chunk write will be given.
     // `find_format` is capability::find_format in the harness (routes.h).
-    static void begin(WGPUDevice device, const gguf::TensorIndex& index, const ResidencyPlan& plan,
+    // Takes its own reference to the device and shares its status.
+    static void begin(const gpu::Device& device, const gguf::TensorIndex& index, const ResidencyPlan& plan,
                       std::uint64_t file_size, FindFormat find_format,
                       std::span<const gguf::TensorId> confirmed_duplicates, std::size_t max_chunk,
                       ReadyCallback ready, void* userdata);
+
+    // Marks pending callbacks cancelled, then releases the buffers.
+    ~Upload() noexcept;
 
     // Queues the writes the chunk at `file_offset` completes. `accepted` is
     // called when the page may send the next chunk: at once for the first,
@@ -168,10 +186,16 @@ public:
 
     [[nodiscard]] WGPUDevice device() const noexcept { return device_.get(); }
 
+    // A routed tensor's name, kept from the index the routes came from, so a
+    // report about a route needs no index beside the Upload.
+    [[nodiscard]] std::string_view tensor_name(gguf::TensorId tensor) const noexcept;
+
 private:
     Upload(gpu::DeviceHandle device, ResidencyPlan plan, std::vector<Route> routes, std::size_t max_chunk);
 
     gpu::DeviceHandle device_;   // a reference of its own, taken in begin
+    std::shared_ptr<const gpu::DeviceStatus> device_status_;
+    std::vector<std::string> tensor_names_;   // by TensorId, for the routed tensors
     ResidencyPlan plan_;
     std::vector<Route> routes_;
     PieceWriter writer_;
