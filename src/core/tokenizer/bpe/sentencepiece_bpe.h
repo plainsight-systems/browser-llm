@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <string>
 #include <vector>
 
 #include "core/gguf/byte_source.h"
@@ -39,6 +40,11 @@ namespace bllm::tokenizer::bpe {
 //   4. The whole stretch is merged at once; nothing splits it first.
 //
 // BOS is never added: the chat template writes it as text.
+//
+// Decoding a token gives a normal token's text with each "▁" a space again, a
+// byte token's byte, and any other token's text as written. A "▁" typed in the
+// text comes back as a space, as it does in both references: the vocabulary
+// cannot tell the two apart.
 class SentencePieceBpe {
 public:
     SentencePieceBpe() = default;
@@ -48,6 +54,11 @@ public:
     // Appends the tokens `text` encodes to. `out` is left untouched if it
     // cannot: text that is not UTF-8, or longer than 4 GiB.
     [[nodiscard]] EncodeError encode(std::string_view text, std::vector<TokenId>& out) const;
+
+    // Appends the bytes `token` stands for. They can end partway through a
+    // character; Utf8Stream makes text of them. Precondition: loaded, and the
+    // token is below vocabulary().size().
+    void decode(TokenId token, std::string& out) const;
 
 private:
     friend LoadResult load_sentencepiece_bpe(gguf::ByteSource& source, const gguf::TensorIndex& index,
@@ -60,7 +71,8 @@ private:
 };
 
 // Reads the vocabulary and scores, derives the merges, and finds the byte
-// tokens. Refuses a vocabulary with a one-character token that is neither
+// tokens, which must be exactly <0x00> to <0xFF>. Refuses a vocabulary with
+// a one-character token that is neither
 // normal nor special, which the references would use and this would spell in
 // bytes, and a file that asks for a space before the text
 // (tokenizer.ggml.add_space_prefix true, or not declared, which llama.cpp

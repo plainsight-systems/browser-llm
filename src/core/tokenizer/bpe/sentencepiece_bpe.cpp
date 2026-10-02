@@ -1,5 +1,6 @@
 #include "core/tokenizer/bpe/sentencepiece_bpe.h"
 
+#include <charconv>
 #include <cstdio>
 #include <limits>
 #include <string>
@@ -59,6 +60,32 @@ EncodeError SentencePieceBpe::encode(std::string_view text, std::vector<TokenId>
     return EncodeError::Ok;
 }
 
+void SentencePieceBpe::decode(TokenId token, std::string& out) const {
+    const std::string_view text = vocabulary_.text(token);
+    switch (vocabulary_.type(token)) {
+        case TokenType::Normal:
+            for (std::size_t at = 0; at < text.size();) {
+                if (text.substr(at, kSpace.size()) == kSpace) {
+                    out.push_back(' ');
+                    at += kSpace.size();
+                } else {
+                    out.push_back(text[at++]);
+                }
+            }
+            return;
+        case TokenType::Byte: {
+            // "<0xXX>": load_sentencepiece_bpe found each of the 256, and no other.
+            unsigned value = 0;
+            (void)std::from_chars(text.data() + 3, text.data() + 5, value, 16);
+            out.push_back(static_cast<char>(value));
+            return;
+        }
+        default:
+            out.append(text);
+            return;
+    }
+}
+
 LoadResult load_sentencepiece_bpe(gguf::ByteSource& source, const gguf::TensorIndex& index,
                                   SentencePieceBpe& out) {
     constexpr std::string_view kSpacePrefix = "tokenizer.ggml.add_space_prefix";
@@ -99,6 +126,11 @@ LoadResult load_sentencepiece_bpe(gguf::ByteSource& source, const gguf::TensorIn
         }
         spm.byte_tokens_[byte] = *token;
     }
+    std::size_t byte_tokens = 0;
+    for (std::size_t id = 0; id < spm.vocabulary_.size(); ++id) {
+        byte_tokens += spm.vocabulary_.type(static_cast<TokenId>(id)) == TokenType::Byte;
+    }
+    if (byte_tokens != 256) return {LoadError::Unsupported, "byte tokens other than <0x00> to <0xFF>"};
     spm.special_ = SpecialTokens{spm.vocabulary_};
     out = std::move(spm);
     return {};

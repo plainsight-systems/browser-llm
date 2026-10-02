@@ -10,6 +10,7 @@
 
 #include "core/gguf/reader.h"
 #include "core/tokenizer/bpe/sentencepiece_bpe.h"
+#include "core/tokenizer/unicode.h"
 #include "support/metadata_file.h"
 #include "support/model_headers.h"
 
@@ -106,6 +107,21 @@ bpe::SentencePieceBpe gemma() {
     return spm;
 }
 
+std::string decoded(const bpe::SentencePieceBpe& spm, std::uint32_t id) {
+    std::string out;
+    spm.decode(static_cast<TokenId>(id), out);
+    return out;
+}
+
+bool well_formed(std::string_view s) {
+    for (std::size_t at = 0; at < s.size();) {
+        Utf8Char c{};
+        if (!decode_utf8(s, at, c)) return false;
+        at += c.length;
+    }
+    return true;
+}
+
 }  // namespace
 
 TEST_CASE("Gemma 3 encodes every fixture text to the references' token IDs") {
@@ -114,6 +130,44 @@ TEST_CASE("Gemma 3 encodes every fixture text to the references' token IDs") {
         CAPTURE(c.name);
         CHECK(encode(spm, c.text) == c.ids);
     }
+}
+
+TEST_CASE("Gemma 3 decodes every fixture's token IDs back to its text") {
+    // Whole, and a token at a time through a stream that emits only whole
+    // characters. Some tokens are single bytes of a character, so the stream
+    // has bytes to hold.
+    const auto spm = gemma();
+    std::size_t split_characters = 0;
+    for (const EncodeCase& c : kGemmaCases) {
+        CAPTURE(c.name);
+        std::string whole;
+        std::string streamed;
+        Utf8Stream stream;
+        for (const std::uint32_t id : c.ids) {
+            std::string bytes;
+            spm.decode(static_cast<TokenId>(id), bytes);
+            whole += bytes;
+            if (!well_formed(whole)) ++split_characters;
+            std::string emitted;
+            stream.push(bytes, emitted);
+            CHECK(well_formed(emitted));
+            streamed += emitted;
+        }
+        CHECK(stream.finish(streamed));
+        CHECK(whole == c.text);
+        CHECK(streamed == c.text);
+    }
+    CHECK(split_characters > 0);
+}
+
+TEST_CASE("a token decodes to its text with ▁ a space, a byte token to its byte, a special one as written") {
+    const auto spm = small();
+    CHECK(decoded(spm, kSpAb) == " ab");
+    CHECK(decoded(spm, kSp) == " ");
+    CHECK(decoded(spm, kA) == "a");
+    CHECK(decoded(spm, 0xC3) == "\xC3");
+    CHECK(decoded(spm, 0x00) == std::string(1, '\0'));
+    CHECK(decoded(spm, kControl) == "<s>");
 }
 
 TEST_CASE("spaces become the vocabulary's ▁ and merge with what follows") {
@@ -165,6 +219,11 @@ TEST_CASE("a file the references would read differently from this one is refused
     r = unused.load(spm);
     CHECK(r.error == LoadError::Unsupported);
     CHECK(r.subject == "token 263, one character that is not a normal token");
+    Small extra_byte;
+    extra_byte.add("<0x100>", 6, 0);   // a byte token past the 256
+    r = extra_byte.load(spm);
+    CHECK(r.error == LoadError::Unsupported);
+    CHECK(r.subject == "byte tokens other than <0x00> to <0xFF>");
     Small short_scores;
     short_scores.scores.pop_back();
     CHECK(short_scores.load(spm).error == LoadError::CountMismatch);
