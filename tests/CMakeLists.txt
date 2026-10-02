@@ -23,6 +23,7 @@ add_executable(charlotte_tests
     tokenizer_merge_test.cpp
     tokenizer_nfc_test.cpp
     tokenizer_piece_cache_test.cpp
+    tokenizer_sentencepiece_test.cpp
     tokenizer_sentencepiece_merges_test.cpp
     tokenizer_split_test.cpp
     tokenizer_unicode_test.cpp

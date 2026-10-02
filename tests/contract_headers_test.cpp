@@ -22,6 +22,7 @@
 #include "core/tokenizer/bpe/merge.h"
 #include "core/tokenizer/bpe/merge_table.h"
 #include "core/tokenizer/bpe/piece_cache.h"
+#include "core/tokenizer/bpe/sentencepiece_bpe.h"
 #include "core/tokenizer/bpe/sentencepiece_merges.h"
 #include "core/tokenizer/load.h"
 #include "core/tokenizer/nfc.h"

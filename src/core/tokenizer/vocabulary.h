@@ -48,6 +48,7 @@ enum class LoadError {
     MissingByte,       // a byte-level vocabulary lacks a byte's token
     UnmappedCharacter, // a byte-level token holds a character no byte stands for; the subject names it
     InvalidScore,      // a token's score cannot be ordered (NaN); the subject names the token
+    Unsupported,       // the file asks for behaviour this build does not implement; the subject says what
 };
 
 struct LoadResult {

@@ -47,6 +47,23 @@ public:
         return *this;
     }
 
+    MetadataFile& float32s(std::string_view key, std::span<const float> values) {
+        array_header(key, gguf::ValueType::Float32, values.size());
+        for (const float v : values) put(&v, sizeof v);
+        ++entries_;
+        return *this;
+    }
+
+    MetadataFile& boolean(std::string_view key, bool value) {
+        string(key);
+        const auto type = static_cast<std::uint32_t>(gguf::ValueType::Bool);
+        const std::uint8_t byte = value ? 1 : 0;
+        put(&type, sizeof type);
+        put(&byte, sizeof byte);
+        ++entries_;
+        return *this;
+    }
+
     // The whole file: the header, the entries, and padding to where tensor
     // data would start, which must lie inside the file.
     [[nodiscard]] std::vector<std::byte> bytes() const {
