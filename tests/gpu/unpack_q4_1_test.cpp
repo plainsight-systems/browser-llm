@@ -44,12 +44,6 @@ std::vector<std::uint8_t> blocks(std::size_t count) {
     return out;
 }
 
-std::uint32_t bits(float f) {
-    std::uint32_t b = 0;
-    std::memcpy(&b, &f, 4);
-    return b;
-}
-
 }  // namespace
 
 TEST_CASE("Q4_1 unpack decodes every block as ggml does, its multiply-add rounded twice or fused") {
@@ -66,8 +60,8 @@ TEST_CASE("Q4_1 unpack decodes every block as ggml does, its multiply-add rounde
         std::size_t differing = 0;
         std::size_t fused = 0;
         for (std::size_t i = 0; i < got.size(); ++i) {
-            const bool as_rounded = bits(got[i]) == bits(want.rounded[i]);
-            const bool as_fused = bits(got[i]) == bits(want.fused[i]);
+            const bool as_rounded = testing::same_weight(got[i], want.rounded[i]);
+            const bool as_fused = testing::same_weight(got[i], want.fused[i]);
             if (!as_rounded && as_fused) ++fused;
             if (!as_rounded && !as_fused && differing++ < 8) {
                 CAPTURE(i);

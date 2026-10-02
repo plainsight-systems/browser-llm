@@ -176,17 +176,22 @@ inline std::vector<float> run_unpack(WGPUInstance instance, const gpu::Device& d
     return out;
 }
 
-// Bit for bit: the reference and the GPU do the same operations in the same
-// order, so even the sign of a zero agrees.
+// Bit for bit, but a zero of either sign equals a zero: WGSL may drop a
+// zero's sign, and no kernel can tell (format.h).
+inline bool same_weight(float got, float want) {
+    std::uint32_t a = 0;
+    std::uint32_t b = 0;
+    std::memcpy(&a, &got, 4);
+    std::memcpy(&b, &want, 4);
+    return a == b || (got == 0.0f && want == 0.0f);
+}
+
+// Every weight the same as the reference's, as same_weight judges.
 inline void check_bitwise(std::span<const float> got, std::span<const float> want) {
     REQUIRE(got.size() == want.size());
     std::size_t differing = 0;
     for (std::size_t i = 0; i < got.size(); ++i) {
-        std::uint32_t a = 0;
-        std::uint32_t b = 0;
-        std::memcpy(&a, &got[i], 4);
-        std::memcpy(&b, &want[i], 4);
-        if (a != b && differing++ < 8) {
+        if (!same_weight(got[i], want[i]) && differing++ < 8) {
             CAPTURE(i);
             CHECK(got[i] == want[i]);
         }

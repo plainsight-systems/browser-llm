@@ -67,10 +67,17 @@ namespace bllm::formats {
 // ggml's dequantize_row_* for the format, in its order of operations, over
 // blocks of edge and random finite values; the references live in
 // tests/support, as test oracles only. Every weight must equal the
-// reference's bit for bit, but where the format's decode is a multiply-add
-// (Q4_1), which WGSL and ggml alike may fuse: there it must equal the
-// multiply-add rounded twice or fused, bit for bit. NaN and infinity are not
-// inputs: no file this harness lists stores them.
+// reference's bit for bit, with two exceptions WGSL allows:
+//   - a zero may lose its sign; a dot product cannot tell, so zeros compare
+//     by value;
+//   - where the format's decode is a multiply-add (Q4_1), WGSL and ggml alike
+//     may fuse it; there a weight must equal it rounded twice or fused.
+// WGSL also lets unpack2x16float flush an fp16 subnormal scale to zero, which
+// ggml never does; it would turn those blocks' weights, each under 4e-4, to
+// zero. The tests include such scales and require them kept, so a backend
+// that flushes fails them rather than decoding silently otherwise; the
+// backends they run on, Metal and Vulkan, keep them. NaN and infinity are
+// not inputs: no file this harness lists stores them.
 //
 // Block sizes belong to the file format and are read from core/gguf; a format
 // does not restate them. There is no CPU dequantizer: production never
