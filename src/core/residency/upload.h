@@ -227,6 +227,10 @@ public:
 
     [[nodiscard]] WGPUDevice device() const noexcept { return device_.get(); }
 
+    // The instance the device came from. WebGPU has no way to find it from the
+    // device, so a check of this upload takes its own reference from here.
+    [[nodiscard]] WGPUInstance instance() const noexcept { return instance_.get(); }
+
     // The device's status, to name the cause of a failure; never proof of
     // success (see above). Shared, as gpu::Device::status() is.
     [[nodiscard]] std::shared_ptr<const gpu::DeviceStatus> device_status() const noexcept {

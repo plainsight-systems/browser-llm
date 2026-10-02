@@ -98,8 +98,9 @@ public:
     UploadCheck& operator=(const UploadCheck&) = delete;
 
     // Checks the buffers `upload` filled, with the routes it used, naming
-    // tensors by the names it kept. Takes its own reference to upload's
-    // device. Preconditions: `upload` has finished, and outlives the check —
+    // tensors by the names it kept. Takes its own references to upload's
+    // device and instance (Upload::instance()), as do its callbacks' shared
+    // state. Preconditions: `upload` has finished, and outlives the check —
     // it owns the buffers being checked, so it must anyway. `max_chunk` as for
     // Upload.
     UploadCheck(const Upload& upload, std::size_t max_chunk);
@@ -119,6 +120,7 @@ public:
     [[nodiscard]] std::span<const Mismatch> mismatches() const noexcept { return mismatches_; }
 
 private:
+    gpu::Instance instance_;     // a reference of its own: its callbacks are the instance's
     gpu::DeviceHandle device_;
     const Upload& upload_;   // finished; outlives the check
     PieceWriter writer_;      // regenerates upload's writes
