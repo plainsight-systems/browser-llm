@@ -76,8 +76,12 @@ namespace bllm::residency {
 //            against the untransformed reference: every stream's bytes,
 //            gathered back, are the stored blocks' fields in block order.
 
-// One write: `bytes` at `offset` in `buffer`. The span points into the chunk
-// or into the writer's staging, and is valid until the next call to accept.
+// One write: `bytes` at `offset` in `buffer`. The span borrows, never owns:
+// it points into the chunk accept was given, valid for as long as the caller
+// keeps that chunk, or into the writer's staging, valid until the next call
+// to accept. A caller that holds writes past the call — the diagnostic check
+// does, until its comparison completes — keeps the chunk, and makes no other
+// call to accept, until then (I.11: ownership stays with the caller).
 struct Write {
     BufferIndex buffer;
     std::uint64_t offset;
@@ -104,8 +108,9 @@ public:
                                     std::vector<Write>& out);
 
     // Called once the file has ended at `file_size`: Unfinished unless the
-    // chunks reached it and every route was filled.
-    [[nodiscard]] WriteError finish(std::uint64_t file_size) const;
+    // chunks reached it and every route was filled. Unfinished is a failure
+    // like the others: from then on accept refuses every chunk.
+    [[nodiscard]] WriteError finish(std::uint64_t file_size);
 
 private:
     // Bytes of one stream's run held back because it ended partway through a

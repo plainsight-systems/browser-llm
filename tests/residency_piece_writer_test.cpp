@@ -205,6 +205,11 @@ TEST_CASE("the file ending before every route is filled, or short of its size, i
     PieceWriter early(f.routes, f.file.size());
     REQUIRE(early.accept(0, std::span(f.file).first(f.file.size() - 40), writes) == WriteError::Ok);
     CHECK(early.finish(f.file.size() - 40) == WriteError::Unfinished);
+    // Unfinished is sticky: the rest of the file is refused, not resumed.
+    writes.clear();
+    CHECK(early.accept(f.file.size() - 40, std::span(f.file).last(40), writes) == WriteError::Unfinished);
+    CHECK(writes.empty());
+    CHECK(early.finish(f.file.size()) == WriteError::Unfinished);
 
     // Every route filled, but the chunks stopped before the file's end.
     PieceWriter short_of_end(f.routes, f.file.size());

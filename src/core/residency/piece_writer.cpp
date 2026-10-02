@@ -154,9 +154,9 @@ void PieceWriter::write_blocks(std::span<const std::byte> held, std::span<const 
     }
 }
 
-WriteError PieceWriter::finish(std::uint64_t file_size) const {
+WriteError PieceWriter::finish(std::uint64_t file_size) {
     if (failed_ != WriteError::Ok) return failed_;
-    if (route_ < routes_.size() || next_offset_ != file_size) return WriteError::Unfinished;
+    if (route_ < routes_.size() || next_offset_ != file_size) return failed_ = WriteError::Unfinished;
     return WriteError::Ok;
 }
 

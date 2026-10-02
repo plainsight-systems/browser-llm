@@ -125,8 +125,9 @@ public:
     void check(std::uint64_t file_offset, std::span<const std::byte> chunk, CheckCallback accepted,
                void* userdata);
 
-    // Called after the last chunk: Unfinished unless every route was compared.
-    [[nodiscard]] CheckError finish(std::uint64_t file_size) const;
+    // Called after the last chunk: Unfinished unless every route was
+    // compared. Like the writer's, Unfinished then refuses every chunk.
+    [[nodiscard]] CheckError finish(std::uint64_t file_size);
 
     // Every mismatch found so far, in file order.
     [[nodiscard]] std::span<const Mismatch> mismatches() const noexcept { return mismatches_; }
