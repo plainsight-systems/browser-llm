@@ -76,8 +76,10 @@ namespace bllm::formats {
 // ggml never does; it would turn those blocks' weights, each under 4e-4, to
 // zero. The tests include such scales and require them kept, so a backend
 // that flushes fails them rather than decoding silently otherwise; the
-// backends they run on, Metal and Vulkan, keep them. NaN and infinity are
-// not inputs: no file this harness lists stores them.
+// backends they run on, Metal and Vulkan, keep them. That is the contract
+// on those backends; WGSL leaves rounding and reassociation to each, so one
+// that decodes otherwise fails the tests visibly. NaN and infinity are not
+// inputs: no file this harness lists stores them.
 //
 // Block sizes belong to the file format and are read from core/gguf; a format
 // does not restate them. There is no CPU dequantizer: production never

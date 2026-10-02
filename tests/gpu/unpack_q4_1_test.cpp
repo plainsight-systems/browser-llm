@@ -34,7 +34,9 @@ std::vector<std::uint8_t> blocks(std::size_t count) {
     std::vector<std::uint8_t> out;
     for (std::size_t b = 0; b < count; ++b) {
         const std::uint16_t d = finite(b);
-        const std::uint16_t m = finite((b + 4) % (count + std::size(edges)));
+        // The first nine blocks take every edge as d, and every edge as m,
+        // four apart, so no block pairs an edge with itself.
+        const std::uint16_t m = finite(b < std::size(edges) ? (b + 4) % std::size(edges) : b);
         for (const std::uint16_t h : {d, m}) {
             out.push_back(static_cast<std::uint8_t>(h & 0xFF));
             out.push_back(static_cast<std::uint8_t>(h >> 8));
@@ -55,6 +57,20 @@ TEST_CASE("Q4_1 unpack decodes every block as ggml does, its multiply-add rounde
         const auto got = testing::run_unpack(instance.get(), *device, formats::kQ4_1.unpack_wgsl(),
                                              formats::kQ4_1.layout(), std::as_bytes(std::span(stored)),
                                              static_cast<std::uint32_t>(count));
+        if (count >= 9) {
+            // Every edge, +-0 among them, is some block's d and some block's m.
+            for (const std::uint16_t edge : {0x3C00, 0xBC00, 0x0000, 0x8000, 0x0001, 0x03FF, 0x7BFF, 0xFBFF, 0x2E66}) {
+                bool as_d = false;
+                bool as_m = false;
+                for (std::size_t b = 0; b < count; ++b) {
+                    as_d |= (stored[b * 20] | (stored[b * 20 + 1] << 8)) == edge;
+                    as_m |= (stored[b * 20 + 2] | (stored[b * 20 + 3] << 8)) == edge;
+                }
+                CAPTURE(edge);
+                CHECK(as_d);
+                CHECK(as_m);
+            }
+        }
         const auto want = test::dequantize_q4_1(stored);
         REQUIRE(got.size() == want.rounded.size());
         std::size_t differing = 0;

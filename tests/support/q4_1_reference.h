@@ -41,7 +41,9 @@ struct Q4_1Reference {
         for (std::size_t j = 0; j < kHalf; ++j) {
             const auto lo = static_cast<float>(qs[j] & 0x0F);
             const auto hi = static_cast<float>(qs[j] >> 4);
-            // Separate statements: a compiler may not contract across them.
+            // Rounded twice only because the GPU tests are compiled with
+            // -ffp-contract=off (tests/gpu/CMakeLists.txt): GCC's default
+            // would fuse these across statements.
             const float lo_d = lo * d;
             const float hi_d = hi * d;
             out.rounded[b * 32 + j] = lo_d + m;
