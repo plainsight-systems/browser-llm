@@ -191,10 +191,13 @@ TEST_CASE("a confirmed id no tensor has is refused by number, and nothing is cha
     const gguf::TensorId confirmed[] = {gguf::TensorId{9999}};
     std::vector<Route> routes{Route{}};
     ResidencyPlan carried;
+    carried.context_offered = 7;   // a mark the call must leave
     const auto r = residency::plan_routes(p.index, p.plan, p.bytes.size(), both, confirmed, routes, carried);
     CHECK(r.error == RouteError::NotACandidate);
     CHECK(r.subject == "tensor 9999");
     CHECK(routes.size() == 1);
+    CHECK(carried.context_offered == 7);
+    CHECK(carried.tensors.empty());
 }
 
 TEST_CASE("a tensor with no rows is still refused when its format is not listed") {
