@@ -139,7 +139,9 @@ else()
     endif()
     set(BLLM_DAWN_DIR
         "${CMAKE_CURRENT_SOURCE_DIR}/.cache/dawn/${BLLM_DAWN_RELEASE}/${CMAKE_HOST_SYSTEM_NAME}-${BLLM_HOST_CPU}")
-    find_package(Dawn CONFIG PATHS "${BLLM_DAWN_DIR}" NO_DEFAULT_PATH)
+    # lib/ on macOS, lib64/ on Linux, as Dawn's own release packages it.
+    find_package(Dawn CONFIG PATHS "${BLLM_DAWN_DIR}"
+                 PATH_SUFFIXES lib/cmake/Dawn lib64/cmake/Dawn NO_DEFAULT_PATH)
     if(NOT Dawn_FOUND)
         message(FATAL_ERROR
             "charlotte: native Dawn ${BLLM_DAWN_RELEASE} not found in ${BLLM_DAWN_DIR}.\n"
