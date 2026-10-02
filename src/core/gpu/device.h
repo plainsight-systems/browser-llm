@@ -45,9 +45,12 @@ struct AdapterInfo {
 };
 
 // Whether a device has been lost, and why. Written once, by the device-lost
-// callback. Anything that waits on the device shares it: once a device is
-// lost, WebGPU resolves error scopes clean and queued work as done, so a lost
-// device is quiet, and only this tells that quiet from success.
+// callback. It names the cause of a failure; it is never proof that a device
+// is alive. Once a device is lost WebGPU resolves error scopes clean and
+// queued work as done, and it does not order the lost callback before them,
+// so work can complete, and this still read not lost, after the loss. What
+// shows a device alive is a completed mapping, which a lost one refuses
+// (residency/upload.h).
 struct DeviceStatus {
     bool lost = false;
     WGPUDeviceLostReason reason = WGPUDeviceLostReason_Unknown;

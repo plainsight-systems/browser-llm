@@ -62,10 +62,15 @@ namespace bllm::residency {
 //     claimed only for a target whose timeline shows it (measured below).
 //   - Failure is a value (E.27), one for each cause, mapped exactly from
 //     webgpu.h:
-//       - the witness's mapping refused: DeviceLost, with its reason, if
-//         gpu::DeviceStatus (device.h) already says the device is lost;
-//         otherwise Unconfirmed, since the lost callback may not have
-//         arrived yet and the cause cannot be named. Never Ok.
+//       - the witness, by witness_result below, from its mapping's status
+//         and the bytes it gave back: Success with the expected four bytes is
+//         Ok, the only Ok finish gives; Success with no range is Internal;
+//         Success with other bytes is WitnessMismatch; CallbackCancelled (the
+//         instance went away) is Cancelled; Error (a mapping this harness
+//         should not have asked for) is Internal; Aborted is DeviceLost if
+//         gpu::DeviceStatus (device.h) already says the device is lost, and
+//         otherwise Unconfirmed, since the lost callback may not have arrived
+//         and the cause is not guessed; any other status is Internal.
 //       - a popped scope's error type: OutOfMemory is OutOfMemory, Validation
 //         is Validation, Internal and Unknown are Internal.
 //       - a scope pop that fails: CallbackCancelled (the instance went away)
@@ -84,6 +89,11 @@ namespace bllm::residency {
 //     touches only that state, which holds its own device reference and the
 //     device's status. So a caller's userdata must stay valid until its
 //     callback has run — after the Upload is destroyed, if work was pending.
+//
+// Tested: witness_result's every branch natively, without a device; and on
+// Dawn (tests/gpu), finish on a live device is Ok, finish after the device is
+// destroyed is DeviceLost or Unconfirmed and never Ok, and destroying the
+// Upload with the witness's mapping pending reports Cancelled once.
 //   - Completion is reported through callbacks and never waited for: the
 //     build does not use ASYNCIFY, and the worker must stay responsive.
 //   - The Upload holds its own counted reference to the device
@@ -124,7 +134,11 @@ namespace bllm::residency {
 //            resources — two chunks in flight, acknowledged on queue
 //            completion; claimed only once a timeline shows the overlap.
 //     GPU.1  Keep data on the device; budget every round trip — the shipped
-//            path reads nothing back.
+//            path reads back four bytes, once per load, as its proof of
+//            success: a serialized round trip measured 0.5 ms median in
+//            Chrome on Apple silicon (research/2026-08-31-gpu-readback-round-
+//            trip.md); the witness path itself is measured on the target
+//            matrix.
 
 // One value for each way upload can fail, routes' refusals among them, so a
 // caller can tell a format this build lacks from a bad file (E.27).
@@ -139,10 +153,19 @@ enum class UploadError {
     Internal,           // an internal error, or a scope or queue error (see the mapping above)
     DeviceLost,         // the witness was refused, and the device reports itself lost
     Unconfirmed,        // the witness was refused, and the device has not said why
+    WitnessMismatch,    // the witness mapped, but held other bytes than were written
     OutOfOrder,         // a chunk did not start where the last one ended
     ChunkTooLarge,
     Unfinished,         // the file ended before every weight was filled
 };
+
+// What finish reports for its witness, from what the mapping gave back.
+// Deterministic, so every branch is tested without a device. `mapped` is the
+// mapped range's bytes, empty where there was none; `status` is read when the
+// mapping's callback runs. The mapping is the table above.
+[[nodiscard]] UploadError witness_result(WGPUMapAsyncStatus map, std::span<const std::byte> mapped,
+                                         std::span<const std::byte, 4> expected,
+                                         const gpu::DeviceStatus& status) noexcept;
 
 // Invoked exactly once per call that takes it, from the browser's event loop.
 using UploadCallback = void (*)(UploadError error, void* userdata);
@@ -198,8 +221,8 @@ public:
     [[nodiscard]] WGPUDevice device() const noexcept { return device_.get(); }
 
     // The device's status, to name the cause of a failure; never proof of
-    // success (see above).
-    [[nodiscard]] const std::shared_ptr<const gpu::DeviceStatus>& device_status() const noexcept {
+    // success (see above). Shared, as gpu::Device::status() is.
+    [[nodiscard]] std::shared_ptr<const gpu::DeviceStatus> device_status() const noexcept {
         return device_status_;
     }
 

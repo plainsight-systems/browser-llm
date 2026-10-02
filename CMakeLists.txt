@@ -88,6 +88,7 @@ target_link_libraries(charlotte_gpu PUBLIC charlotte_core)
 set(BLLM_GPU_HEADERS
     core/gpu/callback_mode.h
     core/gpu/device.h
+    core/gpu/readback_bench.h
     core/gpu/self_check.h
     core/gpu/wgpu_handles.h
     core/residency/upload.h
@@ -171,8 +172,9 @@ else()
     endif()
     find_package(Threads REQUIRED)
     target_link_libraries(charlotte_gpu PUBLIC dawn::webgpu_dawn)
-    # Callbacks run only inside wgpuInstanceProcessEvents, on the caller's
-    # thread (core/gpu/callback_mode.h).
+    # Callbacks given a mode run only inside wgpuInstanceProcessEvents, on the
+    # caller's thread; the uncaptured-error callback is the one exception
+    # (core/gpu/callback_mode.h).
     target_compile_definitions(charlotte_gpu PUBLIC BLLM_GPU_PROCESS_EVENTS=1)
 
     enable_testing()

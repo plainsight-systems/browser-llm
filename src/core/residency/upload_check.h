@@ -30,9 +30,11 @@ namespace bllm::residency {
 //     upload issued; it is deterministic (piece_writer.h). Nothing the size of
 //     the model is kept to compare against.
 //   - Every comparison rests on a completed mapping, which a lost device
-//     refuses (upload.h), so a check on a lost device fails — MapFailed, or
-//     DeviceLost where Upload's device_status() already says so — and never
-//     ends with zero mismatches having compared nothing. Its callbacks keep
+//     refuses (upload.h), so a check on a lost device fails and never ends
+//     with zero mismatches having compared nothing. A chunk's mapping maps as
+//     the witness's does: CallbackCancelled is Cancelled; Error, and Success
+//     with no range, are Internal; Aborted is DeviceLost where Upload's
+//     device_status() already says so, and otherwise MapFailed. Its callbacks keep
 //     their state alive on their own, as Upload's do: its destructor marks
 //     them cancelled, so destroying a check with a comparison pending reports
 //     Cancelled instead of touching freed memory.
@@ -73,8 +75,9 @@ namespace bllm::residency {
 enum class CheckError {
     Ok,
     Cancelled,          // the check was destroyed before the comparison ended
-    DeviceLost,         // a mapping was refused, and the device reports itself lost
-    MapFailed,          // a mapping was refused, and the device has not said why
+    DeviceLost,         // a mapping was aborted, and the device reports itself lost
+    MapFailed,          // a mapping was aborted, and the device has not said why
+    Internal,           // a mapping this check should not have asked for, or one with no range
     OutOfOrder,         // a chunk did not start where the last one ended
     ChunkTooLarge,
     Unfinished,         // the file ended before every route was compared

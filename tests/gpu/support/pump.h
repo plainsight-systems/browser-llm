@@ -9,9 +9,10 @@
 #include <webgpu/webgpu.h>
 
 // Runs WebGPU callbacks natively — TEST SUPPORT ONLY. Natively every callback
-// is AllowProcessEvents (core/gpu/callback_mode.h): it runs only inside
-// wgpuInstanceProcessEvents, on the thread that calls it, as the browser's one
-// event loop would run it. A wait that does not end fails the test, by name,
+// given a mode is AllowProcessEvents (core/gpu/callback_mode.h): it runs only
+// inside wgpuInstanceProcessEvents, on the thread that calls it, as the
+// browser's one event loop would run it. The uncaptured-error callback has no
+// mode and may run on another thread; nothing waited on here depends on it. A wait that does not end fails the test, by name,
 // rather than hanging it.
 namespace bllm::testing {
 
