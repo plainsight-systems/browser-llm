@@ -11,7 +11,7 @@ set -eu
 
 cd "$(dirname "$0")/.."
 SCRIPT=./scripts/codex-review.sh
-PACKET=docs/decisions/packets/2026-08-29-repo-skeleton-and-build-system.md
+COMMIT=HEAD
 DEAD=http://127.0.0.1:59997
 WATCHDOG_SECS=20
 
@@ -25,7 +25,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 # status, or 'TIMEOUT' if the watchdog had to kill it.
 run_guarded() {
     var="$1"
-    env "${var}=${DEAD}" "${SCRIPT}" "${PACKET}" "${OUT}" >/dev/null 2>"${ERR}" &
+    env "${var}=${DEAD}" "${SCRIPT}" "${COMMIT}" "${OUT}" >/dev/null 2>"${ERR}" &
     pid=$!
     waited=0
     while kill -0 "${pid}" 2>/dev/null; do

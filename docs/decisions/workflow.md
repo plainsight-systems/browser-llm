@@ -34,6 +34,11 @@ This repo is C++-dominant and performance-sensitive.
   written, and performance-sensitive work against `cpp-perf-guidelines`.** The
   citations in the headers and optimization notes are the record. If either
   server is unreachable, say so and get explicit agreement before writing C++.
+- **Review is per commit.** `scripts/codex-review.sh --post <commit>` has an
+  independent reviewer check the commit against both review checklists,
+  grounded in the same corpora, and posts its findings as comments on the
+  commit: one with the whole review, one on each finding's line. A design
+  commit is reviewed before it is implemented.
 - Acceptance is blocked on any P0 or P1 finding from the C++ architecture
   review (`governance/cpp_architecture_review.md`) or the C++ performance
   review (`governance/cpp_performance_review.md`).

@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
-# codex-review.sh — independent review of a packet and the work it covers.
+# codex-review.sh — independent review of a commit.
 #
-# Usage:  ./scripts/codex-review.sh <packet-file> [output-file]
+# Usage:  ./scripts/codex-review.sh [--post] <commit> [output-file]
 #
-# Hand it a packet. It reviews the packet's claims against the actual code in
-# the working tree, grounded in the cpp-guidelines and cpp-performance MCP
-# servers. Output is written to a file, not attached to a commit — the packet,
-# not the commit, is the unit of work here.
+# Hand it a commit. It reviews the commit's claims — its message, and the
+# design its headers state — against the code, grounded in the cpp-guidelines
+# and cpp-performance MCP servers. The commit is the unit of work
+# (docs/decisions/workflow.md): a design commit is reviewed before it is
+# implemented, an implementation commit against the design it carries out.
 #
-# Default output: docs/research/<packet-name>-codex-review.md
+# The review is JSON in the shape of the schema below, written to the output
+# file (default .cache/reviews/<sha>.json). With --post it is also posted as
+# comments on the commit on GitHub (scripts/post_commit_review.py): one holding
+# the whole review, and one on each finding's line in the diff.
 #
 # Reviewer independence is the point: this session's author should not be the
-# only one judging whether the packet's claims hold.
+# only one judging whether the commit's claims hold.
 
 set -euo pipefail
 
@@ -41,10 +45,20 @@ die() { echo "codex-review.sh: $*" >&2; exit 1; }
 
 command -v codex >/dev/null 2>&1 || die "'codex' CLI not found on PATH"
 
-PACKET="${1:-}"
+POST=0
+if [ "${1:-}" = "--post" ]; then POST=1; shift; fi
+COMMIT_ARG="${1:-}"
 OUTPUT_ARG="${2:-}"
-[ -n "${PACKET}" ] || die "usage: $0 <packet-file> [output-file]"
-[ -r "${PACKET}" ] || die "cannot read packet: ${PACKET}"
+[ -n "${COMMIT_ARG}" ] || die "usage: $0 [--post] <commit> [output-file]"
+COMMIT="$(git rev-parse --verify --quiet "${COMMIT_ARG}^{commit}")" \
+  || die "not a commit: ${COMMIT_ARG}"
+
+# Comments anchor to the commit on GitHub, so it must be there.
+if [ "${POST}" = 1 ]; then
+  command -v gh >/dev/null 2>&1 || die "'gh' CLI not found on PATH; it posts the comments"
+  [ -n "$(git branch -r --contains "${COMMIT}" 2>/dev/null)" ] \
+    || die "commit ${COMMIT:0:7} is not on any remote branch — push it before posting a review of it"
+fi
 
 # The governance checklists live in a submodule. If it is not populated the
 # review would silently lose both gates, so refuse rather than degrade.
@@ -75,13 +89,52 @@ check_mcp() {
 check_mcp "cpp-guidelines" "${GUIDELINES_URL}"
 check_mcp "cpp-performance" "${PERF_URL}"
 
-PACKET_BASE="$(basename "${PACKET}" .md)"
-OUTPUT="${OUTPUT_ARG:-docs/research/${PACKET_BASE}-codex-review.md}"
+OUTPUT="${OUTPUT_ARG:-.cache/reviews/${COMMIT}.json}"
 [ -e "${OUTPUT}" ] && die "review already exists: ${OUTPUT}
   delete it or pass a different output path"
 
 PROMPT_FILE="$(mktemp -t bllm-codex-prompt.XXXXXX)"
-trap 'rm -f "${PROMPT_FILE}"' EXIT
+SCHEMA_FILE="$(mktemp -t bllm-codex-schema.XXXXXX)"
+trap 'rm -f "${PROMPT_FILE}" "${SCHEMA_FILE}"' EXIT
+
+# ----------------------------------------------------------------------
+# Output schema. Every finding names a file and, where it has one, a line of
+# the commit's new version, so it can be posted on that line.
+# ----------------------------------------------------------------------
+
+cat > "${SCHEMA_FILE}" <<'SCHEMAEOF'
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["outcome", "summary", "findings", "architecture_review", "performance_review",
+               "mcp_grounding", "residual_risk"],
+  "properties": {
+    "outcome": {"type": "string",
+                "enum": ["approved", "approved_with_notes", "changes_requested", "needs_decision"]},
+    "summary": {"type": "string"},
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["severity", "path", "line", "title", "body", "guidelines"],
+        "properties": {
+          "severity": {"type": "string", "enum": ["P0", "P1", "P2", "P3"]},
+          "path": {"type": "string"},
+          "line": {"type": ["integer", "null"]},
+          "title": {"type": "string"},
+          "body": {"type": "string"},
+          "guidelines": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "architecture_review": {"type": "string"},
+    "performance_review": {"type": "string"},
+    "mcp_grounding": {"type": "string"},
+    "residual_risk": {"type": "string"}
+  }
+}
+SCHEMAEOF
 
 # ----------------------------------------------------------------------
 # Prompt
@@ -89,10 +142,9 @@ trap 'rm -f "${PROMPT_FILE}"' EXIT
 
 {
   cat <<'PROMPTEOF'
-You are performing an independent review of a work packet and the code it
-covers, in the Charlotte repository. You are the second reader: the packet's
-author already believes the work is correct. Your job is to find where that
-belief is wrong.
+You are performing an independent review of one commit in the Charlotte
+repository. You are the second reader: the commit's author already believes
+the work is correct. Your job is to find where that belief is wrong.
 
 PROJECT CONTEXT
 ---------------
@@ -113,6 +165,12 @@ Structural invariants, enforced by tools/check_boundaries.sh:
     or web/. Dependency direction is inward only.
   - src/wasm/bindings.cpp is the only Emscripten-aware translation unit.
 
+How work is done here (docs/decisions/workflow.md): the design of a change
+lives in its file headers, which state the contract and the design and cite
+the guidelines behind them by ID. A design commit is headers only, reviewed
+before anything is implemented. Every optimization is labelled
+"Optimization (browser)" or "Optimization (practice)" with its reason.
+
 Governance: AGENTS.md at the repo root, and docs/decisions/governance/ (a
 submodule). The no-facades rule is central: unimplemented paths must fail
 explicitly, and documentation must not describe behavior that does not exist.
@@ -128,8 +186,10 @@ memory.
   1. Search before you cite. Confirm the rule says what you think it says.
   2. Cite rule IDs (e.g. R.1, E.25, I.11, C.31, LIFE.6) for every guideline
      claim you make.
-  3. Look for rules the code violates that the packet did not consider — not
-     only the ones it already cites.
+  3. Check every guideline the commit itself cites: does the rule say what
+     the header claims it says, and does the design actually follow it?
+  4. Look for rules the design violates that the commit did not consider —
+     not only the ones it already cites.
 
 If either server is unavailable, or any MCP call is cancelled or denied, you
 MUST state this in your output as a REVIEW ENVIRONMENT FAILURE and mark the
@@ -139,28 +199,31 @@ you can do in this review.
 
 WHAT TO REVIEW
 --------------
-The packet below is the authority for what the work was supposed to be. Read
-it, then read the actual code in this repository and judge the gap.
+The commit message and its headers are the authority for what the work is
+supposed to be. Run `git show <commit>` for the full change, read the code it
+touches and whatever it depends on, and judge the gap.
 
-  1. DOES THE CODE MATCH THE PACKET? The packet states intent, acceptance
-     criteria and guaranteed invariants. Check each against reality. A packet
-     describing types, behavior or guarantees that do not exist in the code is
-     a serious finding — that is a no-facades violation aimed at the reviewer,
-     and it is exactly the failure this review exists to catch.
+  1. DOES THE DESIGN HOLD? For a design commit: is it correct, complete and
+     implementable as stated? Do the headers agree with each other, with the
+     existing code they depend on (residency/plan.h, weight_view.h, the GGUF
+     reader), and with WebGPU's actual rules? A header promising behavior the
+     interfaces cannot deliver is a serious finding.
 
-  2. CORRECTNESS. Bugs, undefined behavior, contract violations, unchecked
-     error paths, resource leaks. Note that exceptions are disabled, so RAII
+  2. DOES THE CODE MATCH ITS CLAIMS? Every claim in the commit message and the
+     headers — sizes, alignments, counts, what another project does — checked
+     against reality.
+
+  3. CORRECTNESS. Bugs, undefined behavior, contract violations, unchecked
+     error paths, resource leaks, lifetimes. Exceptions are disabled, so RAII
      must be simulated rather than assumed (see E.25).
 
-  3. C++ GUIDELINES COMPLIANCE, grounded in the MCP servers per above.
+  4. C++ GUIDELINES COMPLIANCE, grounded in the MCP servers per above.
 
-  4. NO-FACADES. Stubbed success paths, silent fallbacks, partial work
+  5. NO-FACADES. Stubbed success paths, silent fallbacks, partial work
      presented as complete, failures that do not surface anywhere observable.
 
-  5. SCOPE AND TESTS. Does the work stay inside the packet's stated intent, or
-     did it expand? Do non-trivial changes have deterministic verification?
-     Do the tests pin the contract that actually matters, or do they assert
-     something trivially true?
+  6. SCOPE AND TESTS. Does the commit stay inside its stated intent? Will the
+     design be testable deterministically, and does it say how?
 
 Do not manufacture findings to appear thorough. If something is sound, say so
 and say why. Equally, do not soften a real finding to be agreeable.
@@ -190,29 +253,35 @@ artifact, not an omission.
 
 A P0 or P1 finding in either gate blocks acceptance.
 
-OUTPUT FORMAT
--------------
-Markdown. Lead with an outcome line:
+OUTPUT
+------
+Answer in the JSON schema you were given:
 
-  OUTCOME: approved | approved_with_notes | changes_requested | needs_decision
+  outcome              approved | approved_with_notes | changes_requested |
+                       needs_decision
+  summary              what the commit claims, and whether it holds
+  findings             each with severity (P0-P3), the file path from the
+                       repository root, the line in the commit's version of
+                       that file (null if it concerns the file as a whole),
+                       a short title, the body (why it matters, expected
+                       fix), and the guideline IDs it rests on
+  architecture_review  in the checklist's vocabulary and summary template
+  performance_review   or one line stating why it does not apply
+  mcp_grounding        which servers and tools you actually called, and any
+                       REVIEW ENVIRONMENT FAILURE
+  residual_risk
 
-Then, as separate sections kept distinct from each other:
-  - Summary (what the packet claimed, and whether it holds)
-  - Findings — each with severity, file:line, why it matters, expected fix
-  - C++ Architecture Review (checklist vocabulary and summary template)
-  - C++ Performance Review, or one line stating why it does not apply
-  - MCP grounding — which servers and tools you actually called, and any
-    REVIEW ENVIRONMENT FAILURE
-  - Residual risk
+Write the text fields in Markdown. Each finding is posted on its line of the
+commit, so its body must stand on its own.
 
-=== PACKET UNDER REVIEW: ${PACKET} ===
+=== COMMIT UNDER REVIEW: ${COMMIT} ===
 CHECKLISTEOF
 
-  cat "${PACKET}"
+  git show --stat --format='%H%n%an <%ae>%n%ad%n%n%B' "${COMMIT}"
 
-  printf '\n=== END PACKET ===\n\n'
-  printf 'Repository root is the current working directory. Read whatever\n'
-  printf 'source, tests and build files you need to judge the claims above.\n'
+  printf '\n=== END COMMIT SUMMARY ===\n\n'
+  printf 'Repository root is the current working directory. Run git show %s for\n' "${COMMIT}"
+  printf 'the full diff, and read whatever source, tests and build files you need.\n'
 } > "${PROMPT_FILE}"
 
 # ----------------------------------------------------------------------
@@ -223,7 +292,7 @@ CHECKLISTEOF
 # tools are approval-gated in ~/.codex/config.toml. Under a bare 'codex exec'
 # those calls are cancelled and the review proceeds having read no guideline
 # at all. Do not drop this flag.
-echo "codex-review.sh: reviewing ${PACKET}" >&2
+echo "codex-review.sh: reviewing ${COMMIT:0:7}" >&2
 echo "  model:  ${MODEL} (effort ${EFFORT})" >&2
 echo "  output: ${OUTPUT}" >&2
 
@@ -232,6 +301,7 @@ mkdir -p "$(dirname "${OUTPUT}")"
 codex -a on-request exec \
   -m "${MODEL}" \
   -c model_reasoning_effort="\"${EFFORT}\"" \
+  --output-schema "${SCHEMA_FILE}" \
   -o "${OUTPUT}" \
   - < "${PROMPT_FILE}" || {
   RC=$?
@@ -240,5 +310,11 @@ codex -a on-request exec \
 }
 
 [ -s "${OUTPUT}" ] || die "codex produced an empty review — not keeping it"
+python3 -c 'import json, sys; json.load(open(sys.argv[1]))' "${OUTPUT}" \
+  || die "codex's review is not JSON — kept at ${OUTPUT} for inspection, not posted"
 
 echo "codex-review.sh: review written to ${OUTPUT}" >&2
+
+if [ "${POST}" = 1 ]; then
+  python3 scripts/post_commit_review.py "${OUTPUT}" "${COMMIT}"
+fi
