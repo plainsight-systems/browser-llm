@@ -139,7 +139,8 @@ void check_formats(const gguf::TensorIndex& index, Verdict& verdict) {
 }
 
 // Run needs the tokenizer, and the pre-tokenizer when the tokenizer splits
-// text first.
+// text first. One that splits none ignores tokenizer.ggml.pre, as llama.cpp
+// does: its converter writes "default" there for SentencePiece files.
 void check_tokenizer(const gguf::TensorIndex& index, Verdict& verdict) {
     constexpr std::string_view kModelKey = "tokenizer.ggml.model";
     constexpr std::string_view kPreKey = "tokenizer.ggml.pre";
@@ -152,6 +153,8 @@ void check_tokenizer(const gguf::TensorIndex& index, Verdict& verdict) {
         verdict.blockers.push_back(
             {Stage::Run, "tokenizer " + quoted(model_name) + " is not supported"});
     }
+
+    if (algorithm != nullptr && !algorithm->requires_pretokenizer) return;
 
     std::string_view pre_name;
     const auto pre = index.read_string(kPreKey, pre_name);

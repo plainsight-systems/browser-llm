@@ -284,6 +284,10 @@ CASES = {
     "tokenizer_without_pre": lambda: _one_tensor_with(
         kv(b"general.architecture", STRING, gstr(b"qwen3")),
         kv(b"tokenizer.ggml.model", STRING, gstr(b"gpt2"))),
+    "sentencepiece_default_pre": lambda: _one_tensor_with(
+        kv(b"general.architecture", STRING, gstr(b"gemma3")),
+        kv(b"tokenizer.ggml.model", STRING, gstr(b"llama")),
+        kv(b"tokenizer.ggml.pre", STRING, gstr(b"default"))),
     "unknown_pretokenizer": lambda: _one_tensor_with(
         kv(b"general.architecture", STRING, gstr(b"qwen3")),
         kv(b"tokenizer.ggml.model", STRING, gstr(b"gpt2")),

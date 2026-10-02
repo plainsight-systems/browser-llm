@@ -99,6 +99,13 @@ TEST_CASE("the tokenizer and the pre-tokenizer are judged separately, each by na
                   "pre-tokenizer \"no-such-split\" is not supported"));
 }
 
+TEST_CASE("a tokenizer that splits no text first ignores the pre-tokenizer named") {
+    // llama names "default", which no row lists: it is not judged.
+    const auto verdict = preflight_fixture("sentencepiece_default_pre");
+    CHECK(std::none_of(verdict.blockers.begin(), verdict.blockers.end(),
+                       [](const Blocker& b) { return b.detail.find("tokenizer") != std::string::npos; }));
+}
+
 TEST_CASE("a tokenizer that splits text first is blocked without its pre-tokenizer") {
     CHECK(blocked(preflight_fixture("tokenizer_without_pre"), Stage::Run,
                   "tokenizer \"gpt2\" needs a pre-tokenizer, and the file does not declare tokenizer.ggml.pre"));
@@ -106,7 +113,8 @@ TEST_CASE("a tokenizer that splits text first is blocked without its pre-tokeniz
 
 TEST_CASE("no blocker names a stage the reader alone decides, and every one says something") {
     for (const char* name : {"valid", "no_architecture", "architecture_not_string",
-                             "tokenizer_named", "tokenizer_without_pre", "shared_format"}) {
+                             "tokenizer_named", "tokenizer_without_pre", "sentencepiece_default_pre",
+                             "shared_format"}) {
         CAPTURE(name);
         for (const Blocker& b : preflight_fixture(name).blockers) {
             CHECK(b.stage > Stage::Download);

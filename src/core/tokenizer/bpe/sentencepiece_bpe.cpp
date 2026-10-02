@@ -25,6 +25,8 @@ bool one_character(std::string_view text) noexcept {
 
 }  // namespace
 
+const Algorithm kSentencePiece{"llama", false};
+
 EncodeError SentencePieceBpe::encode(std::string_view text, std::vector<TokenId>& out) const {
     if (text.size() > std::numeric_limits<std::uint32_t>::max()) return EncodeError::TooLong;
 

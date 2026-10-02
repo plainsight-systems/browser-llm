@@ -70,6 +70,10 @@ private:
     std::array<TokenId, 256> byte_tokens_{};   // <0x00> to <0xFF>
 };
 
+// The algorithm, as the capability table lists it. It splits no text first,
+// so it needs no pre-tokenizer.
+extern const Algorithm kSentencePiece;
+
 // Reads the vocabulary and scores, derives the merges, and finds the byte
 // tokens, which must be exactly <0x00> to <0xFF>. Refuses a vocabulary with
 // a one-character token that is neither
