@@ -15,8 +15,9 @@ namespace bllm::tokenizer::bpe {
 // Axis K: changes with a new tokenization algorithm or pre-tokenizer.
 //
 // A BPE model's merge rules: which two adjacent tokens merge, into which
-// token, and how early. A rule's rank is its place in the list; the lower
-// rank merges first.
+// token, and how early. The lower rank merges first. A rule's rank is its
+// place in the list the file holds, or, where the file holds none, given with
+// the rule: rules may then share a rank.
 
 struct MergeRule {
     TokenId left;
@@ -29,6 +30,13 @@ struct Merge {
     TokenId result;
 };
 
+// A rule with the rank it merges at. Below 2^32 - 1, which the merge step
+// reserves for a pair with no rule.
+struct RankedRule {
+    MergeRule rule;
+    std::uint32_t rank;
+};
+
 class MergeTable {
 public:
     MergeTable() = default;
@@ -38,12 +46,23 @@ public:
     // and no vocabulary listed here repeats one.
     [[nodiscard]] static std::optional<MergeTable> from_rules(std::span<const MergeRule> rules);
 
+    // A table of `rules` at the ranks they carry, in any order. Empty if two
+    // rules merge the same pair, or a rank is 2^32 - 1.
+    [[nodiscard]] static std::optional<MergeTable> from_ranked_rules(std::span<const RankedRule> rules);
+
     [[nodiscard]] std::size_t size() const noexcept { return size_; }
 
     // The rule for `left` followed by `right`, if there is one.
     [[nodiscard]] std::optional<Merge> find(TokenId left, TokenId right) const noexcept;
 
 private:
+    // Sized for `rules` rules, every slot free.
+    explicit MergeTable(std::size_t rules);
+
+    // Records `merge` for the pair. False if the pair is recorded already, or
+    // cannot be a key.
+    [[nodiscard]] bool insert(TokenId left, TokenId right, Merge merge);
+
     struct Slot {
         std::uint64_t pair;   // left in the high 32 bits, right in the low; kEmpty if free
         Merge merge;

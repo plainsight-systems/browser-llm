@@ -56,6 +56,24 @@ TEST_CASE("rules that merge the same pair twice make no table") {
     CHECK_FALSE(MergeTable::from_rules(rules).has_value());
 }
 
+TEST_CASE("ranked rules keep the ranks they carry, shared or not") {
+    const bpe::RankedRule rules[] = {{{id(1), id(2), id(9)}, 5}, {{id(0), id(1), id(8)}, 5}, {{id(2), id(2), id(7)}, 0}};
+    const auto table = MergeTable::from_ranked_rules(rules);
+    REQUIRE(table.has_value());
+    CHECK(table->size() == 3);
+    CHECK(table->find(id(1), id(2))->rank == 5);
+    CHECK(table->find(id(0), id(1))->rank == 5);
+    CHECK(table->find(id(2), id(2))->rank == 0);
+    CHECK(table->find(id(2), id(2))->result == id(7));
+}
+
+TEST_CASE("ranked rules that repeat a pair, or take the reserved rank, make no table") {
+    const bpe::RankedRule repeated[] = {{{id(0), id(1), id(8)}, 0}, {{id(0), id(1), id(9)}, 1}};
+    CHECK_FALSE(MergeTable::from_ranked_rules(repeated).has_value());
+    const bpe::RankedRule reserved[] = {{{id(0), id(1), id(8)}, 0xFFFFFFFF}};
+    CHECK_FALSE(MergeTable::from_ranked_rules(reserved).has_value());
+}
+
 TEST_CASE("merges load from the file, each pair's text joined to its result") {
     MergeTable table;
     REQUIRE(load_with_merges({"a b", "ab c"}, table).ok());

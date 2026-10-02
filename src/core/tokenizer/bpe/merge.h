@@ -10,18 +10,20 @@ namespace bllm::tokenizer::bpe {
 
 // Axis K: changes with a new tokenization algorithm or pre-tokenizer.
 //
-// The merge step of byte-level BPE, for one piece of split text.
+// The merge step of BPE, for one run of symbols: in byte-level BPE a piece of
+// split text, one token for each of its bytes; in SentencePiece BPE a stretch
+// of text between special tokens, one token for each of its characters.
 //
-// `symbols` is the piece as tokens, one for each of its bytes. Merging
-// repeatedly finds the adjacent pair whose rule ranks lowest — the rule the
-// file lists earliest — and replaces the two with the token the rule makes.
-// When the same pair occurs more than once, the leftmost merges first, and a
-// pair that shares a token with one already merged no longer exists. Merging
-// stops when no adjacent pair has a rule. The tokens left are appended to
-// `out`, after whatever it already holds.
+// Merging repeatedly finds the adjacent pair whose rule ranks lowest and
+// replaces the two with the token the rule makes. When pairs tie — the same
+// pair more than once, or two pairs whose rules share a rank — the leftmost
+// merges first, and a pair that shares a token with one already merged no
+// longer exists. Merging stops when no adjacent pair has a rule. The tokens
+// left are appended to `out`, after whatever it already holds.
 //
-// One piece can be long: a word of 10,000 letters is one piece. The cost must
-// not grow with the square of the piece's length.
+// A run can be long: a word of 10,000 letters is one piece, and SentencePiece
+// merges a whole paragraph at once. The cost must not grow with the square of
+// the run's length.
 //
 // Optimization (practice): two strategies by length, as tiktoken and Hugging
 // Face tokenizers both choose. A short piece is rescanned, its pair ranks in

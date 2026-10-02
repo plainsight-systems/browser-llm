@@ -28,6 +28,12 @@ MergeRule rule(std::uint32_t left, std::uint32_t right, std::uint32_t result) {
     return {t(left), t(right), t(result)};
 }
 
+MergeTable ranked(std::initializer_list<bpe::RankedRule> rules) {
+    auto made = MergeTable::from_ranked_rules(std::vector<bpe::RankedRule>(rules));
+    REQUIRE(made.has_value());
+    return *made;
+}
+
 std::vector<TokenId> tokens(std::initializer_list<std::uint32_t> ids) {
     std::vector<TokenId> out;
     for (const std::uint32_t id : ids) out.push_back(t(id));
@@ -87,6 +93,15 @@ TEST_CASE("a repeated pair merges leftmost first, without overlapping") {
     CHECK(merged(table({rule(a, a, aa)}), {a, a, a}) == tokens({aa, a}));
     CHECK(merged(table({rule(a, a, aa)}), {a, a, a, a}) == tokens({aa, aa}));
     CHECK(merged(table({rule(a, a, aa), rule(aa, aa, aaaa)}), {a, a, a, a, a}) == tokens({aaaa, a}));
+}
+
+TEST_CASE("two pairs whose rules share a rank merge leftmost first") {
+    // a b and b c rank alike: a b is to the left, so it merges, and b c no
+    // longer exists. The order the rules are given in does not matter.
+    CHECK(merged(ranked({{rule(a, b, ab), 0}, {rule(b, c, bc), 0}}), {a, b, c}) == tokens({ab, c}));
+    CHECK(merged(ranked({{rule(b, c, bc), 0}, {rule(a, b, ab), 0}}), {a, b, c}) == tokens({ab, c}));
+    // A lower rank still wins, wherever it is.
+    CHECK(merged(ranked({{rule(a, b, ab), 1}, {rule(b, c, bc), 0}}), {a, b, c}) == tokens({a, bc}));
 }
 
 TEST_CASE("merged tokens are appended after what the output holds") {

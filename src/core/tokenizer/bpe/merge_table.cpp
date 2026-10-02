@@ -1,5 +1,6 @@
 #include "core/tokenizer/bpe/merge_table.h"
 
+#include <limits>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -24,30 +25,47 @@ constexpr std::uint64_t kGolden = 0x9E3779B97F4A7C15;
 
 }  // namespace
 
-std::optional<MergeTable> MergeTable::from_rules(std::span<const MergeRule> rules) {
+MergeTable::MergeTable(std::size_t rules) {
     // The smallest power of two that keeps the table at most three quarters full.
     std::size_t slots = 16;
     unsigned bits = 4;
-    while (slots * 3 < rules.size() * 4) {
+    while (slots * 3 < rules * 4) {
         slots *= 2;
         ++bits;
     }
-    MergeTable table;
-    table.slots_.assign(slots, Slot{kEmpty, {}});
-    table.shift_ = 64 - bits;
-    const std::size_t mask = slots - 1;
+    slots_.assign(slots, Slot{kEmpty, {}});
+    shift_ = 64 - bits;
+}
+
+bool MergeTable::insert(TokenId left, TokenId right, Merge merge) {
+    const std::uint64_t key = pair_key(left, right);
+    if (key == kEmpty) return false;
+    const std::size_t mask = slots_.size() - 1;
+    std::size_t at = static_cast<std::size_t>((key * kGolden) >> shift_);
+    while (slots_[at].pair != kEmpty) {
+        if (slots_[at].pair == key) return false;   // the pair repeats
+        at = (at + 1) & mask;
+    }
+    slots_[at] = {key, merge};
+    ++size_;
+    return true;
+}
+
+std::optional<MergeTable> MergeTable::from_rules(std::span<const MergeRule> rules) {
+    MergeTable table(rules.size());
     for (std::size_t rank = 0; rank < rules.size(); ++rank) {
         const MergeRule& r = rules[rank];
-        const std::uint64_t key = pair_key(r.left, r.right);
-        if (key == kEmpty) return std::nullopt;
-        std::size_t at = static_cast<std::size_t>((key * kGolden) >> table.shift_);
-        while (table.slots_[at].pair != kEmpty) {
-            if (table.slots_[at].pair == key) return std::nullopt;   // the pair repeats
-            at = (at + 1) & mask;
-        }
-        table.slots_[at] = {key, {static_cast<std::uint32_t>(rank), r.result}};
+        if (!table.insert(r.left, r.right, {static_cast<std::uint32_t>(rank), r.result})) return std::nullopt;
     }
-    table.size_ = rules.size();
+    return table;
+}
+
+std::optional<MergeTable> MergeTable::from_ranked_rules(std::span<const RankedRule> rules) {
+    MergeTable table(rules.size());
+    for (const RankedRule& r : rules) {
+        if (r.rank == std::numeric_limits<std::uint32_t>::max()) return std::nullopt;
+        if (!table.insert(r.rule.left, r.rule.right, {r.rank, r.rule.result})) return std::nullopt;
+    }
     return table;
 }
 
