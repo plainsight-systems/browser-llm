@@ -12,7 +12,8 @@
       "binaryDir": "${sourceDir}/build/native-debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "BLLM_ENABLE_DIAGNOSTICS": "ON"
       }
     },
     {
@@ -55,7 +56,8 @@
       "binaryDir": "${sourceDir}/build/native-sanitize",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_CXX_FLAGS": "-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all"
+        "CMAKE_CXX_FLAGS": "-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all",
+        "BLLM_ENABLE_DIAGNOSTICS": "ON"
       }
     }
   ],
