@@ -171,6 +171,16 @@ the guidelines behind them by ID. A design commit is headers only, reviewed
 before anything is implemented. Every optimization is labelled
 "Optimization (browser)" or "Optimization (practice)" with its reason.
 
+Scope (docs/decisions/MEMORY.md): Charlotte demonstrates an inference harness
+and its optimizations; it is not a product. There is one target, the
+development machine at WebGPU's default limits, and figures are labelled with
+the machine and build they came from. Optimizations are designed in, not held
+until a baseline exists; they are measured on that machine once the path runs
+end to end. Do not raise findings that ask for a target matrix, a
+weakest-device budget, regression baselines, or measurements before an
+optimization may land. Do raise a claim of measured performance that has no
+measurement behind it.
+
 Governance: AGENTS.md at the repo root, and docs/decisions/governance/ (a
 submodule). The no-facades rule is central: unimplemented paths must fail
 explicitly, and documentation must not describe behavior that does not exist.
