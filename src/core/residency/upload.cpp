@@ -7,6 +7,7 @@
 
 #include "core/diagnostics.h"
 #include "core/gpu/callback_mode.h"
+#include "core/gpu/userdata.h"
 
 namespace bllm::residency {
 
@@ -47,17 +48,8 @@ struct UploadState {
 
 namespace {
 
-// A callback's record crosses WebGPU's C interface as userdata. These are the
-// only two places ownership becomes a raw pointer and back (I.11, R.11).
-template <typename T>
-void* hand_off(std::unique_ptr<T> record) {
-    return record.release();
-}
-
-template <typename T>
-std::unique_ptr<T> take_back(void* userdata) {
-    return std::unique_ptr<T>(static_cast<T*>(userdata));
-}
+using gpu::hand_off;
+using gpu::take_back;
 
 std::string to_string(WGPUStringView view) {
     if (view.data == nullptr) return {};
