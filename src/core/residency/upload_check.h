@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <string>
 #include <vector>
@@ -23,9 +24,14 @@ namespace bllm::residency {
 //
 //   - What each range should hold is regenerated, not remembered: once upload
 //     has finished, the page streams the cached file a second time, and a
-//     fresh PieceWriter over the same routes turns it into the same writes
-//     upload issued — it is deterministic (piece_writer.h). Nothing the size
-//     of the model is kept to compare against.
+//     fresh PieceWriter over the routes the Upload itself used — taken from
+//     it, never passed in beside it, so the check cannot be pointed at other
+//     routes and pass having compared nothing — turns it into the same writes
+//     upload issued; it is deterministic (piece_writer.h). Nothing the size of
+//     the model is kept to compare against.
+//   - Its callbacks keep the state they need alive on their own, as Upload's
+//     do, so destroying a check with a comparison pending reports Cancelled
+//     instead of touching freed memory (upload.h).
 //   - For each chunk, every write's range is copied into one mappable staging
 //     buffer, back to back, in one command buffer; the staging buffer is
 //     mapped once, and each range is compared with the write's bytes. The
@@ -59,6 +65,7 @@ namespace bllm::residency {
 
 enum class CheckError {
     Ok,
+    Cancelled,          // the check was destroyed before the comparison ended
     DeviceLost,
     MapFailed,          // the staging buffer could not be mapped
     OutOfOrder,         // a chunk did not start where the last one ended
@@ -79,10 +86,12 @@ public:
     UploadCheck(const UploadCheck&) = delete;
     UploadCheck& operator=(const UploadCheck&) = delete;
 
-    // Checks the buffers `upload` filled, which must have finished. Takes its
-    // own reference to the device, as Upload does. `max_chunk` as for Upload.
-    UploadCheck(WGPUDevice device, const Upload& upload, std::span<const Route> routes,
-                const gguf::TensorIndex& index, std::size_t max_chunk);
+    // Checks the buffers `upload` filled, with the routes it used. Takes its
+    // own reference to upload's device. `index` names the tensors in a
+    // mismatch. Preconditions: `upload` has finished, and it and `index`
+    // outlive the check — upload owns the buffers being checked, so it must
+    // anyway. `max_chunk` as for Upload.
+    UploadCheck(const Upload& upload, const gguf::TensorIndex& index, std::size_t max_chunk);
 
     // Compares the ranges the chunk at `file_offset` covers; `accepted` once
     // they are compared and the page may send the next.
@@ -103,6 +112,7 @@ private:
     gpu::Buffer staging_;     // MAP_READ | COPY_DST, sized to the largest chunk's writes
     std::vector<Write> writes_;
     std::vector<Mismatch> mismatches_;
+    std::shared_ptr<struct CheckState> pending_;   // shared with callbacks in flight
     CheckError failed_ = CheckError::Ok;
 };
 

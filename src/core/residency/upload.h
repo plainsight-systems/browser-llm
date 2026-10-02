@@ -40,19 +40,31 @@ namespace bllm::residency {
 //   - At most two chunks are in flight. A chunk is acknowledged when the
 //     queue has finished the chunk before it (wgpuQueueOnSubmittedWorkDone),
 //     and the page sends the next only on acknowledgement, so the browser
-//     stages at most two chunks' bytes for the GPU while the page reads the
-//     next from the cache.
-//     Optimization (practice): reading chunk n + 1 overlaps copying chunk n,
-//     with in-flight memory bounded, as GPU.7 describes; waiting on every
-//     chunk would leave the GPU's copy engine idle between them.
-//   - Failure is a value (E.27): out of memory, the device lost, a chunk out
-//     of order, or the file ending short. After a failure, later calls report
-//     it and write nothing; the buffers are released with the Upload (R.1).
+//     stages at most two chunks' bytes for the GPU whatever happens.
+//     Optimization (practice): this is built so that the page's read of chunk
+//     n + 1 can overlap the GPU's copy of chunk n, as GPU.7 describes;
+//     waiting on every chunk would leave the copy engine idle between them.
+//     Whether the overlap happens is the browser's to decide, so it is
+//     claimed only for a target whose timeline shows it (measured below).
+//   - Failure is a value (E.27), one for each cause, mapped exactly: the
+//     out-of-memory scope's error is OutOfMemory, the validation scope's
+//     Validation, an internal error Internal; a scope that cannot be popped,
+//     and any callback whose status says the device is gone, DeviceLost; a
+//     chunk out of order, too large, or the file ending short, their own
+//     values; routes' refusals, theirs. After a failure, later calls report it
+//     and write nothing; the buffers are released with the Upload (R.1).
+//   - The state a callback needs lives apart from the Upload, shared between
+//     the Upload and each callback still in flight (R.20, R.21: the one
+//     shared ownership here, because either may end first). Destroying an
+//     Upload with work queued marks that state cancelled; each pending
+//     callback still fires exactly once, with Cancelled, and touches nothing
+//     freed. The state holds its own device reference, so the device outlives
+//     every callback too.
 //   - Completion is reported through callbacks and never waited for: the
 //     build does not use ASYNCIFY, and the worker must stay responsive.
 //   - The Upload holds its own counted reference to the device
 //     (wgpuDeviceAddRef, released by its RAII handle), so the device outlives
-//     the Upload and every callback it has queued, whoever else lets it go.
+//     the Upload, whoever else lets it go.
 //
 // Measured, and reported with the target it ran on — desktop-chromium-floor
 // (Chrome or Edge stable, an integrated GPU, WebGPU's default limits) and
@@ -76,6 +88,9 @@ namespace bllm::residency {
 //            a raw WGPUDevice would leave its lifetime to someone else.
 //     I.11, R.20  Never transfer ownership by a raw pointer; use unique_ptr
 //            to represent ownership — begin hands the Upload to its callback.
+//     R.21   Prefer unique_ptr over shared_ptr unless you need to share
+//            ownership — the callback state is the one shared owner, since
+//            the Upload or a callback in flight may end first.
 //     E.27   Use error codes systematically — UploadError, one value per
 //            failure, and every call after a failure reports it.
 //   C++ performance guidelines
@@ -91,11 +106,14 @@ namespace bllm::residency {
 // caller can tell a format this build lacks from a bad file (E.27).
 enum class UploadError {
     Ok,
+    Cancelled,          // the Upload was destroyed with this work pending
     UnsupportedFormat,  // routes.h: a tensor's format is not listed
     OutOfRange,         // routes.h: a piece reads past the file or its buffer
     NotACandidate,      // routes.h: a confirmed duplicate the plan never marked
-    OutOfMemory,        // a planned buffer could not be created
-    DeviceLost,
+    OutOfMemory,        // the out-of-memory scope caught an error
+    Validation,         // the validation scope caught an error: a defect here, not in the file
+    Internal,           // the device reported an internal error
+    DeviceLost,         // the device was lost, or a scope could not be popped
     OutOfOrder,         // a chunk did not start where the last one ended
     ChunkTooLarge,
     Unfinished,         // the file ended before every weight was filled
@@ -144,6 +162,12 @@ public:
     // was left uncreated.
     [[nodiscard]] WGPUBuffer buffer(BufferIndex index) const noexcept;
 
+    // The routes the upload carried out, in file order; upload_check.h
+    // checks exactly these.
+    [[nodiscard]] std::span<const Route> routes() const noexcept { return routes_; }
+
+    [[nodiscard]] WGPUDevice device() const noexcept { return device_.get(); }
+
 private:
     Upload(gpu::DeviceHandle device, ResidencyPlan plan, std::vector<Route> routes, std::size_t max_chunk);
 
@@ -153,6 +177,7 @@ private:
     PieceWriter writer_;
     std::vector<gpu::Buffer> buffers_;
     std::vector<Write> writes_;   // reused across chunks
+    std::shared_ptr<struct UploadState> pending_;   // shared with callbacks in flight
     UploadError failed_ = UploadError::Ok;
 };
 

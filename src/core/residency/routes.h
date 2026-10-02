@@ -14,9 +14,9 @@ namespace bllm::residency {
 
 // Axis D: changes with the WebGPU surface or the limits a device grants.
 //
-// Where every byte of the file goes. A pure function of the tensor index, the
-// residency plan and the duplicates the page has confirmed: one route for
-// each piece of each weight, in file order, saying which bytes of the file
+// Where every byte of the file goes. A deterministic function, with no I/O, of
+// the tensor index, the residency plan and the duplicates the page has
+// confirmed: one route for each piece of each weight, in file order, saying which bytes of the file
 // it takes and where in which buffer they land. No GPU, no browser; upload
 // carries the routes out (upload.h), and they are tested without a device.
 //
@@ -45,8 +45,6 @@ namespace bllm::residency {
 //
 // Guidelines, by corpus:
 //   C++ Core Guidelines
-//     F.8    Prefer pure functions — no GPU, no I/O, so every rule is tested
-//            natively.
 //     E.27   If you can't throw exceptions, use error codes systematically —
 //            RouteError, with the tensor at fault as its subject.
 //     ES.103 Don't overflow — ranges are checked by subtraction.
@@ -63,6 +61,7 @@ namespace bllm::residency {
 using FindFormat = const formats::Format* (*)(gguf::TensorType type) noexcept;
 
 struct Route {
+    gguf::TensorId tensor;       // whose piece it is
     std::uint64_t file_offset;   // where its blocks start in the file
     std::uint64_t blocks;        // how many whole blocks it takes
     const formats::DeviceLayout* layout;

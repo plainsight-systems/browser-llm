@@ -5,7 +5,7 @@
 #include "core/gguf/types.h"
 
 namespace bllm::arch { struct Architecture; }
-namespace bllm::formats { struct Format; }
+namespace bllm::formats { class Format; }
 namespace bllm::tokenizer { struct Algorithm; struct PreTokenizer; }
 
 namespace bllm::capability {

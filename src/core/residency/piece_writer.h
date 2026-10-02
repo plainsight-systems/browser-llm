@@ -36,9 +36,17 @@ namespace bllm::residency {
 //     a word holds back those bytes for the next chunk; the run that ends the
 //     piece is padded with zeros to the word, which the piece's bound length
 //     covers.
-//   - Rearranged bytes are written from one staging area, allocated once at
-//     the size of the largest chunk and reused: the heap holds a chunk and its
-//     staging, whatever the file (WASM.1, WASM.9, MEM.9).
+//   - Rearranged bytes are written from one staging area, allocated once and
+//     reused: the heap holds a chunk and its staging, whatever the file
+//     (WASM.1, WASM.9, MEM.9). Its size is proved from the routes, not
+//     guessed: what one chunk stages is at most the chunk itself, plus one
+//     block held over from the chunk before, plus, for each route the chunk
+//     reaches, up to 3 bytes held back and 3 bytes of padding in each of its
+//     streams. Every route could end inside one chunk — a file of adjacent
+//     one-block tensors does — so the bound counts all of them:
+//       max_chunk + kMaxBlockBytes + routes × kMaxStreams × 6,
+//     8,418 bytes beyond the chunk for Gemma 3's 342 routes. A native test
+//     drives a chunk of many adjacent one-block routes to that bound.
 //   - Bytes outside every route — the header, the padding between tensors —
 //     are skipped. A chunk that does not start where the last one ended, or
 //     the file ending with a route unfilled, is a named failure.
@@ -109,7 +117,7 @@ private:
     std::size_t held_count_ = 0;
     std::array<Tail, formats::kMaxStreams> tails_{};   // one for each of route_'s streams
     // Where rearranged bytes are written from: allocated once, at
-    // construction, at max_chunk plus a block, and never grown (MEM.9).
+    // construction, at the bound above, and never grown (MEM.9).
     std::vector<std::byte> staging_;
     // Set by the first failure; from then on accept refuses every chunk.
     WriteError failed_ = WriteError::Ok;

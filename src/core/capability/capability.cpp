@@ -6,6 +6,7 @@
 #include "core/arch/gemma3/gemma3.h"
 #include "core/arch/llama/llama.h"
 #include "core/arch/qwen3/qwen3.h"
+#include "core/formats/format.h"
 #include "core/tokenizer/bpe/byte_level_bpe.h"
 #include "core/tokenizer/bpe/sentencepiece_bpe.h"
 #include "core/tokenizer/pretokenize.h"
@@ -38,6 +39,14 @@ constexpr std::array kArchitectures{
     Row<std::string_view, arch::Architecture>{"qwen3", &arch::kQwen3},
 };
 constexpr std::array<Row<gguf::TensorType, formats::Format>, 0> kFormats{};
+// Every format row names its Format's own type, and the Format's layout is
+// its type's (format.h): preflight and upload cannot disagree on a format.
+static_assert([] {
+    for (const auto& row : kFormats) {
+        if (row.implementation->type() != row.identifier) return false;
+    }
+    return true;
+}());
 constexpr std::array kTokenizers{
     Row<std::string_view, tokenizer::Algorithm>{"gpt2", &tokenizer::bpe::kByteLevel},
     Row<std::string_view, tokenizer::Algorithm>{"llama", &tokenizer::bpe::kSentencePiece},
