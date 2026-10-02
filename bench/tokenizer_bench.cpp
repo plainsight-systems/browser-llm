@@ -2,14 +2,17 @@
 //
 // For each listed model whose tokenizer is byte-level BPE, it times loading
 // and each stage of encoding over the corpus, then whole encodes with and
-// without a piece cache. Every figure is printed with the conditions it was
+// without a piece cache. For each whose tokenizer is SentencePiece BPE, it
+// times loading, encoding, and decoding the tokens back to text through a
+// Utf8Stream. Every figure is printed with the conditions it was
 // measured under (WASM.11): the build, the clock, how many runs were timed
 // and how many warm-up runs were discarded, and the spread around the median.
 // tools/make_bench_corpus.sh pins the corpus and prints its SHA-256; the
 // Makefile prints the machine.
 //
 // It uses only the tokenizer's public interface, and checks that every way
-// of encoding gives the same tokens before it reports any time.
+// of encoding gives the same tokens, and that decoding gives the corpus back,
+// before it reports any time.
 //
 //     charlotte_bench_tokenizer <corpus>
 
@@ -23,6 +26,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "core/capability/capability.h"
@@ -32,6 +36,7 @@
 #include "core/tokenizer/bpe/merge.h"
 #include "core/tokenizer/bpe/merge_table.h"
 #include "core/tokenizer/bpe/piece_cache.h"
+#include "core/tokenizer/bpe/sentencepiece_bpe.h"
 #include "core/tokenizer/nfc.h"
 #include "core/tokenizer/pretokenize.h"
 #include "core/tokenizer/special.h"
@@ -93,7 +98,8 @@ struct Model {
     std::string header;
     std::uint64_t file_size;
     gguf::TensorIndex index;
-    const PreTokenizer* pretokenizer;
+    std::string_view algorithm;                  // "gpt2" or "llama"
+    const PreTokenizer* pretokenizer = nullptr;  // for gpt2
 };
 
 gguf::MemoryByteSource source_of(const Model& m) {
@@ -101,7 +107,7 @@ gguf::MemoryByteSource source_of(const Model& m) {
 }
 
 // The model, if its header is fetched and its tokenizer is byte-level BPE
-// with a pre-tokenizer the harness implements.
+// with a pre-tokenizer the harness implements, or SentencePiece BPE.
 bool open_model(const ModelHeader& h, Model& out) {
     out.id = h.model;
     out.header = read_file(std::string(BLLM_TEST_DATA_DIR) + "/" + std::string(h.data_name));
@@ -109,11 +115,10 @@ bool open_model(const ModelHeader& h, Model& out) {
     if (out.header.empty()) return false;
     auto source = source_of(out);
     if (gguf::read_index(source, out.index).error != gguf::ReadError::Ok) return false;
-    std::string_view algorithm;
+    if (out.index.read_string("tokenizer.ggml.model", out.algorithm) != gguf::MetadataError::Ok) return false;
+    if (out.algorithm == "llama") return true;
+    if (out.algorithm != "gpt2") return false;
     std::string_view pre;
-    if (out.index.read_string("tokenizer.ggml.model", algorithm) != gguf::MetadataError::Ok || algorithm != "gpt2") {
-        return false;
-    }
     if (out.index.read_string("tokenizer.ggml.pre", pre) != gguf::MetadataError::Ok) return false;
     out.pretokenizer = capability::find_pretokenizer(pre);
     return out.pretokenizer != nullptr;
@@ -199,6 +204,41 @@ bool bench_model(const Model& m, std::string_view corpus) {
     return agree;
 }
 
+// Prints the model's row. False if decoding does not give the corpus back.
+bool bench_sentencepiece(const Model& m, std::string_view corpus) {
+    auto source = source_of(m);
+    const Timing load = measure([&] {
+        bpe::SentencePieceBpe fresh;
+        (void)bpe::load_sentencepiece_bpe(source, m.index, fresh);
+    });
+    bpe::SentencePieceBpe spm;
+    (void)bpe::load_sentencepiece_bpe(source, m.index, spm);
+
+    std::vector<TokenId> tokens;
+    const Timing encode = measure([&] {
+        tokens.clear();
+        (void)spm.encode(corpus, tokens);
+    });
+    // A token at a time, as generation streams it.
+    std::string text;
+    std::string bytes;
+    const Timing decode = measure([&] {
+        text.clear();
+        Utf8Stream stream;
+        for (const TokenId t : tokens) {
+            bytes.clear();
+            spm.decode(t, bytes);
+            stream.push(bytes, text);
+        }
+        (void)stream.finish(text);
+    });
+
+    const bool round_trip = text == corpus;
+    std::printf("| %s | %s | %s | %s | %zu | %s |\n", std::string(m.id).c_str(), shown(load).c_str(),
+                shown(encode).c_str(), shown(decode).c_str(), tokens.size(), round_trip ? "yes" : "NO");
+    return round_trip;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -222,21 +262,29 @@ int main(int argc, char** argv) {
     std::printf("Each figure: median in ms of %d timed runs after %d discarded, with the 10th-90th percentile; "
                 "std::chrono::steady_clock.\n\n",
                 kRuns, kWarmUp);
+    std::vector<Model> models;
+    for (const ModelHeader& h : kModelHeaders) {
+        Model m;
+        if (open_model(h, m)) models.push_back(std::move(m));
+    }
+    if (models.empty()) {
+        std::fprintf(stderr, "no listed model's header found under %s; run make test-data\n", BLLM_TEST_DATA_DIR);
+        return 1;
+    }
+
+    bool all_agree = true;
+    std::printf("Byte-level BPE:\n\n");
     std::printf("| model | load | special tokens | NFC | split | merge | encode | cached, cold | cached, warm "
                 "| tokens | all agree |\n");
     std::printf("|---|---|---|---|---|---|---|---|---|---|---|\n");
-
-    bool any = false;
-    bool all_agree = true;
-    for (const ModelHeader& h : kModelHeaders) {
-        Model m;
-        if (!open_model(h, m)) continue;
-        all_agree = bench_model(m, corpus) && all_agree;
-        any = true;
+    for (const Model& m : models) {
+        if (m.algorithm == "gpt2") all_agree = bench_model(m, corpus) && all_agree;
     }
-    if (!any) {
-        std::fprintf(stderr, "no byte-level model header found under %s; run make test-data\n", BLLM_TEST_DATA_DIR);
-        return 1;
+    std::printf("\nSentencePiece BPE (decode: a token at a time through a Utf8Stream):\n\n");
+    std::printf("| model | load | encode | decode | tokens | decodes to the corpus |\n");
+    std::printf("|---|---|---|---|---|---|\n");
+    for (const Model& m : models) {
+        if (m.algorithm == "llama") all_agree = bench_sentencepiece(m, corpus) && all_agree;
     }
     return all_agree ? 0 : 1;
 }
