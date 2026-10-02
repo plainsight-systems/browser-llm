@@ -12,6 +12,19 @@
 
 namespace bllm::testing {
 
+// Test-only: a device acquired as the harness acquires one, for every GPU
+// test. The request is pumped to completion on the calling thread
+// (pump.h), so its callback writes into an Acquired on this stack frame,
+// which outlives it. A device that cannot be had fails the test; it never
+// skips.
+//
+// Guidelines, by corpus:
+//   C++ Core Guidelines
+//     SF.2   A header file must not contain non-inline function definitions —
+//            acquire is inline, so every test file may include it.
+//     F.26   Use a unique_ptr<T> to transfer ownership where a pointer is
+//            needed — the device is the test's, by unique_ptr.
+
 struct Acquired {
     std::unique_ptr<gpu::Device> device;
     std::string error;
