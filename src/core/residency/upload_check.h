@@ -64,7 +64,12 @@ namespace bllm::residency {
 //            and the device reference are RAII handles.
 //     E.27   Use error codes systematically — CheckError, and mismatches as
 //            data, never a log line.
+//     C.21   If you define or =delete any copy, move, or destructor
+//            function, define or =delete them all — its destructor cancels
+//            pending callbacks, so copy and move are each deleted, not left
+//            implicit; its owner holds it in place.
 //   C++ performance guidelines
+//     COPY.4 Never declare only a destructor — the same four deletions.
 //     WASM.9 Stream assets in bounded chunks; its Caveats: "A sampled
 //            verification proves very little... Verify every byte, in a
 //            diagnostic pass, or do not claim integrity." — every byte written
@@ -99,6 +104,8 @@ class UploadCheck {
 public:
     UploadCheck(const UploadCheck&) = delete;
     UploadCheck& operator=(const UploadCheck&) = delete;
+    UploadCheck(UploadCheck&&) = delete;
+    UploadCheck& operator=(UploadCheck&&) = delete;
 
     // Checks the buffers `upload` filled, with the routes it used, naming
     // tensors by the names it kept. Takes its own references to upload's

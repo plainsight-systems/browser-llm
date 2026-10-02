@@ -141,7 +141,12 @@ namespace bllm::residency {
 //            the Upload or a callback in flight may end first.
 //     E.27   Use error codes systematically — UploadError, one value per
 //            failure, and every call after a failure reports it.
+//     C.21   If you define or =delete any copy, move, or destructor
+//            function, define or =delete them all — its destructor cancels
+//            pending callbacks, so copy and move are each deleted, not left
+//            implicit; begin hands it out by unique_ptr.
 //   C++ performance guidelines
+//     COPY.4 Never declare only a destructor — the same four deletions.
 //     GPU.9  Suballocate GPU memory from large heaps — a few large buffers,
 //            as the plan packs them.
 //     GPU.7  Pipeline CPU and GPU work with queues, fences and multi-buffered
@@ -205,6 +210,8 @@ class Upload {
 public:
     Upload(const Upload&) = delete;
     Upload& operator=(const Upload&) = delete;
+    Upload(Upload&&) = delete;
+    Upload& operator=(Upload&&) = delete;
 
     // Plans the routes, creates the buffers, and calls `ready` once the
     // device has confirmed it holds them. Ownership leaves by unique_ptr, so
