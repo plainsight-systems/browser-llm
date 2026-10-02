@@ -84,7 +84,8 @@ public:
 
     // Requests a device from `instance`, keeping a reference of its own to it.
     // Natively the caller runs the callbacks, through the same instance, with
-    // wgpuInstanceProcessEvents (callback_mode.h).
+    // wgpuInstanceProcessEvents (callback_mode.h). A null instance is a
+    // failure reported through `callback`, at once, like any other (E.27).
     static void request(WGPUInstance instance, RequestCallback callback, void* userdata);
 
     // The same, from an instance of its own: the browser's path, where the

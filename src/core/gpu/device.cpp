@@ -36,6 +36,10 @@ const char* backend_name(WGPUBackendType type) {
 // WebGPU reports validation and out-of-memory failures here rather than by
 // returning null from most creation calls. Without this they are silent, and
 // a failed pipeline would surface only as wrong output much later.
+//
+// It runs spontaneously, natively perhaps on another thread
+// (callback_mode.h), so it touches no harness state: it only writes to
+// stderr. What the harness must act on is caught by an error scope.
 void on_uncaptured_error(WGPUDevice const*, WGPUErrorType type,
                          WGPUStringView message, void*, void*) {
     std::fprintf(stderr, "[webgpu] uncaptured error (type %d): %s\n",
@@ -108,6 +112,10 @@ void Device::request(RequestCallback callback, void* userdata) {
 }
 
 void Device::request(WGPUInstance instance, RequestCallback callback, void* userdata) {
+    if (instance == nullptr) {
+        callback(nullptr, "no WebGPU instance was given", userdata);
+        return;
+    }
     // Designated initialisers: positional init here silently misaligned when a
     // field was added, and the compiler only caught it because the types
     // happened to disagree.

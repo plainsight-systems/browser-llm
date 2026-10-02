@@ -5,6 +5,7 @@
 #include <string>
 #include <utility>
 
+#include "core/gpu/callback_mode.h"
 #include "core/gpu/device.h"
 #include "core/gpu/self_check.h"
 #include "core/gpu/wgpu_handles.h"
@@ -53,6 +54,22 @@ TEST_CASE("a device is acquired natively, with the limits the harness requires")
     CHECK(device->limits().max_buffer_size > 0);
 }
 
+TEST_CASE("no instance is a failure reported through the callback, at once") {
+    Acquired acquired;
+    gpu::Device::request(
+        nullptr,
+        [](std::unique_ptr<gpu::Device> device, const char* error, void* userdata) {
+            auto& a = *static_cast<Acquired*>(userdata);
+            a.device = std::move(device);
+            if (error != nullptr) a.error = error;
+            a.done = true;
+        },
+        &acquired);
+    CHECK(acquired.done);
+    CHECK(acquired.device == nullptr);
+    CHECK(acquired.error == "no WebGPU instance was given");
+}
+
 TEST_CASE("a lost device says so, and why, even to holders that outlive it") {
     const gpu::Instance instance{wgpuCreateInstance(nullptr)};
     REQUIRE(instance);
@@ -77,6 +94,54 @@ TEST_CASE("a device released without being destroyed is reported lost too") {
     device.reset();   // the last reference: WebGPU destroys the device
     pump_until(instance.get(), status->lost, "the device-lost callback");
     CHECK(status->reason == WGPUDeviceLostReason_Destroyed);
+}
+
+TEST_CASE("a lost device cannot map a buffer, though its queue still reports work done") {
+    // What Upload's success rests on (residency/upload.h): finished work is no
+    // evidence the device is alive, a completed mapping is.
+    const gpu::Instance instance{wgpuCreateInstance(nullptr)};
+    REQUIRE(instance);
+    auto device = acquire(instance.get());
+    WGPUBufferDescriptor desc = WGPU_BUFFER_DESCRIPTOR_INIT;
+    desc.size = 4;
+    desc.usage = WGPUBufferUsage_MapRead | WGPUBufferUsage_CopyDst;
+    const gpu::Buffer buffer{wgpuDeviceCreateBuffer(device->handle(), &desc)};
+    REQUIRE(buffer);
+    wgpuDeviceDestroy(device->handle());
+
+    struct Seen {
+        bool done = false;
+        WGPUQueueWorkDoneStatus status{};
+    } work;
+    WGPUQueueWorkDoneCallbackInfo work_cb = WGPU_QUEUE_WORK_DONE_CALLBACK_INFO_INIT;
+    work_cb.mode = gpu::kCallbackMode;
+    work_cb.userdata1 = &work;
+    work_cb.callback = [](WGPUQueueWorkDoneStatus status, WGPUStringView, void* ud, void*) {
+        auto& w = *static_cast<Seen*>(ud);
+        w.status = status;
+        w.done = true;
+    };
+    wgpuQueueOnSubmittedWorkDone(device->queue(), work_cb);
+    pump_until(instance.get(), work.done, "queued work on a lost device");
+    MESSAGE("work done on a lost device: status " << static_cast<int>(work.status));
+    CHECK(work.status == WGPUQueueWorkDoneStatus_Success);   // no evidence of life
+
+    struct Mapped {
+        bool done = false;
+        WGPUMapAsyncStatus status{};
+    } mapped;
+    WGPUBufferMapCallbackInfo map_cb = WGPU_BUFFER_MAP_CALLBACK_INFO_INIT;
+    map_cb.mode = gpu::kCallbackMode;
+    map_cb.userdata1 = &mapped;
+    map_cb.callback = [](WGPUMapAsyncStatus status, WGPUStringView, void* ud, void*) {
+        auto& m = *static_cast<Mapped*>(ud);
+        m.status = status;
+        m.done = true;
+    };
+    wgpuBufferMapAsync(buffer.get(), WGPUMapMode_Read, 0, 4, map_cb);
+    pump_until(instance.get(), mapped.done, "a mapping on a lost device");
+    MESSAGE("mapping on a lost device: status " << static_cast<int>(mapped.status));
+    CHECK(mapped.status != WGPUMapAsyncStatus_Success);
 }
 
 TEST_CASE("the self-check runs vector_add on the GPU and reads back every value correctly") {
