@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "core/formats/device_layout.h"
+#include "core/formats/format.h"
 #include "core/gguf/index.h"
 #include "core/residency/plan.h"
 
@@ -21,7 +22,12 @@ namespace bllm::residency {
 //
 //   - A route takes a run of whole rows, so whole blocks, as the plan's piece
 //     does, and lays them out as its format's device layout says
-//     (formats/device_layout.h). Its destination length is the piece's.
+//     (formats/device_layout.h). Its destination length is the piece's bound
+//     length, which that layout fills exactly.
+//   - A tensor's format is found through the lookup the caller passes: the
+//     capability table's find_format in the harness, so the formats upload
+//     routes are exactly the ones preflight passed; a table of the test's own
+//     in a test. A format it does not list is a named failure.
 //   - Every offset and length is checked against the file's size before any
 //     byte arrives, by subtraction so no sum can wrap (WASM.9, ES.103). A
 //     route that would read past the file, or write past its buffer, is a
@@ -53,19 +59,22 @@ namespace bllm::residency {
 //            every offset is validated against the file's authoritative size,
 //            with checked arithmetic, before any byte arrives.
 
+// Finds the format a tensor type runs as, or null if it runs as none.
+using FindFormat = const formats::Format* (*)(gguf::TensorType type) noexcept;
+
 struct Route {
     std::uint64_t file_offset;   // where its blocks start in the file
     std::uint64_t blocks;        // how many whole blocks it takes
     const formats::DeviceLayout* layout;
     BufferIndex buffer;
     std::uint64_t buffer_offset;   // where the piece starts in its buffer
-    std::uint64_t length;          // the piece's length: its bytes, rounded up to 4
+    std::uint64_t length;          // the piece's bound length: its bytes, rounded up to 4
 };
 
 enum class RouteError {
     Ok,
-    // A tensor whose format has no device layout. The subject names it.
-    NoDeviceLayout,
+    // A tensor whose format the lookup does not list. The subject names it.
+    UnsupportedFormat,
     // A piece that would read past the end of the file, or write past the
     // end of its buffer. The subject names the tensor.
     OutOfRange,
@@ -86,7 +95,8 @@ struct RouteResult {
 // it copies, and the buffers only it used are left uncreated (size 0). `out`
 // and `routes` are left untouched unless it succeeds.
 [[nodiscard]] RouteResult plan_routes(const gguf::TensorIndex& index, const ResidencyPlan& plan,
-                                      std::uint64_t file_size, std::span<const gguf::TensorId> confirmed,
+                                      std::uint64_t file_size, FindFormat find_format,
+                                      std::span<const gguf::TensorId> confirmed,
                                       std::vector<Route>& routes, ResidencyPlan& out);
 
 }  // namespace bllm::residency

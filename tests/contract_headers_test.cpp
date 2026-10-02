@@ -17,7 +17,6 @@
 #include "core/residency/piece_writer.h"
 #include "core/residency/plan.h"
 #include "core/residency/routes.h"
-#include "core/residency/upload_check.h"
 #include "core/residency/weight_view.h"
 #include "core/runtime/runtime.h"
 #include "core/sampler/sampler.h"

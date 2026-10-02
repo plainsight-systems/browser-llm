@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <span>
 
@@ -16,6 +17,12 @@ namespace bllm::formats {
 // Upload writes a piece that way (residency/piece_writer.h) and a format's
 // unpack reads it that way.
 //
+// A layout is part of its format: each Format names its own (format.h), and
+// the capability table, which lists the formats this build runs, is the one
+// place a layout is found. This file holds the layouts' shape, the layouts
+// the listed models need, and the compile-time check that each keeps its
+// promise; it is not a second table of what is supported.
+//
 // Optimization (browser): WGSL reads a storage buffer in aligned 32-bit
 // words. An 18-byte block straddles them, so reading one stored whole takes
 // two loads and a shift for every field that crosses a word; as streams,
@@ -28,15 +35,15 @@ namespace bllm::formats {
 // A layout's streams cover its block exactly, each byte in one stream. At most
 // the last stream's width may leave a stream unaligned, so a piece of n blocks
 // takes exactly its stored bytes rounded up to 4 — the length the residency
-// plan already gives it — whatever n is. That is checked at compile time
-// below, for every layout listed (P.5).
+// plan binds it at (plan.h) — whatever n is, odd or even. That is checked at
+// compile time below, for every layout here (P.5).
 //
 // Guidelines, by corpus:
 //   C++ Core Guidelines
 //     P.5    Prefer compile-time checking to run-time checking — each layout's
 //            promise is a static_assert, not a test.
 //     Con.5  Use constexpr for values that can be computed at compile time —
-//            the layouts are a constexpr table.
+//            the layouts are constexpr constants.
 //   C++ performance guidelines
 //     GPU.2  Shape data for coalesced lane access before tuning the kernel —
 //            the streams.
@@ -55,9 +62,15 @@ struct DeviceLayout {
     std::span<const Stream> streams;   // in device order
 };
 
+// The bounds every layout here keeps, which the piece writer sizes what it
+// holds between chunks by: one block, and a few bytes of each stream.
+inline constexpr std::size_t kMaxBlockBytes = 210;   // Q6_K's
+inline constexpr std::size_t kMaxStreams = 4;        // Q6_K's
+
 // The layouts of the formats the listed models use: F32 for norms, Q4_0 and
 // Q4_1 for most weights, Q8_0 and Q6_K for embeddings. ggml's block structs
-// (ggml-common.h) give each field's place in the stored block.
+// (ggml-common.h) give each field's place in the stored block. Each format's
+// Format names its own, once it is implemented.
 namespace detail {
 inline constexpr Stream kF32[] = {{0, 4}};
 inline constexpr Stream kQ4_0[] = {{2, 16}, {0, 2}};                     // qs, then d
@@ -66,25 +79,17 @@ inline constexpr Stream kQ8_0[] = {{2, 32}, {0, 2}};                     // qs, 
 inline constexpr Stream kQ6_K[] = {{0, 128}, {128, 64}, {192, 16}, {208, 2}};   // ql, qh, scales, d
 }  // namespace detail
 
-inline constexpr DeviceLayout kDeviceLayouts[] = {
-    {gguf::TensorType::F32, 4, detail::kF32},
-    {gguf::TensorType::Q4_0, 18, detail::kQ4_0},
-    {gguf::TensorType::Q4_1, 20, detail::kQ4_1},
-    {gguf::TensorType::Q8_0, 34, detail::kQ8_0},
-    {gguf::TensorType::Q6_K, 210, detail::kQ6_K},
-};
-
-// The layout for `type`, or null if none is listed.
-[[nodiscard]] constexpr const DeviceLayout* device_layout(gguf::TensorType type) noexcept {
-    for (const DeviceLayout& layout : kDeviceLayouts) {
-        if (layout.type == type) return &layout;
-    }
-    return nullptr;
-}
+inline constexpr DeviceLayout kF32Layout{gguf::TensorType::F32, 4, detail::kF32};
+inline constexpr DeviceLayout kQ4_0Layout{gguf::TensorType::Q4_0, 18, detail::kQ4_0};
+inline constexpr DeviceLayout kQ4_1Layout{gguf::TensorType::Q4_1, 20, detail::kQ4_1};
+inline constexpr DeviceLayout kQ8_0Layout{gguf::TensorType::Q8_0, 34, detail::kQ8_0};
+inline constexpr DeviceLayout kQ6_KLayout{gguf::TensorType::Q6_K, 210, detail::kQ6_K};
 
 // Whether `layout` keeps the promise above: its streams cover the block, its
-// block size is the file format's, and only its last stream may be unaligned.
+// block size is the file format's, only its last stream may be unaligned, and
+// it is within the bounds the piece writer holds.
 [[nodiscard]] consteval bool keeps_its_promise(const DeviceLayout& layout) {
+    if (layout.block_bytes > kMaxBlockBytes || layout.streams.size() > kMaxStreams) return false;
     std::uint32_t covered = 0;
     bool seen[256] = {};
     for (std::size_t i = 0; i < layout.streams.size(); ++i) {
@@ -100,11 +105,8 @@ inline constexpr DeviceLayout kDeviceLayouts[] = {
     return covered == layout.block_bytes && stored != nullptr && stored->block_bytes == layout.block_bytes;
 }
 
-static_assert([] {
-    for (const DeviceLayout& layout : kDeviceLayouts) {
-        if (!keeps_its_promise(layout)) return false;
-    }
-    return true;
-}());
+static_assert(keeps_its_promise(kF32Layout) && keeps_its_promise(kQ4_0Layout) &&
+              keeps_its_promise(kQ4_1Layout) && keeps_its_promise(kQ8_0Layout) &&
+              keeps_its_promise(kQ6_KLayout));
 
 }  // namespace bllm::formats

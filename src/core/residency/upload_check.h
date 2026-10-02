@@ -1,34 +1,42 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <span>
+#include <string>
 #include <vector>
 
+#include <webgpu/webgpu.h>
+
+#include "core/gpu/wgpu_handles.h"
 #include "core/residency/piece_writer.h"
+#include "core/residency/upload.h"
 
 namespace bllm::residency {
 
 // Axis D: changes with the WebGPU surface or the limits a device grants.
 //
-// The Upload stage's own test, in a diagnostic build only: every byte of every
-// weight is read back from the device and checked against what was written.
-// A sampled check passes while another chunk sits at the wrong offset; WASM.9
-// asks for every byte or no claim of integrity.
+// The Upload stage's own test, in a diagnostic build only: every byte upload
+// wrote is read back from the device and compared, byte for byte, with what
+// it should be. A sampled check passes while another chunk sits at the wrong
+// offset; WASM.9 asks for every byte or no claim of integrity.
 //
-//   - As upload issues writes, each buffer's expected contents are folded
-//     into a digest: every nonzero 32-bit word contributes a mix of its
-//     offset and its value, and the contributions are summed. A sum does not
-//     depend on the order the writes came in — streams fill a piece out of
-//     address order — and a zero word contributes nothing, so padding the
-//     writes never touched, which WebGPU zeroed, agrees on both sides.
-//   - After upload, each weight buffer is copied in 16 MiB slices into one
-//     mappable staging buffer, mapped, and folded the same way; the slices
-//     bound the readback's memory, as the chunks bound the upload's. It is the
-//     one round trip of the whole model's bytes, and only this build makes it
-//     (GPU.1).
-//   - A digest is not a byte comparison: a mismatch is certain, a match
-//     wrong only by a collision in a 64-bit mix (splitmix64's finalizer),
-//     which no layout bug produces on purpose.
+//   - What each range should hold is regenerated, not remembered: once upload
+//     has finished, the page streams the cached file a second time, and a
+//     fresh PieceWriter over the same routes turns it into the same writes
+//     upload issued — it is deterministic (piece_writer.h). Nothing the size
+//     of the model is kept to compare against.
+//   - For each chunk, every write's range is copied into one mappable staging
+//     buffer, back to back, in one command buffer; the staging buffer is
+//     mapped once, and each range is compared with the write's bytes. The
+//     chunk is acknowledged only after that comparison, so the chunk and the
+//     writer's staging the writes point into are still intact when compared.
+//     The readback is bounded by a chunk, as the upload was.
+//   - The result names every mismatch: the buffer, the offset of its first
+//     differing byte, and the tensor the route belongs to. Zero mismatches
+//     means every byte written is on the device where the plan put it.
+//     Padding upload never wrote is not compared: WebGPU zeroes new buffers,
+//     and nothing reads past a piece's file bytes but its unpack.
 //
 // Compiled only when BLLM_DIAGNOSTICS_ENABLED; the shipped module holds no
 // trace of it, and a scan of the artifact proves that (TLM.8).
@@ -37,27 +45,65 @@ namespace bllm::residency {
 //   C++ Core Guidelines
 //     P.6    What cannot be checked at compile time should be checkable at run
 //            time — where the bytes landed is checked on the device itself.
+//     R.1    Manage resources automatically using RAII — the staging buffer
+//            and the device reference are RAII handles.
+//     E.27   Use error codes systematically — CheckError, and mismatches as
+//            data, never a log line.
 //   C++ performance guidelines
-//     WASM.9 Verify every byte, or claim no integrity — every word of every
-//            weight buffer is folded, none sampled.
+//     WASM.9 Verify every byte, or claim no integrity — every byte written is
+//            compared, none sampled, against bytes regenerated exactly.
 //     GPU.1  Budget every round trip — the whole model is read back once, in
 //            this build only.
 //     TLM.8  Validate clean builds by artifact scan — the shipped module is
 //            checked to hold none of this.
 
-class BufferDigests {
+enum class CheckError {
+    Ok,
+    DeviceLost,
+    MapFailed,          // the staging buffer could not be mapped
+    OutOfOrder,         // a chunk did not start where the last one ended
+    ChunkTooLarge,
+    Unfinished,         // the file ended before every route was compared
+};
+
+struct Mismatch {
+    BufferIndex buffer;
+    std::uint64_t offset;   // the first differing byte, within the buffer
+    std::string tensor;
+};
+
+using CheckCallback = void (*)(CheckError error, void* userdata);
+
+class UploadCheck {
 public:
-    explicit BufferDigests(std::size_t buffers);
+    UploadCheck(const UploadCheck&) = delete;
+    UploadCheck& operator=(const UploadCheck&) = delete;
 
-    // Folds the writes into their buffers' digests.
-    void add(std::span<const Write> writes);
+    // Checks the buffers `upload` filled, which must have finished. Takes its
+    // own reference to the device, as Upload does. `max_chunk` as for Upload.
+    UploadCheck(WGPUDevice device, const Upload& upload, std::span<const Route> routes,
+                const gguf::TensorIndex& index, std::size_t max_chunk);
 
-    // Folds `bytes`, read back from `buffer` starting at `offset`, into a
-    // second digest for it.
-    void add_readback(BufferIndex buffer, std::uint64_t offset, std::span<const std::byte> bytes);
+    // Compares the ranges the chunk at `file_offset` covers; `accepted` once
+    // they are compared and the page may send the next.
+    void check(std::uint64_t file_offset, std::span<const std::byte> chunk, CheckCallback accepted,
+               void* userdata);
 
-    // The buffers whose readback does not match what was written.
-    [[nodiscard]] std::vector<BufferIndex> mismatches() const;
+    // Called after the last chunk: Unfinished unless every route was compared.
+    [[nodiscard]] CheckError finish(std::uint64_t file_size) const;
+
+    // Every mismatch found so far, in file order.
+    [[nodiscard]] std::span<const Mismatch> mismatches() const noexcept { return mismatches_; }
+
+private:
+    gpu::DeviceHandle device_;
+    const Upload& upload_;   // finished; outlives the check
+    const gguf::TensorIndex& index_;
+    PieceWriter writer_;      // regenerates upload's writes
+    gpu::Buffer staging_;     // MAP_READ | COPY_DST, sized to the largest chunk's writes
+    std::vector<Write> writes_;
+    std::vector<Mismatch> mismatches_;
+    CheckError failed_ = CheckError::Ok;
 };
 
 }  // namespace bllm::residency

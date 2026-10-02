@@ -2,6 +2,7 @@
 
 #include <string_view>
 
+#include "core/formats/device_layout.h"
 #include "core/gguf/types.h"
 
 namespace bllm::formats {
@@ -18,8 +19,10 @@ namespace bllm::formats {
 //   - pack, as WGSL, for a format the KV cache stores in. Packing and
 //     unpacking are one piece of knowledge, whether the data is a weight or a
 //     cached key.
-//   - a device layout: how its blocks' fields lie on the device, as streams
-//     (device_layout.h). Upload writes a weight that way; unpack reads it.
+//   - its device layout: how its blocks' fields lie on the device, as streams
+//     (device_layout.h). Upload writes a weight that way; unpack reads it. A
+//     format the capability table lists therefore always has one: preflight
+//     and upload cannot disagree on whether a format runs.
 //
 // Block sizes belong to the file format and are read from core/gguf; a format
 // does not restate them. There is no CPU dequantizer: production never
@@ -28,6 +31,7 @@ namespace bllm::formats {
 
 struct Format {
     gguf::TensorType type;
+    const DeviceLayout* layout;   // never null
     std::string_view unpack_wgsl;
     // Empty for a format the cache never stores in.
     std::string_view pack_wgsl;

@@ -1,7 +1,9 @@
 // Axis L. Reads a cached model file in chunks and hands each to the runtime,
 // in order, one at a time — so the page never holds more than one chunk.
 //
-// A load is three crossings into the module (WASM.2: a phase per crossing):
+// A load crosses into the module in three kinds of call — begin and finish
+// once each, and one per chunk: ceil(size / LOAD_CHUNK_BYTES) + 2 crossings
+// in all, 46 for Gemma 3's 722 MB at 16 MiB (WASM.2: a phase per crossing):
 //
 //   1. begin: the index prefix preflight read, the file's size, and the
 //      duplicates confirmDuplicates confirmed (duplicates.js). The module
@@ -17,6 +19,11 @@
 //   3. finish: answered once every write has completed, or with the failure
 //      that stopped them.
 //
+// A diagnostic build then streams the file a second time, in the same
+// chunks, through a check that compares every byte upload wrote with what
+// the device holds (src/core/residency/upload_check.h); the same count of
+// crossings again.
+//
 // Optimization (browser): each chunk is read from the cache into one
 // ArrayBuffer and copied once into the heap; it is never held twice, and the
 // heap does not grow with the file (WASM.1, WASM.9).
@@ -26,8 +33,8 @@
 //   WASM.1 Size linear memory to the real high-water mark; never hold a view
 //          across a call that can grow the heap — one chunk buffer, a fresh
 //          view per chunk.
-//   WASM.2 Batch work across the JS boundary — three kinds of crossing, one
-//          chunk per crossing, by pointer and length.
+//   WASM.2 Batch work across the JS boundary — ceil(size / chunk) + 2
+//          crossings, one chunk per crossing, by pointer and length.
 //   WASM.9 Stream in bounded chunks — the page holds one chunk.
 //   GPU.7  Pipeline CPU and GPU work — reading the next chunk overlaps the
 //          GPU copying the last.

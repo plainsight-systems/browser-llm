@@ -50,33 +50,55 @@ namespace bllm::residency {
 //     it and write nothing; the buffers are released with the Upload (R.1).
 //   - Completion is reported through callbacks and never waited for: the
 //     build does not use ASYNCIFY, and the worker must stay responsive.
+//   - The Upload holds its own counted reference to the device
+//     (wgpuDeviceAddRef, released by its RAII handle), so the device outlives
+//     the Upload and every callback it has queued, whoever else lets it go.
+//
+// Measured, and reported with the target it ran on — desktop-chromium-floor
+// (Chrome or Edge stable, an integrated GPU, WebGPU's default limits) and
+// desktop-chromium-dev (the development machine), the matrix BLLM-002 set:
+//   - Load throughput and the wasm heap's high-water mark, with chunks of 4,
+//     16 and 64 MiB, in the release build. 16 MiB is the starting choice:
+//     the size the page already reads the cache in.
+//   - Whether reading overlaps copying, in the diagnostic build, as a
+//     timeline: when the page has chunk n + 1 read, against when the queue
+//     acknowledges chunk n. The overlap is real only where the read finishes
+//     first (GPU.7); otherwise the two-chunk pipeline is not claimed.
+//   - Release and diagnostic figures are reported apart, never mixed
+//     (research/2026-08-31-measurement-build-configurations.md).
 //
 // Guidelines, by corpus:
 //   C++ Core Guidelines
 //     R.1    Manage resources automatically using RAII — every buffer is a
-//            gpu::Buffer, released with the Upload.
+//            gpu::Buffer, and the device reference a gpu::DeviceHandle,
+//            released with the Upload.
+//     R.3    A raw pointer is non-owning — so the device is not held by one:
+//            a raw WGPUDevice would leave its lifetime to someone else.
 //     I.11, R.20  Never transfer ownership by a raw pointer; use unique_ptr
 //            to represent ownership — begin hands the Upload to its callback.
-//     E.27   Use error codes systematically — UploadError, and every call
-//            after a failure reports it.
+//     E.27   Use error codes systematically — UploadError, one value per
+//            failure, and every call after a failure reports it.
 //   C++ performance guidelines
 //     GPU.9  Suballocate GPU memory from large heaps — a few large buffers,
 //            as the plan packs them.
 //     GPU.7  Pipeline CPU and GPU work with queues, fences and multi-buffered
 //            resources — two chunks in flight, acknowledged on queue
-//            completion, so the cache read of one overlaps the GPU copy of
-//            the last.
+//            completion; claimed only once a timeline shows the overlap.
 //     GPU.1  Keep data on the device; budget every round trip — the shipped
 //            path reads nothing back.
 
+// One value for each way upload can fail, routes' refusals among them, so a
+// caller can tell a format this build lacks from a bad file (E.27).
 enum class UploadError {
     Ok,
+    UnsupportedFormat,  // routes.h: a tensor's format is not listed
+    OutOfRange,         // routes.h: a piece reads past the file or its buffer
+    NotACandidate,      // routes.h: a confirmed duplicate the plan never marked
     OutOfMemory,        // a planned buffer could not be created
     DeviceLost,
     OutOfOrder,         // a chunk did not start where the last one ended
     ChunkTooLarge,
     Unfinished,         // the file ended before every weight was filled
-    OutOfRange,         // routes.h refused the plan; see the route's subject
 };
 
 // Invoked exactly once per call that takes it, from the browser's event loop.
@@ -99,9 +121,11 @@ public:
     // device has confirmed it holds them. Ownership leaves by unique_ptr, so
     // nothing outlives the call by accident (I.11, R.20). `max_chunk` is the
     // largest chunk write will be given.
+    // `find_format` is capability::find_format in the harness (routes.h).
     static void begin(WGPUDevice device, const gguf::TensorIndex& index, const ResidencyPlan& plan,
-                      std::uint64_t file_size, std::span<const gguf::TensorId> confirmed_duplicates,
-                      std::size_t max_chunk, ReadyCallback ready, void* userdata);
+                      std::uint64_t file_size, FindFormat find_format,
+                      std::span<const gguf::TensorId> confirmed_duplicates, std::size_t max_chunk,
+                      ReadyCallback ready, void* userdata);
 
     // Queues the writes the chunk at `file_offset` completes. `accepted` is
     // called when the page may send the next chunk: at once for the first,
@@ -121,9 +145,9 @@ public:
     [[nodiscard]] WGPUBuffer buffer(BufferIndex index) const noexcept;
 
 private:
-    Upload(WGPUDevice device, ResidencyPlan plan, std::vector<Route> routes, std::size_t max_chunk);
+    Upload(gpu::DeviceHandle device, ResidencyPlan plan, std::vector<Route> routes, std::size_t max_chunk);
 
-    WGPUDevice device_;
+    gpu::DeviceHandle device_;   // a reference of its own, taken in begin
     ResidencyPlan plan_;
     std::vector<Route> routes_;
     PieceWriter writer_;
