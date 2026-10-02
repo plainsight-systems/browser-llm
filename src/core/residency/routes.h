@@ -77,8 +77,8 @@ enum class RouteError {
     // A piece that would read past the end of the file, or write past the
     // end of its buffer. The subject names the tensor.
     OutOfRange,
-    // A confirmed duplicate the plan does not mark a candidate. The subject
-    // names it.
+    // A confirmed duplicate the plan does not mark a candidate, or an id no
+    // tensor has. The subject names it, or gives the id.
     NotACandidate,
 };
 
@@ -91,8 +91,9 @@ struct RouteResult {
 
 // The routes for every weight in `plan`, ordered by file offset, and the plan
 // as upload carries it out: each confirmed duplicate's view reads the tensor
-// it copies, and the buffers only it used are left uncreated (size 0). `out`
-// and `routes` are left untouched unless it succeeds.
+// it copies, the buffers only it used are left uncreated (size 0), and the
+// weight and total bytes are recounted without them. `out` and `routes` are
+// left untouched unless it succeeds.
 [[nodiscard]] RouteResult plan_routes(const gguf::TensorIndex& index, const ResidencyPlan& plan,
                                       std::uint64_t file_size, FindFormat find_format,
                                       std::span<const gguf::TensorId> confirmed,

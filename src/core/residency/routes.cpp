@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <string>
 #include <utility>
 
 #include "core/gguf/checked.h"
@@ -33,12 +34,14 @@ const PlannedTensor* planned(const ResidencyPlan& plan, gguf::TensorId id) {
 RouteResult route_tensor(const gguf::TensorEntry& entry, const PlannedTensor& planned_tensor,
                          const ResidencyPlan& plan, std::uint64_t file_size, FindFormat find_format,
                          std::vector<Route>& routes) {
-    const auto& pieces = planned_tensor.view.pieces();
-    if (pieces.empty()) return {};   // no rows: nothing to write
-
+    // A format not listed is refused whatever the tensor's size, so the
+    // refusal does not depend on whether it has rows.
     const formats::Format* format = find_format(entry.type);
     if (format == nullptr) return failure(RouteError::UnsupportedFormat, entry.name);
     const formats::DeviceLayout& layout = format->layout();
+
+    const auto& pieces = planned_tensor.view.pieces();
+    if (pieces.empty()) return {};   // no rows: nothing to write
 
     std::uint64_t rows = 0;
     for (const WeightPiece& piece : pieces) rows += piece.row_count;
@@ -73,6 +76,12 @@ RouteResult plan_routes(const gguf::TensorIndex& index, const ResidencyPlan& pla
                         std::vector<Route>& routes, ResidencyPlan& out) {
     ResidencyPlan carried = plan;
     for (const gguf::TensorId id : confirmed) {
+        // The ids cross from the page, so one no tensor has is named, never
+        // looked up.
+        if (static_cast<std::size_t>(id) >= index.tensors().size()) {
+            return failure(RouteError::NotACandidate,
+                           "tensor " + std::to_string(static_cast<std::uint32_t>(id)));
+        }
         const PlannedTensor* t = planned(plan, id);
         if (t == nullptr || !t->candidate_duplicate_of) {
             return failure(RouteError::NotACandidate, index.tensor(id).name);
@@ -88,7 +97,11 @@ RouteResult plan_routes(const gguf::TensorIndex& index, const ResidencyPlan& pla
             const PlannedTensor* original = planned(plan, *t.candidate_duplicate_of);
             if (original == nullptr) return failure(RouteError::NotACandidate, index.tensor(t.tensor).name);
             for (const WeightPiece& piece : t.view.pieces()) {
-                carried.buffers[static_cast<std::size_t>(piece.buffer)].size = 0;
+                PlannedBuffer& buffer = carried.buffers[static_cast<std::size_t>(piece.buffer)];
+                // Several pieces may share a buffer; it is subtracted once.
+                carried.weight_bytes -= buffer.size;
+                carried.total_bytes -= buffer.size;
+                buffer.size = 0;
             }
             carried.tensors[i].view = original->view;
             continue;

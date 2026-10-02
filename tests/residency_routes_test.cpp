@@ -59,6 +59,14 @@ Planned planned(const std::string& fixture, const DeviceLimits& limits = kDefaul
 
 std::uint64_t file_bytes(const Route& r) { return r.blocks * r.layout->block_bytes; }
 
+std::uint64_t pool_bytes(const ResidencyPlan& plan, residency::Pool pool) {
+    std::uint64_t sum = 0;
+    for (const auto& b : plan.buffers) {
+        if (b.pool == pool) sum += b.size;
+    }
+    return sum;
+}
+
 }  // namespace
 
 TEST_CASE("every byte of every tensor is routed once, in file order, inside its buffer") {
@@ -161,6 +169,11 @@ TEST_CASE("a confirmed copy is not routed: it reads what it copies, and its buff
     for (const auto& piece : p.plan.tensors[static_cast<std::size_t>(head)].view.pieces()) {
         CHECK(carried.buffers[static_cast<std::size_t>(piece.buffer)].size == 0);
     }
+
+    // The carried plan's totals describe its buffers: smaller by the copy's.
+    CHECK(carried.weight_bytes < p.plan.weight_bytes);
+    CHECK(carried.weight_bytes == pool_bytes(carried, residency::Pool::Weights));
+    CHECK(carried.total_bytes == carried.weight_bytes + carried.cache_bytes + carried.scratch_bytes);
 }
 
 TEST_CASE("confirming a tensor the plan never marked a candidate is refused by name") {
@@ -171,4 +184,28 @@ TEST_CASE("confirming a tensor the plan never marked a candidate is refused by n
     const auto r = residency::plan_routes(p.index, p.plan, p.bytes.size(), both, confirmed, routes, carried);
     CHECK(r.error == RouteError::NotACandidate);
     CHECK(r.subject == "token_embd.weight");
+}
+
+TEST_CASE("a confirmed id no tensor has is refused by number, and nothing is changed") {
+    const auto p = planned("tiny_qwen3_output_copy");
+    const gguf::TensorId confirmed[] = {gguf::TensorId{9999}};
+    std::vector<Route> routes{Route{}};
+    ResidencyPlan carried;
+    const auto r = residency::plan_routes(p.index, p.plan, p.bytes.size(), both, confirmed, routes, carried);
+    CHECK(r.error == RouteError::NotACandidate);
+    CHECK(r.subject == "tensor 9999");
+    CHECK(routes.size() == 1);
+}
+
+TEST_CASE("a tensor with no rows is still refused when its format is not listed") {
+    const auto p = planned("tiny_qwen3_odd_blocks");
+    const auto extra = *p.index.find("extra.weight");
+    ResidencyPlan rowless = p.plan;
+    auto& t = rowless.tensors[static_cast<std::size_t>(extra)];
+    t.view = residency::WeightView(t.view.format(), t.view.shape(), {});
+    std::vector<Route> routes;
+    ResidencyPlan carried;
+    const auto r = residency::plan_routes(p.index, rowless, p.bytes.size(), f32_only, {}, routes, carried);
+    CHECK(r.error == RouteError::UnsupportedFormat);
+    CHECK(r.subject == "extra.weight");
 }
