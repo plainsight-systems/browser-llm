@@ -61,14 +61,14 @@ TEST_CASE("the shared numbers are read the same way for every architecture") {
         const auto d = describe_fixture(name);
         REQUIRE(d.result.ok());
         CHECK(d.model.vocabulary_size == 6);
-        CHECK(d.model.embedding_width == 8);
+        CHECK(d.model.embedding_width == 32);
         CHECK(d.model.trained_context == 64);
         CHECK_FALSE(d.model.output_head.has_value());   // the head reads the embedding
         for (const auto& layer : d.model.layers) {
             CHECK(layer.query_heads == 2);
             CHECK(layer.key_value_heads == 1);
-            CHECK(layer.head_dimension == 4);
-            CHECK(layer.feed_forward_width == 16);
+            CHECK(layer.head_dimension == 32);
+            CHECK(layer.feed_forward_width == 64);
             CHECK(layer.attention_window == 64);
             CHECK(layer.rope_base == doctest::Approx(1e6));
         }

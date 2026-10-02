@@ -123,7 +123,7 @@ def _one_tensor_with(*metadata):
 # A tiny but complete transformer, in the shape a real converter writes:
 # embedding 8, 2 query heads and 1 key/value head of width 4, feed-forward 16,
 # a 6-token vocabulary. Enough for describe to check every key, name and shape.
-E, H, KV, D, F, VOCAB = 8, 2, 1, 4, 16, 6
+E, H, KV, D, F, VOCAB = 32, 2, 1, 32, 64, 6
 ROLE_SHAPES = {
     "attn_norm": [E], "attn_q": [E, H * D], "attn_k": [E, KV * D], "attn_v": [E, KV * D],
     "attn_q_norm": [D], "attn_k_norm": [D], "attn_output": [H * D, E],

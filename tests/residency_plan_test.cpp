@@ -104,8 +104,8 @@ TEST_CASE("every tensor is placed, whole, and within the limits") {
 
 TEST_CASE("a weight wider than a binding is split by whole rows") {
     const auto p = describe("tiny_qwen3");
-    // token_embd is 6 rows of 32 bytes: a 64-byte binding takes two rows.
-    const DeviceLimits narrow{4096, 64, 32};
+    // token_embd is 6 rows of 128 bytes: a 256-byte binding takes two rows.
+    const DeviceLimits narrow{65536, 256, 32};
     // Room for the working buffers is beside the point here: give them none.
     ResidencyPlan plan;
     const auto r = residency::plan_residency(p.index, p.model, narrow, policy::LoadPolicy{}, plan);
@@ -116,7 +116,7 @@ TEST_CASE("a weight wider than a binding is split by whole rows") {
     REQUIRE(pieces.size() == 3);
     for (const auto& piece : pieces) {
         CHECK(piece.row_count == 2);
-        CHECK(piece.length == 64);
+        CHECK(piece.length == 256);
         CHECK(piece.offset % narrow.storage_offset_alignment == 0);
     }
 }
@@ -167,8 +167,8 @@ TEST_CASE("the context offered is capped by what the model was trained for") {
     REQUIRE(residency::plan_residency(p.index, p.model, kDefaults, policy::LoadPolicy{}, plan).ok());
     CHECK(plan.context_offered == p.model.trained_context);
     REQUIRE(plan.cache.size() == p.model.layers.size());
-    // 1 key/value head of width 4 at f16: 8 bytes a token, for keys and for values.
-    CHECK(plan.cache[0].keys.length == std::uint64_t{plan.context_offered} * 8);
+    // 1 key/value head of width 32 at f16: 64 bytes a token, for keys and for values.
+    CHECK(plan.cache[0].keys.length == std::uint64_t{plan.context_offered} * 64);
     for (const auto& layer : plan.cache) CHECK(layer.slots == plan.context_offered);   // full attention
 }
 
@@ -193,8 +193,8 @@ TEST_CASE("a sliding-window layer's cache is a ring of its window, a prefill blo
     for (std::size_t i = 0; i < plan.cache.size(); ++i) {
         const std::uint32_t slots = global_layer(i) ? 8192 : kRing;
         CHECK(plan.cache[i].slots == slots);
-        CHECK(plan.cache[i].keys.length == std::uint64_t{slots} * 8);
-        CHECK(plan.cache[i].values.length == std::uint64_t{slots} * 8);
+        CHECK(plan.cache[i].keys.length == std::uint64_t{slots} * 64);
+        CHECK(plan.cache[i].values.length == std::uint64_t{slots} * 64);
     }
 }
 
@@ -212,19 +212,19 @@ TEST_CASE("only full-attention layers cost the budget a token at a time") {
     ResidencyPlan roomy;
     REQUIRE(residency::plan_residency(p.index, p.model, kDefaults, policy::LoadPolicy{}, roomy).ok());
 
-    // Past the ring, one token costs the one global layer 16 bytes (8 of keys,
-    // 8 of values). Take away 1,000 tokens' worth at that rate; had every
-    // layer been full length, the same bytes would be 143 tokens of seven.
+    // Past the ring, one token costs the one global layer 128 bytes (64 of
+    // keys, 64 of values). Take away 1,000 tokens' worth at that rate; had
+    // every layer been full length, the same bytes would be 143 tokens of seven.
     policy::LoadPolicy tight{};
-    tight.memory_budget = roomy.total_bytes - 16 * 1000;
+    tight.memory_budget = roomy.total_bytes - 128 * 1000;
     ResidencyPlan plan;
     REQUIRE(residency::plan_residency(p.index, p.model, kDefaults, tight, plan).ok());
     check_invariants(plan, kDefaults);
     CHECK(plan.total_bytes <= tight.memory_budget);
     CHECK(plan.context_offered <= 8192 - 1000);
     // The planner reserves up to 260 bytes of alignment padding per range,
-    // 14 ranges: at most 228 tokens of the global layer.
-    CHECK(plan.context_offered >= 8192 - 1000 - 228);
+    // 14 ranges, 3,640 bytes: at most 29 tokens of the global layer.
+    CHECK(plan.context_offered >= 8192 - 1000 - 29);
     for (std::size_t i = 0; i < plan.cache.size(); ++i) {
         if (!global_layer(i)) CHECK(plan.cache[i].slots == kRing);
     }
@@ -256,10 +256,10 @@ TEST_CASE("the context offered is the most the budget allows, and fits within it
     REQUIRE(residency::plan_residency(p.index, p.model, kDefaults, policy::LoadPolicy{}, roomy).ok());
     REQUIRE(roomy.context_offered == 4096);
 
-    // 2 layers, keys and values, 8 bytes a token each: 32 bytes a token.
+    // 2 layers, keys and values, 64 bytes a token each: 256 bytes a token.
     // Take away 1,000 tokens' worth.
     policy::LoadPolicy tight{};
-    tight.memory_budget = roomy.total_bytes - 32 * 1000;
+    tight.memory_budget = roomy.total_bytes - 256 * 1000;
     ResidencyPlan plan;
     REQUIRE(residency::plan_residency(p.index, p.model, kDefaults, tight, plan).ok());
     check_invariants(plan, kDefaults);
@@ -279,9 +279,10 @@ TEST_CASE("a budget too small for the shortest context says what it needs") {
 }
 
 TEST_CASE("a cache precision that cannot store the head dimension is named") {
-    const auto p = describe("tiny_qwen3");
+    auto p = describe("tiny_qwen3");
+    p.model.layers[0].head_dimension = 48;   // not a whole number of Q8_0's 32-wide blocks
     policy::LoadPolicy q8{};
-    q8.cache_precision = policy::CachePrecision::Q8_0;   // blocks of 32; heads are 4 wide
+    q8.cache_precision = policy::CachePrecision::Q8_0;
     ResidencyPlan plan;
     const auto r = residency::plan_residency(p.index, p.model, kDefaults, q8, plan);
     CHECK(r.error == PlanError::UnsupportedCachePrecision);
