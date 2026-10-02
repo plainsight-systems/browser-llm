@@ -52,8 +52,8 @@ namespace bllm::residency {
 //     Padding upload never wrote is not compared: WebGPU zeroes new buffers,
 //     and nothing reads past a piece's file bytes but its unpack.
 //
-// Compiled only when BLLM_DIAGNOSTICS_ENABLED; the shipped module holds no
-// trace of it, and a scan of the artifact proves that (TLM.8). A load timed
+// Compiled only with diagnostics: CMake leaves its source out of every other
+// build, so the shipped module holds none of it. A load timed
 // in that build is a diagnostic figure, never a load-throughput one (TLM.6).
 //
 // Guidelines, by corpus:
@@ -76,8 +76,6 @@ namespace bllm::residency {
 //            is compared, none sampled, a chunk at a time.
 //     GPU.1  Budget every round trip — the whole model is read back once, in
 //            this build only.
-//     TLM.8  Validate clean builds by artifact scan — the shipped module is
-//            checked to hold none of this.
 //     TLM.6  Diagnostic mode is not benchmark mode — what this build times
 //            is labelled diagnostic and kept apart from the release figures.
 
@@ -129,7 +127,8 @@ public:
     // compared. Like the writer's, Unfinished then refuses every chunk.
     [[nodiscard]] CheckError finish(std::uint64_t file_size);
 
-    // Every mismatch found so far, in file order.
+    // Every mismatch found so far, in the order compared: chunk by chunk,
+    // and within a chunk by route, then by stream.
     [[nodiscard]] std::span<const Mismatch> mismatches() const noexcept;
 
 private:
@@ -137,7 +136,7 @@ private:
     gpu::DeviceHandle device_;
     const Upload& upload_;   // finished; outlives the check
     PieceWriter writer_;      // regenerates upload's writes
-    std::vector<Write> writes_;   // reused across chunks
+    std::vector<Write> writes_;   // a chunk's writes, handed to its comparison
     // Shared with callbacks in flight: the queue, the staging buffer
     // (MAP_READ | COPY_DST, sized to the most one chunk's writes can be),
     // the first failure, the mismatches, and whether the check is gone.
