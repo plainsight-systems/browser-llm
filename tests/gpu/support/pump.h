@@ -3,6 +3,7 @@
 #include <doctest/doctest.h>
 
 #include <chrono>
+#include <string>
 #include <thread>
 
 #include <webgpu/webgpu.h>
@@ -20,7 +21,7 @@ inline void pump_until(WGPUInstance instance, const bool& done, const char* wait
     while (!done) {
         wgpuInstanceProcessEvents(instance);
         if (done) break;
-        if (std::chrono::steady_clock::now() > deadline) FAIL("timed out waiting for " << waiting_for);
+        if (std::chrono::steady_clock::now() > deadline) FAIL("timed out waiting for " << std::string(waiting_for));
         std::this_thread::sleep_for(std::chrono::milliseconds{1});
     }
 }

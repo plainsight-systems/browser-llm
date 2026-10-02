@@ -42,6 +42,17 @@ void on_uncaptured_error(WGPUDevice const*, WGPUErrorType type,
                  static_cast<int>(type), to_string(message).c_str());
 }
 
+// Records the loss in the status the callback was given, then releases the
+// callback's reference to it. WebGPU runs this exactly once per device.
+void on_device_lost(WGPUDevice const*, WGPUDeviceLostReason reason, WGPUStringView message, void* status,
+                    void*) {
+    const std::unique_ptr<std::shared_ptr<DeviceStatus>> held{static_cast<std::shared_ptr<DeviceStatus>*>(status)};
+    DeviceStatus& s = **held;
+    s.lost = true;
+    s.reason = reason;
+    s.message = to_string(message);
+}
+
 // True when every limit the harness requires was actually granted.
 [[nodiscard]] bool meets_requirements(const DeviceLimits& granted) noexcept {
     return granted.max_buffer_size >= kRequirements.max_buffer_size
@@ -171,6 +182,11 @@ void Device::request(WGPUInstance instance, RequestCallback callback, void* user
         WGPUDeviceDescriptor device_desc = {};
         device_desc.uncapturedErrorCallbackInfo.callback = on_uncaptured_error;
         device_desc.requiredLimits = &required;
+        // The callback's own reference to the status, released by the callback.
+        p->device->status_ = std::make_shared<DeviceStatus>();
+        device_desc.deviceLostCallbackInfo.mode = kCallbackMode;
+        device_desc.deviceLostCallbackInfo.callback = on_device_lost;
+        device_desc.deviceLostCallbackInfo.userdata1 = new std::shared_ptr<DeviceStatus>(p->device->status_);
 
         WGPURequestDeviceCallbackInfo device_cb = {};
         device_cb.mode = kCallbackMode;

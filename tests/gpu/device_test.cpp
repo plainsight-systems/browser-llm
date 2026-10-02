@@ -53,6 +53,32 @@ TEST_CASE("a device is acquired natively, with the limits the harness requires")
     CHECK(device->limits().max_buffer_size > 0);
 }
 
+TEST_CASE("a lost device says so, and why, even to holders that outlive it") {
+    const gpu::Instance instance{wgpuCreateInstance(nullptr)};
+    REQUIRE(instance);
+    auto device = acquire(instance.get());
+    const auto status = device->status();
+    CHECK_FALSE(status->lost);
+
+    wgpuDeviceDestroy(device->handle());
+    pump_until(instance.get(), status->lost, "the device-lost callback");
+    CHECK(status->reason == WGPUDeviceLostReason_Destroyed);
+
+    // The status outlives the Device for whoever holds it.
+    device.reset();
+    CHECK(status->lost);
+}
+
+TEST_CASE("a device released without being destroyed is reported lost too") {
+    const gpu::Instance instance{wgpuCreateInstance(nullptr)};
+    REQUIRE(instance);
+    auto device = acquire(instance.get());
+    const auto status = device->status();
+    device.reset();   // the last reference: WebGPU destroys the device
+    pump_until(instance.get(), status->lost, "the device-lost callback");
+    CHECK(status->reason == WGPUDeviceLostReason_Destroyed);
+}
+
 TEST_CASE("the self-check runs vector_add on the GPU and reads back every value correctly") {
     const gpu::Instance instance{wgpuCreateInstance(nullptr)};
     REQUIRE(instance);

@@ -44,8 +44,24 @@ struct AdapterInfo {
     std::string backend;
 };
 
+// Whether a device has been lost, and why. Written once, by the device-lost
+// callback. Anything that waits on the device shares it: once a device is
+// lost, WebGPU resolves error scopes clean and queued work as done, so a lost
+// device is quiet, and only this tells that quiet from success.
+struct DeviceStatus {
+    bool lost = false;
+    WGPUDeviceLostReason reason = WGPUDeviceLostReason_Unknown;
+    std::string message;
+};
+
 // Owns a WebGPU instance, adapter and device. Every handle is an RAII alias,
 // so release is not written by hand anywhere.
+//
+// It installs the device-lost callback, which WebGPU runs exactly once: when
+// the device is lost, destroyed, or fails to be created. The callback holds
+// its own reference to the DeviceStatus, since it may run after the Device is
+// gone; status() hands others theirs (R.21: the one shared owner, because any
+// of them may end first).
 //
 // Acquisition is asynchronous because WebGPU's adapter and device requests are
 // promises in the browser and this build deliberately does not enable ASYNCIFY.
@@ -86,6 +102,10 @@ public:
     WGPUQueue queue() const { return queue_.get(); }
     const AdapterInfo& adapter_info() const { return adapter_info_; }
 
+    // Whether the device has been lost. Shared, so it outlives the Device for
+    // whoever still holds it.
+    std::shared_ptr<const DeviceStatus> status() const { return status_; }
+
     // Limits of the ACQUIRED DEVICE. These are what validation enforces and
     // what dispatch must be sized against.
     //
@@ -112,6 +132,7 @@ private:
     DeviceHandle device_;
     Queue queue_;
     AdapterInfo adapter_info_;
+    std::shared_ptr<DeviceStatus> status_;   // shared with the device-lost callback
     DeviceLimits limits_;          // of the acquired device
     DeviceLimits adapter_maxima_;  // of the adapter, informational
 };
