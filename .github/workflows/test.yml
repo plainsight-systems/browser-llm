@@ -52,6 +52,11 @@ jobs:
       - name: Test
         run: ctest --preset native-release
 
+      # Names the adapter the GPU tests ran on, so a green run shows it was a
+      # real device (lavapipe here), not a pass with nothing behind it.
+      - name: GPU adapter used
+        run: ./build/native-release/tests/gpu/charlotte_gpu_tests -s -tc="a device is acquired*" | grep "adapter:"
+
   sanitize:
     # AddressSanitizer catches what tests can survive by luck: a write past a
     # buffer, a reversed range handed to an algorithm, a use after free. It
@@ -94,6 +99,11 @@ jobs:
 
       - name: Test
         run: ctest --preset native-sanitize
+
+      # Names the adapter the GPU tests ran on, so a green run shows it was a
+      # real device (lavapipe here), not a pass with nothing behind it.
+      - name: GPU adapter used
+        run: ./build/native-sanitize/tests/gpu/charlotte_gpu_tests -s -tc="a device is acquired*" | grep "adapter:"
 
   web:
     name: JavaScript unit tests
