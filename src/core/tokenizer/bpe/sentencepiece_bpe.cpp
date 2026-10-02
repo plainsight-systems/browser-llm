@@ -64,6 +64,10 @@ EncodeError SentencePieceBpe::encode(std::string_view raw, std::vector<TokenId>&
         for (std::size_t at = 0; at < ordinary.size();) {
             Utf8Char c{};
             if (!decode_utf8(ordinary, at, c)) return EncodeError::InvalidUtf8;
+            if (!symbols.empty() && cut_before(ordinary, at)) {
+                merge(symbols, merges_, tokens);
+                symbols.clear();
+            }
             const std::string_view character = ordinary.substr(at, c.length);
             const auto token = vocabulary_.find(character);
             if (token && vocabulary_.type(*token) == TokenType::Normal) {
@@ -103,6 +107,16 @@ void SentencePieceBpe::decode(TokenId token, std::string& out) const {
             out.append(text);
             return;
     }
+}
+
+bool SentencePieceBpe::cut_before(std::string_view text, std::size_t at) const noexcept {
+    if (!cuts_ || text.substr(at, kSpace.size()) != kSpace) return false;
+    for (const Straddle& s : straddles_) {
+        for (const std::uint32_t mark : s.marks) {
+            if (at >= mark && text.substr(at - mark, s.text.size()) == s.text) return false;
+        }
+    }
+    return true;
 }
 
 LoadResult load_sentencepiece_bpe(gguf::ByteSource& source, const gguf::TensorIndex& index,
@@ -168,6 +182,18 @@ LoadResult load_sentencepiece_bpe(gguf::ByteSource& source, const gguf::TensorIn
         return {LoadError::Unsupported, "two special tokens spelled " + std::string(*repeat) + " once spaces are ▁"};
     }
     spm.special_ = SpecialTokens{std::move(special)};
+
+    for (std::size_t id = 0; id < spm.vocabulary_.size(); ++id) {
+        const auto token = static_cast<TokenId>(id);
+        if (spm.vocabulary_.type(token) != TokenType::Normal) continue;
+        const std::string_view text = spm.vocabulary_.text(token);
+        SentencePieceBpe::Straddle straddle{std::string(text), {}};
+        for (std::size_t at = text.find(kSpace, 1); at != std::string_view::npos; at = text.find(kSpace, at + 1)) {
+            straddle.marks.push_back(static_cast<std::uint32_t>(at));
+        }
+        if (!straddle.marks.empty()) spm.straddles_.push_back(std::move(straddle));
+    }
+    spm.cuts_ = spm.straddles_.size() <= SentencePieceBpe::kMaxStraddles;
     out = std::move(spm);
     return {};
 }

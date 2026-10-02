@@ -209,6 +209,33 @@ TEST_CASE("special tokens match after spaces become ▁, so a typed ▁ is one w
     CHECK(encode(spm, "<a" + bar + "b>") == std::vector<std::uint32_t>{265});
 }
 
+TEST_CASE("a stretch is cut before ▁ only where no merge could cross the cut") {
+    // x, y, ▁y (263 to 265) and, where given, x▁y (266): a token holding ▁
+    // after its first character, which a merge across the cut would make.
+    const auto with = [](bool straddle, int padding) {
+        Small v;
+        v.add("x", 1, -10);
+        v.add("y", 1, -11);
+        v.add(std::string(kSpace) + "y", 1, -12);
+        if (straddle) v.add("x" + std::string(kSpace) + "y", 1, -13);
+        // More tokens holding ▁ after their first character, which no text
+        // here spells: past 64 of them, nothing is cut.
+        for (int i = 0; i < padding; ++i) v.add("q" + std::string(kSpace) + std::to_string(i), 1, -20.0f - i);
+        bpe::SentencePieceBpe spm;
+        const auto r = v.load(spm);
+        REQUIRE_MESSAGE(r.ok(), r.subject);
+        return spm;
+    };
+    for (const int padding : {0, 64}) {
+        CAPTURE(padding);
+        // x▁y stands across the cut before ▁, so x and ▁y still merge into it.
+        CHECK(encode(with(true, padding), "x y") == std::vector<std::uint32_t>{266});
+        CHECK(encode(with(true, padding), "y x y x") == std::vector<std::uint32_t>{264, kSp, 266, kSp, 263});
+        // Without it, the cut changes nothing: x and ▁y never merge.
+        CHECK(encode(with(false, padding), "x y") == std::vector<std::uint32_t>{263, 265});
+    }
+}
+
 TEST_CASE("a character the vocabulary lacks becomes a byte token for each of its bytes") {
     const auto spm = small();
     CHECK(encode(spm, "a\xC3\xA9" "b") == std::vector<std::uint32_t>{kA, 0xC3, 0xA9, kB});

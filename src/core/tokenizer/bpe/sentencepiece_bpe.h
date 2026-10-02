@@ -1,7 +1,9 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "core/gguf/byte_source.h"
@@ -43,7 +45,8 @@ namespace bllm::tokenizer::bpe {
 //   3. Each character between them becomes its token, or, where the
 //      vocabulary has none, one byte token (<0x00> to <0xFF>) for each of
 //      its bytes.
-//   4. Each stretch is merged at once; nothing splits it first.
+//   4. Each stretch is merged as SentencePiece merges it, whole. It is cut
+//      before a "▁" only where no merge could cross: see cut_before.
 //
 // BOS is never added: the chat template writes it as text.
 //
@@ -70,10 +73,34 @@ private:
     friend LoadResult load_sentencepiece_bpe(gguf::ByteSource& source, const gguf::TensorIndex& index,
                                              SentencePieceBpe& out);
 
+    // A normal token holding "▁" after its first character, and where.
+    struct Straddle {
+        std::string text;
+        std::vector<std::uint32_t> marks;   // the byte offset of each such ▁
+    };
+
+    // Whether a stretch may be cut before the "▁" at text[at].
+    //
+    // Optimization (practice): merging a stretch whole costs a heap over every
+    // symbol in it, and a stretch runs from one special token to the next —
+    // in Gemma 3, a whole line. A merge that crossed a cut would make a
+    // normal token holding that ▁ after its first character, whose text would
+    // stand in the text across the cut, so where none does, the pieces on
+    // either side merge exactly as they would together: each is cut off and
+    // merged alone, a word at a time, short enough for the rescan in merge.h:
+    // Gemma 3 encodes the bench corpus in 16.7 ms, not 33.3, and finding such
+    // tokens adds 3 ms to its load. It has one, ">▁</". A vocabulary with more
+    // than kMaxStraddles is not cut at all.
+    [[nodiscard]] bool cut_before(std::string_view text, std::size_t at) const noexcept;
+
+    static constexpr std::size_t kMaxStraddles = 64;
+
     Vocabulary vocabulary_;
     SpecialTokens special_;
     MergeTable merges_;
     std::array<TokenId, 256> byte_tokens_{};   // <0x00> to <0xFF>
+    std::vector<Straddle> straddles_;
+    bool cuts_ = false;   // false when there are more than kMaxStraddles
 };
 
 // The algorithm, as the capability table lists it. It splits no text first,
