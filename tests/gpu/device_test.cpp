@@ -70,6 +70,27 @@ TEST_CASE("no instance is a failure reported through the callback, at once") {
     CHECK(acquired.error == "no WebGPU instance was given");
 }
 
+TEST_CASE("an adapter of Dawn's Null backend, which computes nothing, is refused by name") {
+    const gpu::Instance instance{wgpuCreateInstance(nullptr)};
+    REQUIRE(instance);
+    WGPURequestAdapterOptions options = WGPU_REQUEST_ADAPTER_OPTIONS_INIT;
+    options.backendType = WGPUBackendType_Null;
+    Acquired acquired;
+    gpu::Device::request(
+        instance.get(),
+        [](std::unique_ptr<gpu::Device> device, const char* error, void* userdata) {
+            auto& a = *static_cast<Acquired*>(userdata);
+            a.device = std::move(device);
+            if (error != nullptr) a.error = error;
+            a.done = true;
+        },
+        &acquired, &options);
+    pump_until(instance.get(), acquired.done, "a request for the Null backend");
+    CHECK(acquired.device == nullptr);
+    CHECK(acquired.error == "the only WebGPU adapter is Dawn's Null backend, which accepts work and "
+                            "computes nothing");
+}
+
 TEST_CASE("a lost device says so, and why, even to holders that outlive it") {
     const gpu::Instance instance{wgpuCreateInstance(nullptr)};
     REQUIRE(instance);

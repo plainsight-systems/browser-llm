@@ -22,6 +22,7 @@ std::string to_string(WGPUStringView view) {
 
 const char* backend_name(WGPUBackendType type) {
     switch (type) {
+        case WGPUBackendType_Null: return "Null";
         case WGPUBackendType_WebGPU: return "WebGPU";
         case WGPUBackendType_D3D11: return "D3D11";
         case WGPUBackendType_D3D12: return "D3D12";
@@ -143,16 +144,26 @@ void Device::request(WGPUInstance instance, RequestCallback callback, void* user
         }
         p->device->adapter_.reset(adapter);
 
-        // Adapter metadata is informational: a failed query is recorded as
-        // such rather than silently rendering as empty fields.
+        // Which backend the adapter is decides whether it computes at all:
+        // Dawn's Null backend accepts work and does nothing (device.h). An
+        // adapter that cannot say is refused too, rather than run on unseen.
         WGPUAdapterInfo info = {};
-        if (wgpuAdapterGetInfo(adapter, &info) == WGPUStatus_Success) {
-            p->device->adapter_info_ = AdapterInfo{
-                true,
-                to_string(info.vendor), to_string(info.architecture),
-                to_string(info.device), to_string(info.description),
-                backend_name(info.backendType)};
-            wgpuAdapterInfoFreeMembers(info);
+        if (wgpuAdapterGetInfo(adapter, &info) != WGPUStatus_Success) {
+            p->fail("could not tell which backend the WebGPU adapter is; refusing an adapter "
+                    "that may compute nothing");
+            return;
+        }
+        const WGPUBackendType backend = info.backendType;
+        p->device->adapter_info_ = AdapterInfo{
+            true,
+            to_string(info.vendor), to_string(info.architecture),
+            to_string(info.device), to_string(info.description),
+            backend_name(backend)};
+        wgpuAdapterInfoFreeMembers(info);
+        if (backend == WGPUBackendType_Null) {
+            p->fail("the only WebGPU adapter is Dawn's Null backend, which accepts work and "
+                    "computes nothing");
+            return;
         }
 
         // Adapter maxima are DIAGNOSTICS. They are recorded and reported, and
