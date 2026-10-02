@@ -4,6 +4,7 @@
 # ran nothing would claim what was never checked.
 add_executable(charlotte_gpu_tests
     device_test.cpp
+    mapping_test.cpp
     ../main_test.cpp
 )
 target_link_libraries(charlotte_gpu_tests PRIVATE charlotte_gpu doctest::doctest)
