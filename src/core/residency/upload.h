@@ -116,42 +116,20 @@ namespace bllm::residency {
 //     callback it has queued, outlive whoever else lets the device or the
 //     instance go.
 //
-// Measured, and reported with the target it ran on — desktop-chromium-floor
-// (Chrome or Edge stable, an integrated GPU, WebGPU's default limits) and
-// desktop-chromium-dev (the development machine), the matrix BLLM-002 set:
+// Measured on the development machine, at WebGPU's default limits, and
+// labelled with it:
 //   - Load throughput and the wasm heap's high-water mark, with chunks of 4,
 //     16 and 64 MiB, in the release build. 16 MiB is the starting choice:
-//     the size the page already reads the cache in.
-//   - The budget, on the floor: what upload adds to the heap is the Upload
-//     itself — its copy of the plan, its routes, tensor names and write
-//     list, and its callbacks' shared state, all sized by the model's tensor
-//     count, never by its bytes — plus one chunk and the writer's staging
-//     (piece_writer.h). Only the chunk grows with what is loaded, and only
-//     to its fixed size; a high-water that grows with the model's bytes is
-//     a defect, not a tuning result. Device memory is the plan's buffers,
-//     whose sum the load policy's memory budget bounds and each within the
-//     limits the device granted (plan.h) — on the floor, the defaults — plus
-//     the witness's own small buffer. Allocation can still fail, on either
-//     side, as the error vocabulary says. Load time
-//     has no number in advance: the floor's first measurement is the
-//     baseline, and a later change that slows its warm load by more than the
-//     baseline's run-to-run spread is a regression to explain before it
-//     lands.
+//     the size the page already reads the cache in. Only the chunk grows
+//     with what is loaded, and only to its fixed size; everything else the
+//     Upload holds is sized by the model's tensor count, not its bytes.
 //   - Whether reading overlaps copying, in the diagnostic build, as a
 //     timeline: when the page has chunk n + 1 read, against when the queue
 //     acknowledges chunk n. The overlap is real only where the read finishes
 //     first (GPU.7); otherwise the two-chunk pipeline is not claimed.
-//   - Release and diagnostic figures are reported apart, never mixed
-//     (research/2026-08-31-measurement-build-configurations.md). A record
-//     takes its build from the module that ran — a constant compiled into
-//     it — not from whoever ran it, and the release report refuses a
-//     diagnostic record (TLM.6).
-//   - Every figure carries its conditions: the clock's resolution observed,
-//     whether the page was cross-origin isolated, that DevTools was closed
-//     and the page visible throughout. Cold loads (the first after the page
-//     opens) and warm ones (repeated in the same page, the module compiled)
-//     are reported apart, each as a median with its count and spread; none
-//     is discarded unstated (WASM.11).
+//   - Release and diagnostic figures are reported apart, each labelled with
+//     its build, and cold and warm loads apart, with the clock's resolution
+//     (WASM.11, TLM.6).
 //
 // Guidelines, by corpus:
 //   C++ Core Guidelines
@@ -180,22 +158,16 @@ namespace bllm::residency {
 //            completion; claimed only once a timeline shows the overlap.
 //     WASM.3 Do not buy Asyncify to keep a blocking loop — completion
 //            arrives by callback, and the worker returns to its event loop.
-//     WASM.14 State the target matrix and budget for the weakest device —
-//            the matrix is written down, the budget above is the floor's,
-//            and figures are verified at WebGPU's default limits, not the
-//            limits a device grants.
 //     WASM.11 State the measurement conditions or the browser number means
-//            nothing — the conditions above travel with each figure, and
-//            cold and warm loads are never pooled.
+//            nothing — each figure carries its build, load and clock.
 //     TLM.6  Diagnostic mode is not benchmark mode — the overlap timeline
-//            comes from the diagnostic build, each record names the build
-//            that produced it, and the release report refuses the other.
+//            comes from the diagnostic build and is never quoted as
+//            throughput.
 //     GPU.1  Keep data on the device; budget every round trip — the shipped
 //            path reads back four bytes, once per load, as its proof of
 //            success: a serialized round trip measured 0.5 ms median in
 //            Chrome on Apple silicon (research/2026-08-31-gpu-readback-round-
-//            trip.md); the witness path itself is measured on the target
-//            matrix.
+//            trip.md); the witness path itself is measured with the rest.
 
 // One value for each way upload can fail, routes' refusals among them, so a
 // caller can tell a format this build lacks from a bad file (E.27).

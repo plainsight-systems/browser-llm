@@ -71,6 +71,12 @@ Decided 2026-10-02:
   each is labelled `Optimization (browser)` or `Optimization (practice)` with
   its reason, and measured where it can be. Supersedes the inherited rule that
   an optimization needs a baseline before it is accepted.
+- **One target: the development machine, at WebGPU's default limits.** This is
+  a demonstration of an inference harness and its optimizations, not a
+  product, so there is no weakest-device row, no per-device budgets and no
+  regression baselines. Every figure is labelled with the machine and build
+  it came from, and nothing is claimed for hardware it did not run on.
+  Supersedes BLLM-002's target matrix and its owed floor budget.
 
 Decided 2026-08-28 during repo bootstrap:
 

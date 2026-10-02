@@ -60,8 +60,7 @@ namespace bllm::formats {
 //            tested, as it lands, against ggml's dequantization of the same
 //            stored blocks. Coalescing itself is not claimed: a timeline
 //            shows end to end time, not memory transactions, so what is
-//            claimed is a measured end-to-end difference on the floor, named
-//            as that.
+//            claimed is a measured end-to-end difference, named as that.
 //     GDSA.18 Store numbers as block-scaled codes decoded in the load path —
 //            the codes stay as the file holds them and an unpack decodes them
 //            as it loads, never into a full-precision buffer; the scales are a

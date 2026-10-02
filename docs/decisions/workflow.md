@@ -45,7 +45,9 @@ This repo is C++-dominant and performance-sensitive.
 - Inference execution, model load, memory footprint and GPU dispatch are
   performance-sensitive by default.
 - Browser and GPU behavior is environment-sensitive. Verification names the
-  blessed targets it ran on; a green build is not proof.
+  machine it ran on; a green build is not proof. There is one target, the
+  development machine (MEMORY.md); reviews do not ask for a target matrix,
+  per-device budgets or regression baselines.
 - `packets/` holds the records of BLLM-001 to BLLM-003. New work does not
   start with a packet.
 
