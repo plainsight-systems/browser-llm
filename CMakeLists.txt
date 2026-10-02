@@ -81,6 +81,28 @@ add_library(charlotte_gpu STATIC
 )
 target_link_libraries(charlotte_gpu PUBLIC charlotte_core)
 
+# Every public header that holds WebGPU objects compiles on its own, with
+# nothing included before it, in both configurations: one generated
+# translation unit each, against Dawn natively and the port in wasm, built
+# with everything else, so neither half rests on a manual check.
+set(BLLM_GPU_HEADERS
+    core/gpu/callback_mode.h
+    core/gpu/device.h
+    core/gpu/self_check.h
+    core/gpu/wgpu_handles.h
+    core/residency/upload.h
+    core/residency/upload_check.h
+)
+set(BLLM_GPU_HEADER_CHECKS "")
+foreach(header IN LISTS BLLM_GPU_HEADERS)
+    string(MAKE_C_IDENTIFIER "${header}" check)
+    set(check "${CMAKE_BINARY_DIR}/header_checks/${check}.cpp")
+    file(CONFIGURE OUTPUT "${check}" CONTENT "#include \"${header}\"\n")
+    list(APPEND BLLM_GPU_HEADER_CHECKS "${check}")
+endforeach()
+add_library(charlotte_gpu_header_checks OBJECT ${BLLM_GPU_HEADER_CHECKS})
+target_link_libraries(charlotte_gpu_header_checks PRIVATE charlotte_gpu)
+
 if(EMSCRIPTEN)
     target_compile_options(charlotte_gpu PUBLIC --use-port=emdawnwebgpu)
     # The browser's event loop runs every callback (core/gpu/callback_mode.h).
