@@ -11,8 +11,8 @@ files. It does not list the files; that is [`file-mapping.md`](file-mapping.md).
 
 | Axis | Triggered by | May change |
 |---|---|---|
-| **A** | a new architecture | its graph and its load transforms |
-| **B** | a new weight format | its pack and unpack |
+| **A** | a new architecture | its graph |
+| **B** | a new weight format | its device layout, pack and unpack |
 | **C** | a GGUF format revision, or our parse contract | reader, its types, its errors |
 | **D** | the WebGPU surface, or granted device limits | device, planner, buffer writer |
 | **E** | a new or optimized kernel, in one regime | that kernel only |
@@ -101,7 +101,7 @@ patterns selected by name), and each kernel
 
 | Box | Axes it mixes | Splits into |
 |---|---|---|
-| **Upload** | D, B, D, A | planner · unpack · buffer writer · the architecture's load transforms |
+| **Upload** | D, B, D, L | planner, routes and piece writer · device layout · buffer writer · reading the cache and confirming duplicates |
 | **Fetch** | L, L | transport · OPFS model cache — network and storage change independently |
 | **Sample and emit** | F, K, H | sampler · detokenize · emit |
 | **Diff and KV cache** | G, D | prefix diff · cache resources |
@@ -113,11 +113,13 @@ sequences: no GPU, no model, no file, no browser. The cache is buffers and
 counters. Fused, the most correctness-critical logic in the chat loop becomes
 reachable only through a device.
 
-**Upload applies load transforms but does not own them.** An architecture whose
-weights are stored in a convention the uniform kernels do not expect — a norm
-offset, a permutation — supplies a transform, and upload invokes it. Upload
-never learns which architectures need what. Gemma's norm weights, stored as `w`
-and used as `1 + w`, are one example.
+**Upload rearranges layout, never values, and owns neither.** GGUF's
+converters store weights in the convention the uniform kernels expect —
+llama.cpp writes Gemma's norm weights as `1 + w` and permutes Llama's Q and K —
+so upload changes no value. What it rearranges is where bytes lie: each
+format's device layout splits its blocks into streams, and that layout belongs
+to the format, which unpack reads it by. Upload never learns what a format's
+fields mean.
 
 **Upload** is also the box that carries the most risk if left whole. The
 planner is pure arithmetic over a tensor index and a limit set, and preflight

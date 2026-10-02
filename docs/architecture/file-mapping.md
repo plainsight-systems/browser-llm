@@ -50,6 +50,7 @@ module's own header, and contract 11 in the two boundary files.
 | `web/download.js` | L | streaming a model into the cache, verifying size and SHA-256 as it arrives |
 | `web/sha256.js` | L | SHA-256 over a stream |
 | `web/load.js` | L | handing a cached file to the runtime in chunks, one at a time |
+| `web/duplicates.js` | L | confirming candidate duplicates by comparing their bytes in the cached file |
 | `web/worker.js` | boundary | owns the WASM module; the JavaScript side of every crossing |
 | `web/protocol.js` | boundary | the message kinds both sides of the worker use |
 | `web/wasm_runtime.js` | boundary | the C++ module behind the operations the worker offers |
@@ -63,12 +64,13 @@ module's own header, and contract 11 in the two boundary files.
 | `src/core/policy/` | contract | a model's measured configuration, and the defaults for an unmeasured one |
 | `src/core/arch/architecture.h` | contract | what every architecture supplies |
 | `src/core/arch/describe` | C | what describing shares: GGUF's `<arch>.<key>` and `blk.<layer>.<suffix>` naming, and the shape each role's weight has |
-| `src/core/arch/<arch>/` | A | reading its numbers into the model description, its graph, its load transforms |
+| `src/core/arch/<arch>/` | A | reading its numbers into the model description, and its graph |
 | `src/core/formats/format.h` | contract | what every weight format supplies |
-| `src/core/formats/<format>/` | B | block layout, pack and unpack in WGSL, the upload transform |
+| `src/core/formats/<format>/` | B | device layout, pack and unpack in WGSL |
 | `src/core/residency/plan` | D | the planner, pure: weights, cache and working buffers, and the context offered |
 | `src/core/residency/weight_view` | contract | what a kernel is given for a weight |
-| `src/core/residency/upload` | D | writing planned buffers; confirming duplicates byte for byte |
+| `src/core/residency/routes`, `piece_writer` | D | pure: where each byte of the file goes, and the writes each chunk completes |
+| `src/core/residency/upload` | D | creating planned buffers and carrying out the writes |
 | `src/core/gpu/` | D | device, handles, dispatch geometry |
 | `src/core/kernels/<kernel>/` | E | one WGSL file and its launcher per regime |
 | `src/core/kernels/interface` | contract | binding and parameter convention shared by every kernel |
@@ -98,9 +100,9 @@ and production never materialises a dequantized weight.
 |---|---|---|
 | **Pick** | `web/picker.js` H · `web/models.json` J | yes |
 | **Preflight** | `web/fetch.js` L · `core/gguf` C | yes |
-| **Gates** | `core/preflight` I · `core/capability` I · `core/residency/plan` D | yes |
+| **Gates** | `core/preflight` I · `core/capability` I · `core/residency/plan` D · `core/arch/<arch>` A | yes |
 | **Fetch** | `web/fetch.js` L · `web/opfs.js` L | no — split within L, since network and storage change independently |
-| **Upload** | `core/residency/plan` D · `core/formats/<format>` B · `core/residency/upload` D · `core/arch/<arch>` A | yes |
+| **Upload** | `core/residency/plan` D · `core/formats/<format>` B · `core/residency/routes` D · `core/residency/piece_writer` D · `core/residency/upload` D · `web/load.js` L · `web/duplicates.js` L | yes |
 | **Jinja** | `web/template.js` H | no |
 | **Tokenize** | `core/tokenizer/<algorithm>` K · `core/tokenizer/pretokenize` K | no — split within K |
 | **Diff** | `core/cache/prefix` G | no |
@@ -117,10 +119,11 @@ changes on exactly one axis.
 - **`residency/plan`** serves Gates and Upload. The Fit stage runs the planner before
   any weight is fetched, so it must be a pure function of the tensor index, the
   model description, the granted limits and the policy.
-- **`formats/<format>`** serves Upload and the KV cache. Packing and unpacking
-  a format is the same knowledge whether the data is a weight or a cached key.
-- **`arch/<arch>`** serves Upload, through its load transforms, and the forward
-  pass, through its graph.
+- **`formats/<format>`** serves Upload and the KV cache. Its device layout and
+  its packing and unpacking are one piece of knowledge, whether the data is a
+  weight or a cached key.
+- **`arch/<arch>`** serves Gates, through describe, and the forward pass,
+  through its graph.
 - **`tokenizer/<algorithm>`** serves Tokenize and Emit: encode on the way in,
   streaming decode on the way out.
 - **`web/fetch.js`** serves Preflight, which reads the header prefix, and Fetch,
@@ -219,9 +222,9 @@ Four rules hold for every contract:
    - The context offered is the largest the memory budget allows, capped at
      the context the model was trained for.
    - An output head stored as a byte-for-byte copy of the token embedding is
-     marked a candidate duplicate and given buffers of its own; upload shares
-     their storage only after confirming the bytes match, so a fit never
-     depends on unconfirmed sharing.
+     marked a candidate duplicate and given buffers of its own. The page
+     compares the two in the cached file before upload, and upload shares only
+     the confirmed ones, so a fit never depends on unconfirmed sharing.
 6. **Weight view** — `core/residency/weight_view`. What a kernel is given for a
    weight: buffer, offset, length, format and shape as one value, or a list of
    them for a tensor split across bindings. It names a buffer by its index in

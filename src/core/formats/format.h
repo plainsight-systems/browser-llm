@@ -18,7 +18,8 @@ namespace bllm::formats {
 //   - pack, as WGSL, for a format the KV cache stores in. Packing and
 //     unpacking are one piece of knowledge, whether the data is a weight or a
 //     cached key.
-//   - an upload transform, when the stored layout is not the one unpack reads.
+//   - a device layout: how its blocks' fields lie on the device, as streams
+//     (device_layout.h). Upload writes a weight that way; unpack reads it.
 //
 // Block sizes belong to the file format and are read from core/gguf; a format
 // does not restate them. There is no CPU dequantizer: production never

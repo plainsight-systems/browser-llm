@@ -19,9 +19,10 @@ namespace bllm::gpu {
 //   min_storage_buffer_offset_alignment   constrains suballocated offsets
 //   max_storage_buffers_per_shader_stage  caps bindings visible to one shader
 //
-// The last matters more than it looks: weights are uploaded de-interleaved as
-// a nibble stream and a scale stream, so each weight tensor costs *two*
-// bindings, not one.
+// The last matters more than it looks: every piece of a weight is a binding.
+// A quantized piece lies on the device as streams — nibbles, then scales
+// (formats/device_layout.h) — but all in one range, so a piece costs one
+// binding, not one per stream.
 struct DeviceLimits {
     std::uint64_t max_buffer_size = 0;
     std::uint64_t max_storage_buffer_binding_size = 0;

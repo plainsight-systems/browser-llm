@@ -23,7 +23,7 @@ flowchart LR
     pick["Pick<br/>list carries policy"] --> pf["Preflight<br/>header only"]
     pf --> gates["Gates<br/>stage by stage"]
     gates --> fetch["Fetch<br/>OPFS"]
-    fetch --> upload["Upload<br/>plan, unpack, load transforms"]
+    fetch --> upload["Upload<br/>plan, routes, device layout"]
     classDef default fill:#F1EFE8,stroke:#888780,color:#2C2C2A
     classDef fork fill:#FAECE7,stroke:#D85A30,color:#993C1D
     classDef policy fill:#EEEDFE,stroke:#534AB7,color:#3C3489
@@ -85,14 +85,14 @@ These decide how any difference between models is handled. Each was tested
 against real files, but none is specific to the files tested.
 
 1. **Kernels never know the family.** A kernel is parameterized by shape,
-   stride, weight format and regime. Knowledge of a family lives in exactly two
-   places: the graph, which decides which kernels run in what order with what
-   parameters, and load transforms. A kernel that branches on family must be
-   re-verified for every family added.
+   stride, weight format and regime. Knowledge of a family lives in exactly one
+   place: the graph, which decides which kernels run in what order with what
+   parameters. A kernel that branches on family must be re-verified for every
+   family added.
 
 2. **Each identifier in the file selects exactly one implementation.**
-   `general.architecture` selects a graph and its load transforms. A tensor's
-   type selects its pack and unpack. `tokenizer.ggml.model` selects a
+   `general.architecture` selects a graph. A tensor's type selects its device
+   layout, pack and unpack. `tokenizer.ggml.model` selects a
    tokenization algorithm, and `tokenizer.ggml.pre`, where present, selects the
    pre-tokenizer that splits text before the algorithm runs. These are
    independent: families share algorithms without sharing pre-tokenizers,
@@ -105,10 +105,11 @@ against real files, but none is specific to the files tested.
    file. None is a constant keyed on the architecture. Two conversions of the
    same model can disagree, and have.
 
-4. **Normalize at load before branching in a kernel.** When a family's
-   convention is a reparametrization of its weights — a norm offset, a
-   permutation, a folded scale — apply it once at upload so the kernel stays
-   uniform. Branch only for operations that differ in kind. The exception is a
+4. **Normalize before the kernel, not in it.** When a family's convention is
+   a reparametrization of its weights — a norm offset, a permutation, a folded
+   scale — it is applied once, before any kernel reads the weight, so the
+   kernel stays uniform. GGUF's converters apply them when they write the file,
+   so upload writes what the file holds. Branch only for operations that differ in kind. The exception is a
    weight used in two places, such as an embedding tied to the output head,
    where a fold that is correct for one use is wrong for the other.
 
@@ -150,7 +151,7 @@ What varies across decoder-only transformers, and which principle handles it.
 |---|---|---|
 | Norm type | RMSNorm, LayerNorm | shared kernel (6) |
 | Norm placement | before, after, or both | graph |
-| Norm weight convention | `w`, `1 + w` | load transform (4) |
+| Norm weight convention | `w`, `1 + w` | normalized by the file's converter (4) |
 | Heads, head dimension, θ, ε, scale | numbers | file parameter (3) |
 | Attention sharing | multi-head, grouped, multi-query | file parameter |
 | Attention window | global, sliding, interleaved per layer | per-layer parameter |
@@ -159,7 +160,7 @@ What varies across decoder-only transformers, and which principle handles it.
 | Logit softcapping | present or absent | shared kernel and parameter |
 | MLP | gated or plain, and which activation | graph and shared kernel |
 | Mixture of experts | a router and experts | graph and new shared kernels |
-| Embedding scale | none, √d | graph, or load transform if the embedding is not tied |
+| Embedding scale | none, √d | graph |
 | Output head | tied to the embedding, or separate | detected |
 | Tokenization algorithm | BPE, SentencePiece, WordPiece | its own implementation (2) |
 | Pre-tokenizer | a split pattern, named per lineage | selected by name; the file names it but does not carry it (2) |
