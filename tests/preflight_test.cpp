@@ -46,8 +46,8 @@ TEST_CASE("a readable file can always be downloaded, whatever this build can run
 
 TEST_CASE("every check reports, each naming the stage it stops") {
     // The fixture names a real architecture but declares too few of its
-    // numbers to describe, uses a format this build runs and one it cannot,
-    // and declares no tokenizer.
+    // numbers to describe, uses formats this build runs, and declares no
+    // tokenizer.
     const auto verdict = preflight_fixture("valid");
 
     CHECK(verdict.reached() == Stage::Download);
@@ -56,8 +56,8 @@ TEST_CASE("every check reports, each naming the stage it stops") {
                   "(qwen3.context_length)"));
     CHECK_FALSE(blocked(verdict, Stage::Run,
                         "format Q4_0 is not supported (1 tensor, first token_embd.weight)"));
-    CHECK(blocked(verdict, Stage::Run,
-                  "format F32 is not supported (1 tensor, first output_norm.weight)"));
+    CHECK_FALSE(blocked(verdict, Stage::Run,
+                        "format F32 is not supported (1 tensor, first output_norm.weight)"));
     CHECK(blocked(verdict, Stage::Run, "the file does not declare tokenizer.ggml.model"));
 }
 
@@ -79,7 +79,7 @@ TEST_CASE("an unsupported format is reported once, counting every tensor that us
                                        [](const Blocker& b) {
                                            return b.detail.rfind("format ", 0) == 0;
                                        });
-    CHECK(formats == 2);
+    CHECK(formats == 1);   // Q5_0, once; its F32 norm runs
     CHECK(blocked(verdict, Stage::Run, "format Q5_0 is not supported (2 tensors, first first.weight)"));
 }
 

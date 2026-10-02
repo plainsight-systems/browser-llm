@@ -6,6 +6,7 @@ add_executable(charlotte_gpu_tests
     device_test.cpp
     mapping_test.cpp
     upload_test.cpp
+    unpack_f32_test.cpp
     unpack_q4_0_test.cpp
     unpack_q4_1_test.cpp
     ../main_test.cpp

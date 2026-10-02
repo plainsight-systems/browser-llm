@@ -68,6 +68,7 @@ bllm_embed_shaders(
     TARGET  charlotte_core
     OUTPUT  "${CMAKE_BINARY_DIR}/generated/bllm/shaders_generated.h"
     SHADERS "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/vector_add.wgsl"
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/core/formats/f32/f32.wgsl"
             "${CMAKE_CURRENT_SOURCE_DIR}/src/core/formats/q4_0/q4_0.wgsl"
             "${CMAKE_CURRENT_SOURCE_DIR}/src/core/formats/q4_1/q4_1.wgsl"
 )
