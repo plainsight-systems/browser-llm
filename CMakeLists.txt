@@ -38,6 +38,7 @@ add_library(charlotte_core STATIC
     src/core/tokenizer/bpe/merge.cpp
     src/core/tokenizer/bpe/merge_table.cpp
     src/core/tokenizer/bpe/piece_cache.cpp
+    src/core/tokenizer/bpe/sentencepiece_merges.cpp
     src/core/tokenizer/load.cpp
     src/core/tokenizer/nfc.cpp
     src/core/tokenizer/pretokenize.cpp

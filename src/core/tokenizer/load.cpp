@@ -35,4 +35,11 @@ LoadResult read_int32_array(gguf::ByteSource& source, const gguf::TensorIndex& i
     return checked(key, gguf::read_int32s(source, array, out));
 }
 
+LoadResult read_float32_array(gguf::ByteSource& source, const gguf::TensorIndex& index, std::string_view key,
+                              std::vector<float>& out) {
+    gguf::ArrayLocation array{};
+    if (auto r = locate(index, key, array); !r.ok()) return r;
+    return checked(key, gguf::read_float32s(source, array, out));
+}
+
 }  // namespace bllm::tokenizer

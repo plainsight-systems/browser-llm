@@ -20,4 +20,7 @@ namespace bllm::tokenizer {
 [[nodiscard]] LoadResult read_int32_array(gguf::ByteSource& source, const gguf::TensorIndex& index,
                                           std::string_view key, std::vector<std::int32_t>& out);
 
+[[nodiscard]] LoadResult read_float32_array(gguf::ByteSource& source, const gguf::TensorIndex& index,
+                                            std::string_view key, std::vector<float>& out);
+
 }  // namespace bllm::tokenizer
