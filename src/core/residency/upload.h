@@ -34,10 +34,20 @@ namespace bllm::residency {
 //     (upload_check.h). WebGPU zeroes a new buffer, so padding is never
 //     written.
 //   - Creation is checked: it runs inside out-of-memory, validation and
-//     internal error scopes, and ready is reported only once all three are
-//     popped clean and the device is not lost. A buffer the device could not
-//     give is a named failure before any byte is written, never a write into
-//     an invalid buffer (E.27).
+//     internal error scopes, and ready reports only what those can show: a
+//     buffer the device refused is a named failure before any byte is
+//     written (E.27). Ready is not proof the device is alive — a lost device
+//     pops its scopes clean — and nothing claims it is; finish is.
+//   - Success is shown, never assumed. A lost device still reports queued
+//     work as done and error scopes as clean, and WebGPU does not order its
+//     lost callback before them, so neither a clean status nor the absence
+//     of a loss report is evidence. A completed mapping is: a lost device
+//     refuses one (tests/gpu/device_test.cpp holds that on every adapter CI
+//     runs). So finish writes a witness last, four bytes unique to this
+//     upload into a small buffer of its own, maps it, and reports Ok only if
+//     the mapping completes and reads those bytes back: the queue runs in
+//     order, so every write before it ran, on a live device. It costs one
+//     4-byte round trip per load, about half a millisecond (GPU.1).
 //   - Each write is one wgpuQueueWriteBuffer, from the chunk or the staging
 //     area in the wasm heap. writeBuffer copies the bytes before it returns,
 //     so the heap's chunk and staging are free for the next chunk at once.
@@ -52,10 +62,10 @@ namespace bllm::residency {
 //     claimed only for a target whose timeline shows it (measured below).
 //   - Failure is a value (E.27), one for each cause, mapped exactly from
 //     webgpu.h:
-//       - device loss first, from gpu::DeviceStatus (device.h), which every
-//         callback reads before anything else: a lost device resolves error
-//         scopes clean and queued work as done, so no status reports it.
-//         Lost, for any reason, is DeviceLost.
+//       - the witness's mapping refused: DeviceLost, with its reason, if
+//         gpu::DeviceStatus (device.h) already says the device is lost;
+//         otherwise Unconfirmed, since the lost callback may not have
+//         arrived yet and the cause cannot be named. Never Ok.
 //       - a popped scope's error type: OutOfMemory is OutOfMemory, Validation
 //         is Validation, Internal and Unknown are Internal.
 //       - a scope pop that fails: CallbackCancelled (the instance went away)
@@ -126,8 +136,9 @@ enum class UploadError {
     NotACandidate,      // routes.h: a confirmed duplicate the plan never marked
     OutOfMemory,        // the out-of-memory scope caught an error
     Validation,         // the validation scope caught an error: a defect here, not in the file
-    Internal,           // the device reported an internal error
-    DeviceLost,         // the device was lost, or a scope could not be popped
+    Internal,           // an internal error, or a scope or queue error (see the mapping above)
+    DeviceLost,         // the witness was refused, and the device reports itself lost
+    Unconfirmed,        // the witness was refused, and the device has not said why
     OutOfOrder,         // a chunk did not start where the last one ended
     ChunkTooLarge,
     Unfinished,         // the file ended before every weight was filled
@@ -186,6 +197,12 @@ public:
 
     [[nodiscard]] WGPUDevice device() const noexcept { return device_.get(); }
 
+    // The device's status, to name the cause of a failure; never proof of
+    // success (see above).
+    [[nodiscard]] const std::shared_ptr<const gpu::DeviceStatus>& device_status() const noexcept {
+        return device_status_;
+    }
+
     // A routed tensor's name, kept from the index the routes came from, so a
     // report about a route needs no index beside the Upload.
     [[nodiscard]] std::string_view tensor_name(gguf::TensorId tensor) const noexcept;
@@ -194,6 +211,7 @@ private:
     Upload(gpu::DeviceHandle device, ResidencyPlan plan, std::vector<Route> routes, std::size_t max_chunk);
 
     gpu::DeviceHandle device_;   // a reference of its own, taken in begin
+    gpu::Buffer witness_;        // MAP_READ | COPY_DST, 4 bytes, written last and read back
     std::shared_ptr<const gpu::DeviceStatus> device_status_;
     std::vector<std::string> tensor_names_;   // by TensorId, for the routed tensors
     ResidencyPlan plan_;
