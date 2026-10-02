@@ -130,18 +130,18 @@ public:
     [[nodiscard]] CheckError finish(std::uint64_t file_size);
 
     // Every mismatch found so far, in file order.
-    [[nodiscard]] std::span<const Mismatch> mismatches() const noexcept { return mismatches_; }
+    [[nodiscard]] std::span<const Mismatch> mismatches() const noexcept;
 
 private:
     gpu::Instance instance_;     // a reference of its own: its callbacks are the instance's
     gpu::DeviceHandle device_;
     const Upload& upload_;   // finished; outlives the check
     PieceWriter writer_;      // regenerates upload's writes
-    gpu::Buffer staging_;     // MAP_READ | COPY_DST, sized to the largest chunk's writes
-    std::vector<Write> writes_;
-    std::vector<Mismatch> mismatches_;
-    std::shared_ptr<struct CheckState> pending_;   // shared with callbacks in flight
-    CheckError failed_ = CheckError::Ok;
+    std::vector<Write> writes_;   // reused across chunks
+    // Shared with callbacks in flight: the queue, the staging buffer
+    // (MAP_READ | COPY_DST, sized to the most one chunk's writes can be),
+    // the first failure, the mismatches, and whether the check is gone.
+    std::shared_ptr<struct CheckState> pending_;
 };
 
 }  // namespace bllm::residency

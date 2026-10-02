@@ -85,6 +85,10 @@ add_library(charlotte_gpu STATIC
     src/core/residency/witness.cpp
 )
 target_link_libraries(charlotte_gpu PUBLIC charlotte_core)
+# Not compiled at all in a clean build (upload_check.h, TLM.8).
+if(BLLM_ENABLE_DIAGNOSTICS)
+    target_sources(charlotte_gpu PRIVATE src/core/residency/upload_check.cpp)
+endif()
 
 # Every public header that holds WebGPU objects compiles on its own, with
 # nothing included before it, in both configurations: one generated

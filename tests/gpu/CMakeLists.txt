@@ -8,6 +8,9 @@ add_executable(charlotte_gpu_tests
     upload_test.cpp
     ../main_test.cpp
 )
+if(BLLM_ENABLE_DIAGNOSTICS)
+    target_sources(charlotte_gpu_tests PRIVATE upload_check_test.cpp)
+endif()
 target_link_libraries(charlotte_gpu_tests PRIVATE charlotte_gpu doctest::doctest)
 target_include_directories(charlotte_gpu_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/..")
 target_compile_definitions(charlotte_gpu_tests PRIVATE
