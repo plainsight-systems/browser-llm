@@ -32,6 +32,32 @@ namespace bllm::formats {
 // format the table lists always has a layout that matches it and keeps its
 // promise, and preflight and upload cannot disagree on how a format runs.
 //
+// Unpack is one WGSL function, the same for every format:
+//
+//   // declared by the kernel, under this name:
+//   @group(0) @binding(0) var<storage, read> weights: array<u32>;
+//   // supplied by the format, in formats/<format>/<format>.wgsl:
+//   fn unpack(blocks_in_piece: u32, group: u32) -> array<vec4<f32>, 8>
+//
+//   - It returns the 32 consecutive weights of `group` in one piece: a whole
+//     block of Q4_0, Q4_1 or Q8_0, one of the eight 32-weight groups of a
+//     Q6_K super-block, 32 floats of F32. Every kernel steps through a row 32
+//     weights at a time, whatever the format, so no kernel knows one.
+//   - `blocks_in_piece` locates each stream: a stream starts after every
+//     earlier stream's fields for the whole piece (device_layout.h). Kernels
+//     pass it as a uniform.
+//   - Weights decode in the kernel's load path, into registers, and are never
+//     written back out expanded (GDSA.18).
+//   Optimization (practice): the 32 weights come as eight vec4s, so a kernel
+//   takes dot products four lanes at a time.
+//   Optimization (browser): half-precision scales are read from u32 words
+//   with unpack2x16float, so no format needs the shader-f16 extension, which
+//   not every browser's WebGPU offers.
+//
+// Each unpack is tested on the GPU against a CPU reference that mirrors
+// ggml's dequantize_row_* for the format, in its order of operations, over
+// real blocks; the references live in tests/support, as test oracles only.
+//
 // Block sizes belong to the file format and are read from core/gguf; a format
 // does not restate them. There is no CPU dequantizer: production never
 // materialises a dequantized weight, and the CPU reference used to check
@@ -43,6 +69,12 @@ namespace bllm::formats {
 //            pairing of type and layout does not compile.
 //     C.41   A constructor should create a fully initialized object — there
 //            is no Format without a layout.
+//   C++ performance guidelines
+//     GDSA.18 Store numbers as block-scaled codes decoded in the load path —
+//            unpack decodes into registers; nothing expands a weight in
+//            memory.
+//     GPU.2  Shape data for coalesced lane access — unpack reads the streams
+//            the layout lays out for adjacent lanes.
 
 namespace detail {
 // Not constexpr: reached only when a Format would be built wrong, which makes
