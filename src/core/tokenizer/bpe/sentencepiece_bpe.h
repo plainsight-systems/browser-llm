@@ -30,30 +30,36 @@ namespace bllm::tokenizer::bpe {
 // run through the same merge step as byte-level BPE (merge.h). Encoding a
 // rendered prompt:
 //
-//   1. Special tokens are found in the raw text and become their own
-//      identifiers (special.h).
-//   2. In the text between them each space becomes "▁" (U+2581), as the
-//      vocabulary spells it. Nothing else is normalized, and no space is
-//      added before the text.
-//   3. Each character becomes its token, or, where the vocabulary has none,
-//      one byte token (<0x00> to <0xFF>) for each of its bytes.
-//   4. The whole stretch is merged at once; nothing splits it first.
+//   1. Each space becomes "▁" (U+2581), as the vocabulary spells it. Nothing
+//      else is normalized, and no space is added before the text.
+//   2. Special tokens are found in that text and become their own identifiers
+//      (special.h), each spelled the same way. So Gemma 3's user-defined runs
+//      of spaces match runs of "▁", whether the text held spaces or the
+//      character ▁ itself. That is SentencePiece's own rule: it matches its
+//      user-defined pieces after spaces become ▁. Both references differ from
+//      it where ▁ is typed beside a space, as a sparkline's lowest bar is:
+//      llama.cpp spells those tokens in spaces and never matches a typed ▁,
+//      and Hugging Face matches typed runs only where they stand alone.
+//   3. Each character between them becomes its token, or, where the
+//      vocabulary has none, one byte token (<0x00> to <0xFF>) for each of
+//      its bytes.
+//   4. Each stretch is merged at once; nothing splits it first.
 //
 // BOS is never added: the chat template writes it as text.
 //
 // Decoding a token gives a normal token's text with each "▁" a space again, a
 // byte token's byte, and any other token's text as written. A "▁" typed in the
-// text comes back as a space, as it does in both references: the vocabulary
-// cannot tell the two apart.
+// text comes back as a space, as it does in SentencePiece and both references:
+// the vocabulary cannot tell the two apart.
 class SentencePieceBpe {
 public:
     SentencePieceBpe() = default;
 
     [[nodiscard]] const Vocabulary& vocabulary() const noexcept { return vocabulary_; }
 
-    // Appends the tokens `text` encodes to. `out` is left untouched if it
-    // cannot: text that is not UTF-8, or longer than 4 GiB.
-    [[nodiscard]] EncodeError encode(std::string_view text, std::vector<TokenId>& out) const;
+    // Appends the tokens `raw` encodes to. `out` is left untouched if it
+    // cannot: text that is not UTF-8, or longer than 4 GiB once spaces are ▁.
+    [[nodiscard]] EncodeError encode(std::string_view raw, std::vector<TokenId>& out) const;
 
     // Appends the bytes `token` stands for. They can end partway through a
     // character; Utf8Stream makes text of them. Precondition: loaded, and the
@@ -76,7 +82,8 @@ extern const Algorithm kSentencePiece;
 
 // Reads the vocabulary and scores, derives the merges, and finds the byte
 // tokens, which must be exactly <0x00> to <0xFF>. Refuses a vocabulary with
-// a one-character token that is neither
+// two special tokens spelled alike once their spaces are ▁, and one with a
+// one-character token that is neither
 // normal nor special, which the references would use and this would spell in
 // bytes, and a file that asks for a space before the text
 // (tokenizer.ggml.add_space_prefix true, or not declared, which llama.cpp

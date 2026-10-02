@@ -1,5 +1,6 @@
 #include "core/tokenizer/bpe/sentencepiece_bpe.h"
 
+#include <algorithm>
 #include <charconv>
 #include <cstdio>
 #include <limits>
@@ -17,6 +18,21 @@ namespace {
 
 constexpr std::string_view kSpace = "\xE2\x96\x81";   // U+2581, how the vocabulary spells a space
 
+// `text` with each space spelled "▁". A space is one byte, never part of
+// another character, so UTF-8 stays UTF-8.
+std::string escaped(std::string_view text) {
+    std::string out;
+    out.reserve(text.size());
+    for (const char c : text) {
+        if (c == ' ') {
+            out.append(kSpace);
+        } else {
+            out.push_back(c);
+        }
+    }
+    return out;
+}
+
 // Whether `text` is exactly one character.
 bool one_character(std::string_view text) noexcept {
     Utf8Char c{};
@@ -27,14 +43,16 @@ bool one_character(std::string_view text) noexcept {
 
 const Algorithm kSentencePiece{"llama", false};
 
-EncodeError SentencePieceBpe::encode(std::string_view text, std::vector<TokenId>& out) const {
-    if (text.size() > std::numeric_limits<std::uint32_t>::max()) return EncodeError::TooLong;
+EncodeError SentencePieceBpe::encode(std::string_view raw, std::vector<TokenId>& out) const {
+    if (raw.size() > std::numeric_limits<std::uint32_t>::max()) return EncodeError::TooLong;
+    const std::string spelled = escaped(raw);
+    if (spelled.size() > std::numeric_limits<std::uint32_t>::max()) return EncodeError::TooLong;
+    const std::string_view text = spelled;
 
     std::vector<Segment> segments;
     special_.segment(text, segments);
 
     std::vector<TokenId> tokens;
-    std::string spelled;   // scratch for each character
     std::vector<TokenId> symbols;
     for (const Segment& segment : segments) {
         if (segment.special) {
@@ -47,12 +65,11 @@ EncodeError SentencePieceBpe::encode(std::string_view text, std::vector<TokenId>
             Utf8Char c{};
             if (!decode_utf8(ordinary, at, c)) return EncodeError::InvalidUtf8;
             const std::string_view character = ordinary.substr(at, c.length);
-            spelled.assign(c.code_point == U' ' ? kSpace : character);
-            const auto token = vocabulary_.find(spelled);
+            const auto token = vocabulary_.find(character);
             if (token && vocabulary_.type(*token) == TokenType::Normal) {
                 symbols.push_back(*token);
             } else {
-                for (const char byte : spelled) symbols.push_back(byte_tokens_[static_cast<unsigned char>(byte)]);
+                for (const char byte : character) symbols.push_back(byte_tokens_[static_cast<unsigned char>(byte)]);
             }
             at += c.length;
         }
@@ -133,7 +150,24 @@ LoadResult load_sentencepiece_bpe(gguf::ByteSource& source, const gguf::TensorIn
         byte_tokens += spm.vocabulary_.type(static_cast<TokenId>(id)) == TokenType::Byte;
     }
     if (byte_tokens != 256) return {LoadError::Unsupported, "byte tokens other than <0x00> to <0xFF>"};
-    spm.special_ = SpecialTokens{spm.vocabulary_};
+    // Special tokens are matched in the text after spaces become ▁, so they are
+    // spelled that way too.
+    std::vector<SpecialTokens::Entry> special;
+    for (std::size_t id = 0; id < spm.vocabulary_.size(); ++id) {
+        const auto token = static_cast<TokenId>(id);
+        const TokenType type = spm.vocabulary_.type(token);
+        const std::string_view text = spm.vocabulary_.text(token);
+        if ((type == TokenType::Control || type == TokenType::UserDefined) && !text.empty()) {
+            special.push_back({escaped(text), token});
+        }
+    }
+    std::vector<std::string_view> texts;
+    for (const auto& entry : special) texts.push_back(entry.text);
+    std::sort(texts.begin(), texts.end());
+    if (const auto repeat = std::adjacent_find(texts.begin(), texts.end()); repeat != texts.end()) {
+        return {LoadError::Unsupported, "two special tokens spelled " + std::string(*repeat) + " once spaces are ▁"};
+    }
+    spm.special_ = SpecialTokens{std::move(special)};
     out = std::move(spm);
     return {};
 }

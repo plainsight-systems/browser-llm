@@ -179,6 +179,26 @@ TEST_CASE("spaces become the vocabulary's ▁ and merge with what follows") {
     CHECK(encode(spm, "a b") == std::vector<std::uint32_t>{kA, kSp, kB});
 }
 
+TEST_CASE("special tokens match after spaces become ▁, so a typed ▁ is one with a space") {
+    // Two user-defined runs of spaces and a control token holding one.
+    Small with_runs;
+    with_runs.add("  ", 4, 0);      // 263
+    with_runs.add("   ", 4, 0);     // 264
+    with_runs.add("<a b>", 3, 0);   // 265
+    bpe::SentencePieceBpe spm;
+    const auto r = with_runs.load(spm);
+    REQUIRE_MESSAGE(r.ok(), r.subject);
+    const std::string bar(kSpace);   // the character ▁, typed
+    CHECK(encode(spm, "a  b") == std::vector<std::uint32_t>{kA, 263, kB});
+    CHECK(encode(spm, "a " + bar + "b") == std::vector<std::uint32_t>{kA, 263, kB});
+    CHECK(encode(spm, "a" + bar + bar + bar + "b") == std::vector<std::uint32_t>{kA, 264, kB});
+    // Four in a row: the longest run, then a lone ▁ that merges with what follows.
+    CHECK(encode(spm, "a " + bar + bar + " ab") == std::vector<std::uint32_t>{kA, 264, kSpAb});
+    CHECK(encode(spm, "a" + bar) == std::vector<std::uint32_t>{kA, kSp});
+    CHECK(encode(spm, "<a b>") == std::vector<std::uint32_t>{265});
+    CHECK(encode(spm, "<a" + bar + "b>") == std::vector<std::uint32_t>{265});
+}
+
 TEST_CASE("a character the vocabulary lacks becomes a byte token for each of its bytes") {
     const auto spm = small();
     CHECK(encode(spm, "a\xC3\xA9" "b") == std::vector<std::uint32_t>{kA, 0xC3, 0xA9, kB});
@@ -224,6 +244,12 @@ TEST_CASE("a file the references would read differently from this one is refused
     r = extra_byte.load(spm);
     CHECK(r.error == LoadError::Unsupported);
     CHECK(r.subject == "byte tokens other than <0x00> to <0xFF>");
+    Small alike;
+    alike.add("  ", 4, 0);
+    alike.add(std::string(kSpace) + std::string(kSpace), 4, 0);   // the same, once spaces are ▁
+    r = alike.load(spm);
+    CHECK(r.error == LoadError::Unsupported);
+    CHECK(r.subject == "two special tokens spelled \xE2\x96\x81\xE2\x96\x81 once spaces are \xE2\x96\x81");
     Small short_scores;
     short_scores.scores.pop_back();
     CHECK(short_scores.load(spm).error == LoadError::CountMismatch);

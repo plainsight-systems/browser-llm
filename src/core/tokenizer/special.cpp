@@ -1,19 +1,31 @@
 #include "core/tokenizer/special.h"
 
 #include <algorithm>
+#include <utility>
 
 namespace bllm::tokenizer {
 
-SpecialTokens::SpecialTokens(const Vocabulary& vocabulary) {
+namespace {
+
+std::vector<SpecialTokens::Entry> special_entries(const Vocabulary& vocabulary) {
+    std::vector<SpecialTokens::Entry> entries;
     for (std::size_t i = 0; i < vocabulary.size(); ++i) {
         const auto id = static_cast<TokenId>(i);
         const TokenType type = vocabulary.type(id);
         if ((type == TokenType::Control || type == TokenType::UserDefined) && !vocabulary.text(id).empty()) {
-            tokens_.push_back({std::string(vocabulary.text(id)), id});
+            entries.push_back({std::string(vocabulary.text(id)), id});
         }
     }
-    const auto first_byte = [](const Token& t) { return static_cast<unsigned char>(t.text[0]); };
-    std::sort(tokens_.begin(), tokens_.end(), [&](const Token& a, const Token& b) {
+    return entries;
+}
+
+}  // namespace
+
+SpecialTokens::SpecialTokens(const Vocabulary& vocabulary) : SpecialTokens(special_entries(vocabulary)) {}
+
+SpecialTokens::SpecialTokens(std::vector<Entry> entries) : tokens_(std::move(entries)) {
+    const auto first_byte = [](const Entry& t) { return static_cast<unsigned char>(t.text[0]); };
+    std::sort(tokens_.begin(), tokens_.end(), [&](const Entry& a, const Entry& b) {
         if (first_byte(a) != first_byte(b)) return first_byte(a) < first_byte(b);
         return a.text.size() > b.text.size();
     });
@@ -28,7 +40,7 @@ void SpecialTokens::segment(std::string_view text, std::vector<Segment>& out) co
     std::size_t plain = 0;   // where the current run of ordinary text began
     for (std::size_t i = 0; i < text.size();) {
         const auto byte = static_cast<unsigned char>(text[i]);
-        const Token* match = nullptr;
+        const Entry* match = nullptr;
         for (std::uint32_t t = starts_[byte]; t < starts_[byte + 1]; ++t) {
             if (text.substr(i).starts_with(tokens_[t].text)) {
                 match = &tokens_[t];
