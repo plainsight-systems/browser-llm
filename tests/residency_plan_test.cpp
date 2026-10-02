@@ -67,6 +67,22 @@ void check_invariants(const ResidencyPlan& plan, const DeviceLimits& limits) {
     CHECK(plan.total_bytes == plan.weight_bytes + plan.cache_bytes + plan.scratch_bytes);
 }
 
+// The bytes of the file a tensor's pieces hold: their rows times a row's bytes.
+// Each piece binds those bytes rounded up to 4.
+std::uint64_t file_bytes(const residency::PlannedTensor& tensor, const gguf::TensorEntry& entry) {
+    std::uint64_t rows = 0;
+    for (const auto& piece : tensor.view.pieces()) rows += piece.row_count;
+    if (rows == 0) return 0;
+    const std::uint64_t row_bytes = entry.data_length / rows;
+    std::uint64_t bytes = 0;
+    for (const auto& piece : tensor.view.pieces()) {
+        const std::uint64_t held = piece.row_count * row_bytes;
+        CHECK(piece.length == (held + 3) / 4 * 4);
+        bytes += held;
+    }
+    return bytes;
+}
+
 }  // namespace
 
 TEST_CASE("every tensor is placed, whole, and within the limits") {
@@ -78,9 +94,7 @@ TEST_CASE("every tensor is placed, whole, and within the limits") {
     REQUIRE(plan.tensors.size() == p.index.tensors().size());
     for (std::size_t i = 0; i < plan.tensors.size(); ++i) {
         const auto& entry = p.index.tensors()[i];
-        std::uint64_t bytes = 0;
-        for (const auto& piece : plan.tensors[i].view.pieces()) bytes += piece.length;
-        CHECK(bytes == entry.data_length);
+        CHECK(file_bytes(plan.tensors[i], entry) == entry.data_length);
         CHECK(plan.tensors[i].view.format() == entry.type);
     }
     // A model this small packs into one weight buffer.
@@ -105,6 +119,27 @@ TEST_CASE("a weight wider than a binding is split by whole rows") {
         CHECK(piece.length == 64);
         CHECK(piece.offset % narrow.storage_offset_alignment == 0);
     }
+}
+
+TEST_CASE("a piece whose bytes are no multiple of 4 binds them rounded up to 4") {
+    const auto p = describe("tiny_qwen3_odd_blocks");
+    const auto extra = static_cast<std::size_t>(*p.index.find("extra.weight"));
+    // Whole: 3 rows of 18 bytes, 54, bound as 56.
+    ResidencyPlan plan;
+    REQUIRE(residency::plan_residency(p.index, p.model, kDefaults, policy::LoadPolicy{}, plan).ok());
+    check_invariants(plan, kDefaults);
+    REQUIRE(plan.tensors[extra].view.pieces().size() == 1);
+    CHECK(plan.tensors[extra].view.pieces()[0].length == 56);
+    // Split two rows to a 48-byte binding: 36 bound as 36, then 18 bound as 20.
+    const DeviceLimits narrow{4096, 48, 32};
+    ResidencyPlan split;
+    (void)residency::plan_residency(p.index, p.model, narrow, policy::LoadPolicy{}, split);
+    REQUIRE(split.tensors.size() > extra);
+    const auto& pieces = split.tensors[extra].view.pieces();
+    REQUIRE(pieces.size() == 2);
+    CHECK(pieces[0].length == 36);
+    CHECK(pieces[1].length == 20);
+    CHECK(file_bytes(split.tensors[extra], p.index.tensor(static_cast<gguf::TensorId>(extra))) == 54);
 }
 
 TEST_CASE("a row wider than a binding cannot be placed, and is named") {

@@ -95,7 +95,7 @@ public:
             offset = 0;
         }
         buffers_.back().size = offset + padded;
-        out = {static_cast<BufferIndex>(buffers_.size() - 1), offset, length};
+        out = {static_cast<BufferIndex>(buffers_.size() - 1), offset, padded};
         open_ = !alone;
         return true;
     }

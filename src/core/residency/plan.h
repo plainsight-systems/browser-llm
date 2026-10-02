@@ -79,7 +79,10 @@ struct PlannedBuffer {
     std::uint64_t size;
 };
 
-// A bound range of one planned buffer.
+// A bound range of one planned buffer. Its length is what is bound: the bytes
+// it holds rounded up to 4, since a storage binding's size must be a multiple
+// of 4 (WebGPU). A weight piece's bytes in the file are its rows times the
+// row's bytes.
 struct BufferRange {
     BufferIndex buffer;
     std::uint64_t offset;

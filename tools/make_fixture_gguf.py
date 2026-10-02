@@ -145,7 +145,7 @@ def f32_zeros(dims):
 
 
 def tiny_model(arch, layers=2, *, extra=(), omit_key=None, omit_tensor=None, reshape=None,
-               head_count_kv=KV, output_copy=False, context=64):
+               head_count_kv=KV, output_copy=False, context=64, extra_tensors=()):
     """A tiny `arch` model. `reshape` is (tensor name, dims) to break a shape."""
     keys = {
         "block_count": (U32, struct.pack("<I", layers)),
@@ -177,7 +177,7 @@ def tiny_model(arch, layers=2, *, extra=(), omit_key=None, omit_tensor=None, res
         shapes[reshape[0]] = reshape[1]
     tensors = [(name.encode(), dims, T_F32, f32_zeros(dims))
                for name, dims in shapes.items() if name != omit_tensor]
-    return build(tensors, metadata=metadata)
+    return build(list(extra_tensors) + tensors, metadata=metadata)
 
 
 def _tensors_at(*placements, alignment=32):
@@ -299,6 +299,10 @@ CASES = {
     # An output head stored as its own tensor, the same shape and format as
     # the token embedding: the case residency treats as a candidate duplicate.
     "tiny_qwen3_output_copy": lambda: tiny_model("qwen3", output_copy=True),
+    # Three rows of one Q4_0 block, first in the file: 18 bytes a row, 54 in
+    # all, no multiple of 4.
+    "tiny_qwen3_odd_blocks": lambda: tiny_model(
+        "qwen3", extra_tensors=[(b"extra.weight", [32, 3], T_Q4_0, q4_0_blocks(3))]),
     # Seven layers: a run of six (five window layers, one global) and one more.
     "tiny_gemma3": lambda: tiny_model("gemma3", layers=7, extra=[
         kv(b"gemma3.attention.sliding_window", U32, struct.pack("<I", 16))]),

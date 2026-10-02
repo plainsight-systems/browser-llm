@@ -23,7 +23,8 @@ namespace bllm::residency {
 // A buffer's position in the residency plan.
 enum class BufferIndex : std::uint32_t {};
 
-// A run of whole rows placed contiguously in one buffer.
+// A run of whole rows placed contiguously in one buffer. `length` is the bound
+// length: the rows' bytes rounded up to 4, as a storage binding requires.
 struct WeightPiece {
     BufferIndex buffer;
     std::uint64_t offset;
