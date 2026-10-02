@@ -7,6 +7,7 @@ add_executable(charlotte_gpu_tests
     mapping_test.cpp
     upload_test.cpp
     unpack_q4_0_test.cpp
+    unpack_q4_1_test.cpp
     ../main_test.cpp
 )
 if(BLLM_ENABLE_DIAGNOSTICS)
