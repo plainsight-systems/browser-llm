@@ -55,7 +55,11 @@ namespace bllm::formats {
 //            checked against the stored block it is transformed from. It asks
 //            for a version on a persisted copy; none is kept — the transformed
 //            bytes live in device memory for one page, so the build that
-//            writes a layout is the build that reads it.
+//            writes a layout is the build that reads it. The layout is a
+//            contract with one consumer, its format's unpack: each unpack is
+//            tested, as it lands, against ggml's dequantization of the same
+//            stored blocks, and the coalescing GPU.2 promises is claimed only
+//            once the floor's timeline shows it.
 //     GDSA.18 Store numbers as block-scaled codes decoded in the load path —
 //            the codes stay as the file holds them and an unpack decodes them
 //            as it loads, never into a full-precision buffer; the scales are a
