@@ -37,7 +37,7 @@ export async function preflight({ fetchRange, readIndex }) {
     const answer = await readIndex(resident, totalSize);
     switch (answer.status) {
       case 'read':
-        return { ...answer, totalSize };
+        return { ...answer, totalSize, indexBytes: resident.length };
       case 'unreadable':
         throw new PreflightError(`not a readable GGUF file: ${answer.error}`);
       case 'need-bytes':

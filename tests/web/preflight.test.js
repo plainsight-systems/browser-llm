@@ -69,3 +69,12 @@ test('a file on this device serves its own ranges, with its own size', async () 
   assert.equal(totalSize, 100);
   assert.deepEqual([...new Uint8Array(bytes)], [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]);
 });
+
+test('the verdict says how many of the first bytes the index needed, to be sent again at load', async () => {
+  const small = await preflight(fakeFile({ totalSize: 500e6, indexEnd: 6e6 }));
+  assert.equal(small.indexBytes, FIRST_FETCH_BYTES);   // read from the first fetch, whole
+  const file = fakeFile({ totalSize: 500e6, indexEnd: 20e6 });
+  const large = await preflight(file);
+  assert.equal(large.indexBytes, file.fetched.at(-1)[1]);   // every byte fetched
+  assert.ok(large.indexBytes >= 20e6);
+});
