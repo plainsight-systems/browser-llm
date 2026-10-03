@@ -36,6 +36,7 @@ export async function createRuntime({ onDevice, runBench }) {
     loadBegin: async ({ maxChunk }) => ({ chunkBytes: maxChunk }),
     loadChunk: async ({ offset, bytes }) => ({ received: offset + bytes.byteLength }),
     loadFinish: async () => ({}),
+    canCheck: false,
 
     generate: async ({ id, prompt, onText }) => {
       const text = `${REPLY}The rendered prompt was ${prompt.length} characters.`;

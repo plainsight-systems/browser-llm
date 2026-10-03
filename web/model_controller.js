@@ -9,7 +9,7 @@
 import { cacheKey, downloadModel } from './download.js';
 import { confirmDuplicates } from './duplicates.js';
 import { fetchRange, openDownload } from './fetch.js';
-import { loadModel } from './load.js';
+import { checkModel, loadModel } from './load.js';
 import { renderModel } from './model_view.js';
 import { requestPersistence } from './opfs.js';
 import { preflight, rangesOfFile } from './preflight.js';
@@ -99,7 +99,19 @@ export function createModelController({ element, client, cache, onLoaded, onCach
         },
       });
       if (signal.aborted) return;
-      show({ phase: 'loaded', model, verdict });
+      // A diagnostic build reads every byte back; the clean build skips it.
+      show({ phase: 'verifying', model, verdict, done: 0, total: null });
+      const check = await checkModel({
+        file, signal,
+        begin: ({ maxChunk }) => client.request(Request.CHECK_BEGIN, { maxChunk }),
+        send: ({ offset, bytes }) => client.request(Request.CHECK_CHUNK, { offset, bytes }, { transfer: [bytes] }),
+        finish: () => client.request(Request.CHECK_FINISH, {}),
+        onProgress: (done, total) => {
+          if (!signal.aborted) show({ ...state, done, total });
+        },
+      });
+      if (signal.aborted) return;
+      show({ phase: 'loaded', model, verdict, check });
       onLoaded(model, verdict);
     } catch (error) {
       if (!signal.aborted) show({ phase: 'failed', model, action: 'load', error });

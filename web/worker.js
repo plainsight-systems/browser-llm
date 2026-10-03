@@ -32,6 +32,10 @@ const handlers = {
     runtime.loadBegin({ prefix, totalSize, confirmed, maxChunk }),
   [Request.LOAD_CHUNK]: (runtime, { offset, bytes }) => runtime.loadChunk({ offset, bytes }),
   [Request.LOAD_FINISH]: (runtime) => runtime.loadFinish(),
+  [Request.CHECK_BEGIN]: (runtime, { maxChunk }) =>
+    (runtime.canCheck ? runtime.checkBegin({ maxChunk }) : { skipped: true }),
+  [Request.CHECK_CHUNK]: (runtime, { offset, bytes }) => runtime.checkChunk({ offset, bytes }),
+  [Request.CHECK_FINISH]: (runtime) => runtime.checkFinish(),
   [Request.GENERATE]: (runtime, { id, prompt, sampling, seed }, streamText) =>
     runtime.generate({ id, prompt, sampling, seed, onText: streamText }),
   [Request.CANCEL]: (runtime, { target }) => runtime.cancel(target),

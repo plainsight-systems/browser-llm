@@ -14,6 +14,11 @@ export const Request = Object.freeze({
   LOAD_CHUNK: 'load-chunk',
   // End the load: answered once every write is confirmed on the device.
   LOAD_FINISH: 'load-finish',
+  // A diagnostic build's check of the loaded model, the same three steps;
+  // a build without it answers CHECK_BEGIN with { skipped: true }.
+  CHECK_BEGIN: 'check-begin',
+  CHECK_CHUNK: 'check-chunk',
+  CHECK_FINISH: 'check-finish',
   // Generate a reply to a rendered prompt, streaming its text.
   GENERATE: 'generate',
   // Stop a generation early; `target` is its request id.

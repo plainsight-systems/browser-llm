@@ -22,7 +22,7 @@ export function renderModel(element, state, actions) {
 
 const TONES = {
   checking: 'pending', failed: 'bad', downloadable: 'ok',
-  downloading: 'pending', cached: 'ok', loading: 'pending', loaded: 'ok',
+  downloading: 'pending', cached: 'ok', loading: 'pending', verifying: 'pending', loaded: 'ok',
 };
 
 const CONTENT = {
@@ -56,8 +56,25 @@ const CONTENT = {
 
   loading: ({ model, done, total }) => [heading(`Loading ${model.name}`), progress(done, total)],
 
-  loaded: ({ model }) => [heading(`${model.name} is loaded`)],
+  verifying: ({ model, done, total }) => [
+    heading(`Checking every byte of ${model.name} on the GPU`),
+    progress(done, total),
+  ],
+
+  // `check` is the diagnostic build's byte-for-byte check, null in the clean
+  // build, which does not run one.
+  loaded: ({ model, check }) => [
+    heading(`${model.name} is loaded`),
+    ...(check ? [h('p', { text: checked(check.mismatches) })] : []),
+  ],
 };
+
+function checked(mismatches) {
+  if (mismatches.length === 0) return 'Every byte read back from the GPU matches the file.';
+  const first = mismatches[0];
+  return `${mismatches.length} ranges on the GPU differ from the file; the first is in ` +
+    `${first.tensor}, buffer ${first.buffer} at byte ${first.offset}.`;
+}
 
 const NEXT = {
   describe: 'describe it',

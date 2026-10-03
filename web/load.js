@@ -48,8 +48,16 @@ export const LOAD_CHUNK_BYTES = 16 * 2 ** 20;
 // once the runtime confirms every write. A load the page aborts is still
 // finished, so the runtime settles it and takes the next; one the runtime
 // refuses is already settled there. Resolves with finish's answer.
-export async function loadModel({ file, begin, send, finish, onProgress, signal, chunkBytes = LOAD_CHUNK_BYTES }) {
-  await begin({ maxChunk: chunkBytes });
+export const loadModel = (options) => streamThrough(options);
+
+// The diagnostic pass over a loaded model, the same sequence: resolves with
+// finish's answer, or with null when begin answers { skipped: true }, as a
+// build without the check does, and nothing is streamed.
+export const checkModel = (options) => streamThrough(options);
+
+async function streamThrough({ file, begin, send, finish, onProgress, signal, chunkBytes = LOAD_CHUNK_BYTES }) {
+  const started = await begin({ maxChunk: chunkBytes });
+  if (started?.skipped) return null;
   try {
     for (let offset = 0; offset < file.size; offset += chunkBytes) {
       signal?.throwIfAborted();

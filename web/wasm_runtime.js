@@ -33,6 +33,9 @@ export async function createRuntime({ onDevice, runBench }) {
   startDeviceCheck(module, { onDevice, runBench });
   // The chunk buffer the load in progress copies into, from loadBegin.
   let load = null;
+  // The same, for a check in progress; only a diagnostic module checks.
+  const canCheck = typeof module._bllm_check_begin === 'function';
+  let check = null;
 
   return {
     preflight: async (bytes, totalSize) => {
@@ -63,6 +66,25 @@ export async function createRuntime({ onDevice, runBench }) {
       const answer = await callModule((call) => module._bllm_load_finish(call));
       load = null;
       settled(answer);
+    },
+
+    canCheck,
+
+    checkBegin: async ({ maxChunk }) => {
+      check = settled(await callModule((call) => module._bllm_check_begin(call, maxChunk)));
+      return { chunkBytes: check.chunkBytes };
+    },
+
+    checkChunk: async ({ offset, bytes }) => {
+      if (check === null) throw new Error('no check is in progress');
+      module.HEAPU8.set(new Uint8Array(bytes), check.chunkPointer);
+      settled(await callModule((call) => module._bllm_check_chunk(call, offset, bytes.byteLength)));
+    },
+
+    checkFinish: async () => {
+      const answer = await callModule((call) => module._bllm_check_finish(call));
+      check = null;
+      return { mismatches: settled(answer).mismatches };
     },
 
     generate: () => {
