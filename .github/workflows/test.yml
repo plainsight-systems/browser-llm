@@ -115,5 +115,16 @@ jobs:
         with:
           node-version: 24
 
+      # The template test reads each model's chat template from its pinned
+      # header rather than a committed copy.
+      - name: Cache fetched test data
+        uses: actions/cache@v4
+        with:
+          path: .cache/test-data
+          key: test-data-${{ hashFiles('tests/fixtures/external.json', 'tests/fixtures/tokenizer/manifest.json') }}
+
+      - name: Fetch test data
+        run: python3 tools/fetch_test_data.py
+
       - name: Test
         run: node --test tests/web/*.test.js

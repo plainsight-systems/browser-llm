@@ -48,9 +48,11 @@ mirror line for line
 Unicode NormalizationTest.txt, fetched by tools/fetch_test_data.py
   Copyright (c) Unicode, Inc. Unicode License v3.
 
-Model chat templates, in tests/web/fixtures/templates.json, as stored in each
-model's GGUF file; and token IDs in tests/fixtures/tokenizer/, produced by
-each model's reference tokenizer
+Model file headers, fetched by tools/fetch_test_data.py: the tokenizer and
+chat-template tests read each model's vocabulary and chat template from them.
+Only token IDs the reference tokenizers produced (tests/fixtures/tokenizer/)
+and SHA-256 hashes of reference renderings (tests/web/fixtures/) are
+committed.
   Qwen3 0.6B: Apache License 2.0.
   Llama 3.2 1B Instruct: Llama 3.2 Community License Agreement.
   Gemma 3 1B: Gemma Terms of Use.

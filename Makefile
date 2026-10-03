@@ -60,8 +60,9 @@ bench: test-data dawn
 	cmake --build --preset native-release --target charlotte_bench_piece_writer
 	./build/native-release/bench/charlotte_bench_piece_writer
 
-## JavaScript unit tests, in Node. No dependencies to install.
-test-web:
+## JavaScript unit tests, in Node. No dependencies to install; the template
+## test reads the pinned model headers the test data holds.
+test-web: test-data
 	node --test tests/web/*.test.js
 
 ## Structural invariants, plus the tests proving each guard actually fires.

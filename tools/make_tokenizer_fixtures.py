@@ -205,9 +205,9 @@ def llama_cpp_ids(llama_tokenize, vocabulary, text):
 
 def rendered_prompts(model_id):
     """The chat-template fixtures' renderings: real prompts, special tokens and all."""
-    fixtures = json.loads(pathlib.Path("tests/web/fixtures/templates.json").read_text())["fixtures"]
-    (model,) = [f for f in fixtures if f["model"] == model_id]
-    return [(f"prompt: {c['name']} {json.dumps(c['variables'])}", c["expected"]) for c in model["cases"]]
+    from make_template_fixtures import renderings
+    return [(f"prompt: {conversation['name']} {json.dumps(variables)}", text)
+            for conversation, variables, text in renderings(model_id)]
 
 
 def cpp_string(text):
