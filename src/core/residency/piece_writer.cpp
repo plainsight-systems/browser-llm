@@ -49,8 +49,9 @@ std::size_t gather_fixed(std::span<const std::byte> run, std::size_t block_bytes
 std::size_t gather(std::span<const std::byte> run, std::size_t block_bytes, formats::Stream stream,
                    std::span<std::byte> out) {
     // A stream that is the whole block (F32) is the run itself, in order.
+    // std::copy, not memcpy: an empty run's data may be null.
     if (stream.offset == 0 && stream.width == block_bytes) {
-        std::memcpy(out.data(), run.data(), run.size());
+        std::copy(run.begin(), run.end(), out.begin());
         return run.size();
     }
     switch (stream.width) {
