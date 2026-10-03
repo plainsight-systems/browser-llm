@@ -118,8 +118,9 @@ void check_fit(const gguf::TensorIndex& index, const model::ModelDescription& de
     }
 }
 
-// Run needs every weight format. One blocker per unsupported format, naming
-// how many tensors use it and the first of them.
+// Upload needs every weight format: routes refuse a format the capability
+// table does not list before any buffer is made. One blocker per unsupported
+// format, naming how many tensors use it and the first of them.
 void check_formats(const gguf::TensorIndex& index, Verdict& verdict) {
     struct Unsupported {
         gguf::TensorType type;
@@ -139,14 +140,14 @@ void check_formats(const gguf::TensorIndex& index, Verdict& verdict) {
     }
     for (const Unsupported& u : found) {
         verdict.blockers.push_back(
-            {Stage::Run, "format " + std::string(gguf::format_layout(u.type)->name) +
+            {Stage::Upload, "format " + std::string(gguf::format_layout(u.type)->name) +
                                 " is not supported (" + std::to_string(u.users) +
                                 (u.users == 1 ? " tensor" : " tensors") + ", first " +
                                 std::string(u.first_user) + ")"});
     }
 }
 
-// Run needs every row a whole number of unpack's groups (format.h), as
+// Upload needs every row a whole number of unpack's groups (format.h), as
 // routes does; one blocker, naming how many tensors fall short and the first.
 void check_rows(const gguf::TensorIndex& index, Verdict& verdict) {
     std::size_t short_rows = 0;
@@ -158,7 +159,7 @@ void check_rows(const gguf::TensorIndex& index, Verdict& verdict) {
     }
     if (first == nullptr) return;
     verdict.blockers.push_back(
-        {Stage::Run, "rows must be a multiple of " + std::to_string(formats::kUnpackGroup) + " weights (" +
+        {Stage::Upload, "rows must be a multiple of " + std::to_string(formats::kUnpackGroup) + " weights (" +
                          std::to_string(short_rows) + (short_rows == 1 ? " tensor" : " tensors") +
                          ", first " + first->name + ", rows of " + std::to_string(first->dimensions[0]) + ")"});
 }

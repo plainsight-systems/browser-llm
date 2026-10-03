@@ -4,7 +4,9 @@
 #include <string>
 
 #include "core/gguf/reader.h"
+#include "core/capability/capability.h"
 #include "core/preflight/preflight.h"
+#include "core/residency/routes.h"
 #include "support/gguf_fixture.h"
 
 using namespace bllm;
@@ -54,9 +56,9 @@ TEST_CASE("every check reports, each naming the stage it stops") {
     CHECK(blocked(verdict, Stage::Describe,
                   "architecture \"qwen3\" cannot read this file: a required key is missing "
                   "(qwen3.context_length)"));
-    CHECK_FALSE(blocked(verdict, Stage::Run,
+    CHECK_FALSE(blocked(verdict, Stage::Upload,
                         "format Q4_0 is not supported (1 tensor, first token_embd.weight)"));
-    CHECK_FALSE(blocked(verdict, Stage::Run,
+    CHECK_FALSE(blocked(verdict, Stage::Upload,
                         "format F32 is not supported (1 tensor, first output_norm.weight)"));
     CHECK(blocked(verdict, Stage::Run, "the file does not declare tokenizer.ggml.model"));
 }
@@ -80,11 +82,11 @@ TEST_CASE("an unsupported format is reported once, counting every tensor that us
                                            return b.detail.rfind("format ", 0) == 0;
                                        });
     CHECK(formats == 1);   // Q5_0, once; its F32 norm runs
-    CHECK(blocked(verdict, Stage::Run, "format Q5_0 is not supported (2 tensors, first first.weight)"));
+    CHECK(blocked(verdict, Stage::Upload, "format Q5_0 is not supported (2 tensors, first first.weight)"));
 }
 
-TEST_CASE("rows that are not a whole number of 32-weight groups block Run, counted and named") {
-    CHECK(blocked(preflight_fixture("tiny_qwen3_odd_row"), Stage::Run,
+TEST_CASE("rows that are not a whole number of 32-weight groups block Upload, counted and named") {
+    CHECK(blocked(preflight_fixture("tiny_qwen3_odd_row"), Stage::Upload,
                   "rows must be a multiple of 32 weights (1 tensor, first extra.norm, rows of 33)"));
     const auto clean = preflight_fixture("tiny_qwen3");
     CHECK(std::none_of(clean.blockers.begin(), clean.blockers.end(),
@@ -195,4 +197,24 @@ TEST_CASE("a load plans what preflight judged Fit, or says what stops it as pref
 
     const auto refused = preflight::plan_load(index, residency::DeviceLimits{}, policy::LoadPolicy{}, description, plan);
     CHECK(refused == "no GPU device was acquired, so fit cannot be judged");
+}
+
+TEST_CASE("preflight reaches Upload exactly when routes would let the upload begin") {
+    const residency::DeviceLimits limits{256ull << 20, 128ull << 20, 256};
+    for (const char* name : {"tiny_qwen3", "tiny_qwen3_odd_row"}) {
+        CAPTURE(name);
+        const auto bytes = testing::load_gguf_fixture(name);
+        gguf::MemoryByteSource source{bytes};
+        gguf::TensorIndex index;
+        REQUIRE(gguf::read_index(source, index).error == gguf::ReadError::Ok);
+        model::ModelDescription description;
+        residency::ResidencyPlan plan;
+        REQUIRE(preflight::plan_load(index, limits, policy::LoadPolicy{}, description, plan).empty());
+        std::vector<residency::Route> routes;
+        residency::ResidencyPlan carried;
+        const auto routed = residency::plan_routes(index, plan, bytes.size(), capability::find_format, {}, routes,
+                                                   carried);
+        const auto verdict = preflight::preflight(index, limits, policy::LoadPolicy{});
+        CHECK((verdict.reached() >= Stage::Upload) == routed.ok());
+    }
 }

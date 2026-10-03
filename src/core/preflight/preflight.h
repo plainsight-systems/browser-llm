@@ -24,10 +24,12 @@ namespace bllm::preflight {
 //   Download   the file can be fetched and cached — every readable file can
 //   Describe   its architecture is implemented and can describe this file
 //   Fit        its residency plan fits the granted limits and the budget
-//   Upload     its weights are written to the GPU, every write confirmed on a
-//              live device (residency/upload.h); a diagnostic build reads
-//              every byte back (residency/upload_check.h)
-//   Run        it generates: graph, every weight format, tokenizer
+//   Upload     every weight's format is listed and its rows are a whole
+//              number of unpack's groups, as routes require; its weights are
+//              written to the GPU, every write confirmed on a live device
+//              (residency/upload.h); a diagnostic build reads every byte back
+//              (residency/upload_check.h)
+//   Run        it generates: graph and tokenizer
 //
 // The verdict lists blockers, each naming the stage it stops and why: the
 // architecture, each unsupported format with how many tensors use it and the
