@@ -108,7 +108,14 @@ void check_fit(const gguf::TensorIndex& index, const model::ModelDescription& de
     }
     verdict.fit = FitSummary{plan.weight_bytes,    plan.cache_bytes,       plan.scratch_bytes,
                              plan.total_bytes,     policy.memory_budget,   plan.context_offered,
-                             description.trained_context, plan.buffers.size()};
+                             description.trained_context, plan.buffers.size(), {}};
+    for (const residency::PlannedTensor& t : plan.tensors) {
+        if (!t.candidate_duplicate_of) continue;
+        const gguf::TensorEntry& copy = index.tensor(t.tensor);
+        const gguf::TensorEntry& original = index.tensor(*t.candidate_duplicate_of);
+        verdict.fit->duplicates.push_back(
+            {t.tensor, *t.candidate_duplicate_of, copy.data_offset, original.data_offset, copy.data_length});
+    }
 }
 
 // Run needs every weight format. One blocker per unsupported format, naming

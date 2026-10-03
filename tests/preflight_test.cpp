@@ -149,3 +149,31 @@ TEST_CASE("with a device's limits, a model that describes reaches fit and says h
     CHECK(blind.reached() == Stage::Describe);
     CHECK(blocked(blind, Stage::Fit, "no GPU device was acquired, so fit cannot be judged"));
 }
+
+TEST_CASE("a model that fits reports its duplicate candidates with both byte ranges") {
+    const residency::DeviceLimits limits{256ull << 20, 128ull << 20, 256};
+    const auto judged = [&](const std::string& name, gguf::TensorIndex& index) {
+        const auto bytes = testing::load_gguf_fixture(name);
+        gguf::MemoryByteSource source{bytes};
+        REQUIRE(gguf::read_index(source, index).error == gguf::ReadError::Ok);
+        return preflight::preflight(index, limits, policy::LoadPolicy{});
+    };
+
+    gguf::TensorIndex index;
+    const auto copy = judged("tiny_qwen3_output_copy", index);
+    REQUIRE(copy.fit.has_value());
+    REQUIRE(copy.fit->duplicates.size() == 1);
+    const auto& d = copy.fit->duplicates[0];
+    const auto& head = index.tensor(d.tensor);
+    const auto& embedding = index.tensor(d.copies);
+    CHECK(head.name == "output.weight");
+    CHECK(embedding.name == "token_embd.weight");
+    CHECK(d.offset == head.data_offset);
+    CHECK(d.copies_offset == embedding.data_offset);
+    CHECK(d.length == head.data_length);
+
+    gguf::TensorIndex tied;
+    const auto plain = judged("tiny_qwen3", tied);
+    REQUIRE(plain.fit.has_value());
+    CHECK(plain.fit->duplicates.empty());   // the head reads the embedding
+}
