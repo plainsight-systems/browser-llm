@@ -46,13 +46,16 @@
 #include <cstdio>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
 
+#include "core/capability/capability.h"
 #include "core/gguf/reader.h"
 #include "core/gpu/device.h"
 #include "core/preflight/preflight.h"
+#include "core/residency/upload.h"
 #include "core/run_guard.h"
 #include "core/gpu/self_check.h"
 #include "core/diagnostics.h"
@@ -170,8 +173,22 @@ std::string chat_json(bllm::gguf::ByteSource& source, const bllm::gguf::TensorIn
            ",\"eosToken\":" + token_json(source, index, "tokenizer.ggml.eos_token_id") + "}";
 }
 
-// The preflight answer: bytes the reader still needs, a file that cannot be
-// read, or the verdict on a file that can.
+// The plan's duplicate candidates, with both byte ranges, for the page to
+// compare before a load (web/duplicates.js).
+std::string duplicates_json(const std::vector<bllm::preflight::DuplicateCandidate>& duplicates) {
+    std::string json = "[";
+    for (std::size_t i = 0; i < duplicates.size(); ++i) {
+        const auto& d = duplicates[i];
+        json += i == 0 ? "{" : ",{";
+        json += "\"tensor\":" + std::to_string(static_cast<std::uint32_t>(d.tensor)) +
+                ",\"copies\":" + std::to_string(static_cast<std::uint32_t>(d.copies)) +
+                ",\"offset\":" + std::to_string(d.offset) +
+                ",\"copiesOffset\":" + std::to_string(d.copies_offset) +
+                ",\"length\":" + std::to_string(d.length) + "}";
+    }
+    return json + "]";
+}
+
 // What the residency plan found, as JSON; null if the model did not fit.
 std::string fit_json(const std::optional<bllm::preflight::FitSummary>& fit) {
     if (!fit) return "null";
@@ -182,9 +199,12 @@ std::string fit_json(const std::optional<bllm::preflight::FitSummary>& fit) {
            ",\"memoryBudget\":" + std::to_string(fit->memory_budget) +
            ",\"contextOffered\":" + std::to_string(fit->context_offered) +
            ",\"trainedContext\":" + std::to_string(fit->trained_context) +
-           ",\"bufferCount\":" + std::to_string(fit->buffer_count) + "}";
+           ",\"bufferCount\":" + std::to_string(fit->buffer_count) +
+           ",\"duplicates\":" + duplicates_json(fit->duplicates) + "}";
 }
 
+// The preflight answer: bytes the reader still needs, a file that cannot be
+// read, or the verdict on a file that can.
 std::string preflight_json(bllm::gguf::ByteSource& source, const bllm::gguf::ReadResult& read,
                            const bllm::gguf::TensorIndex& index,
                            const bllm::residency::DeviceLimits& limits) {
@@ -244,6 +264,70 @@ void disarm_timeout() {
     }
 }
 
+// The session's state across crossings (see the top of this file).
+struct Load {
+    std::unique_ptr<bllm::residency::Upload> upload;   // null until begin's answer
+    std::vector<std::byte> chunk;                      // the chunk buffer
+    bool settled = false;   // finished or failed: the next begin replaces it
+};
+
+struct Session {
+    std::unique_ptr<bllm::gpu::Device> device;          // the checked device, kept
+    std::unique_ptr<Load> load;
+    std::unique_ptr<bllm::residency::Upload> loaded;    // the model a load finished
+};
+
+Session& session() {
+    static Session s;
+    return s;
+}
+
+std::string failure_json(std::string_view error, std::string_view subject = {}) {
+    return "{\"ok\":false,\"error\":" + json_string(error) + ",\"subject\":" + json_string(subject) + "}";
+}
+
+// The load an answer belongs to may have been replaced by a later begin;
+// the request id carries it, so the answer still reaches its request.
+void on_load_ready(std::unique_ptr<bllm::residency::Upload> upload, bllm::residency::UploadError error,
+                   const char* subject, void* userdata) {
+    const std::uint32_t request = to_generation(userdata);
+    Load* load = session().load.get();
+    if (upload == nullptr || load == nullptr) {
+        if (load != nullptr) load->settled = true;
+        bllm_reply(request, failure_json(bllm::residency::to_string(error), subject).c_str());
+        return;
+    }
+    load->upload = std::move(upload);
+    const std::string json = "{\"ok\":true,\"chunkPointer\":" +
+                             std::to_string(reinterpret_cast<std::uintptr_t>(load->chunk.data())) +
+                             ",\"chunkBytes\":" + std::to_string(load->chunk.size()) + "}";
+    bllm_reply(request, json.c_str());
+}
+
+void on_load_accepted(bllm::residency::UploadError error, void* userdata) {
+    const std::uint32_t request = to_generation(userdata);
+    if (error != bllm::residency::UploadError::Ok) {
+        if (session().load != nullptr) session().load->settled = true;
+        bllm_reply(request, failure_json(bllm::residency::to_string(error)).c_str());
+        return;
+    }
+    bllm_reply(request, "{\"ok\":true}");
+}
+
+void on_load_finished(bllm::residency::UploadError error, void* userdata) {
+    const std::uint32_t request = to_generation(userdata);
+    Session& s = session();
+    if (s.load != nullptr) s.load->settled = true;
+    if (error != bllm::residency::UploadError::Ok) {
+        bllm_reply(request, failure_json(bllm::residency::to_string(error)).c_str());
+        return;
+    }
+    // The finished Upload owns the model's buffers: it stays as the loaded
+    // model. The chunk buffer goes with the load.
+    if (s.load != nullptr) s.loaded = std::move(s.load->upload);
+    bllm_reply(request, "{\"ok\":true}");
+}
+
 // The device arrives inside the result and is released when it goes out of
 // scope here, so this reports the device it actually measured rather than
 // re-reading whatever is current.
@@ -292,6 +376,8 @@ void on_self_check(bllm::gpu::SelfCheckResult result, void* userdata) {
             std::to_string(maxima.max_storage_buffer_binding_size) + "},";
     json += "\"selfCheck\":{\"elements\":" + std::to_string(result.elements) +
             ",\"mismatches\":" + std::to_string(result.mismatches) + "}}";
+    // Kept, not released: a model loads onto the device that was checked.
+    session().device = std::move(result.device);
     bllm_deliver(json.c_str());
 }
 
@@ -435,6 +521,83 @@ EMSCRIPTEN_KEEPALIVE void bllm_preflight(std::uint32_t request, const std::byte*
     bllm::gguf::TensorIndex index;
     const auto read = bllm::gguf::read_index(source, index);
     bllm_reply(request, preflight_json(source, read, index, limits).c_str());
+}
+
+// Begins a load: see the top of this file. `confirmed` holds `confirmed_count`
+// tensor ids; `max_chunk` is the largest chunk the page will send.
+EMSCRIPTEN_KEEPALIVE void bllm_load_begin(std::uint32_t request, const std::byte* prefix,
+                                          std::uint32_t prefix_length, double file_size,
+                                          const std::uint32_t* confirmed, std::uint32_t confirmed_count,
+                                          std::uint32_t max_chunk) {
+    Session& s = session();
+    if (s.device == nullptr) {
+        bllm_reply(request, failure_json("no checked GPU device to load onto").c_str());
+        return;
+    }
+    if (s.load != nullptr && !s.load->settled) {
+        bllm_reply(request, failure_json("a load is already in progress").c_str());
+        return;
+    }
+    constexpr double kMaxExactInteger = 9007199254740992.0;   // 2^53
+    if (!(file_size >= prefix_length && file_size <= kMaxExactInteger &&
+          file_size == static_cast<double>(static_cast<std::uint64_t>(file_size))) || max_chunk == 0) {
+        bllm_reply(request, failure_json("the sizes passed in are not valid").c_str());
+        return;
+    }
+    const auto size = static_cast<std::uint64_t>(file_size);
+    bllm::gguf::MemoryByteSource source{{prefix, prefix_length}, size};
+    bllm::gguf::TensorIndex index;
+    if (const auto read = bllm::gguf::read_index(source, index); read.error != bllm::gguf::ReadError::Ok) {
+        bllm_reply(request, failure_json("the index does not read from the bytes given",
+                                         bllm::gguf::to_string(read.error)).c_str());
+        return;
+    }
+    const auto& granted = s.device->limits();
+    const bllm::residency::DeviceLimits limits{granted.max_buffer_size, granted.max_storage_buffer_binding_size,
+                                               granted.min_storage_buffer_offset_alignment};
+    bllm::model::ModelDescription description;
+    bllm::residency::ResidencyPlan plan;
+    if (const std::string stop = bllm::preflight::plan_load(index, limits, bllm::policy::LoadPolicy{},
+                                                            description, plan);
+        !stop.empty()) {
+        bllm_reply(request, failure_json(stop).c_str());
+        return;
+    }
+    std::vector<bllm::gguf::TensorId> duplicates;
+    for (std::uint32_t i = 0; i < confirmed_count; ++i) duplicates.push_back(bllm::gguf::TensorId{confirmed[i]});
+
+    // A new load replaces the model loaded before it, releasing its buffers
+    // first so the two are never on the device together.
+    s.loaded.reset();
+    s.load = std::make_unique<Load>();
+    s.load->chunk.resize(max_chunk);
+    bllm::residency::Upload::begin(*s.device, index, plan, size, bllm::capability::find_format, duplicates,
+                                   max_chunk, on_load_ready, to_userdata(request));
+}
+
+// The page has copied `length` bytes at `file_offset` into the chunk buffer.
+EMSCRIPTEN_KEEPALIVE void bllm_load_chunk(std::uint32_t request, double file_offset, std::uint32_t length) {
+    Load* load = session().load.get();
+    if (load == nullptr || load->settled || load->upload == nullptr) {
+        bllm_reply(request, failure_json("no load is in progress").c_str());
+        return;
+    }
+    if (!(file_offset >= 0 && file_offset == static_cast<double>(static_cast<std::uint64_t>(file_offset))) ||
+        length > load->chunk.size()) {
+        bllm_reply(request, failure_json("the chunk passed in is not valid").c_str());
+        return;
+    }
+    load->upload->write(static_cast<std::uint64_t>(file_offset), std::span(load->chunk.data(), length),
+                        on_load_accepted, to_userdata(request));
+}
+
+EMSCRIPTEN_KEEPALIVE void bllm_load_finish(std::uint32_t request) {
+    Load* load = session().load.get();
+    if (load == nullptr || load->settled || load->upload == nullptr) {
+        bllm_reply(request, failure_json("no load is in progress").c_str());
+        return;
+    }
+    load->upload->finish(on_load_finished, to_userdata(request));
 }
 
 #if BLLM_DIAGNOSTICS_ENABLED
