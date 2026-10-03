@@ -26,21 +26,32 @@ const runtimePromise = import(runtimeModule)
 runtimePromise.catch((error) =>
   postDevice({ ok: false, stage: 'runtime', error: String(error?.message ?? error) }));
 
-// One handler per request kind. Each receives the runtime, the request, and a
-// function that streams text back; it returns the request's result or throws.
+// Loads in progress, by request id, so a CANCEL naming one stops it.
+const loads = new Map();
+
+// One handler per request kind. Each receives the runtime, the request, and
+// the ways to answer before it is done — `token` streams text, `progress`
+// reports a load's progress; it returns the request's result or throws.
 const handlers = {
   [Request.PREFLIGHT]: (runtime, { bytes, totalSize }) => runtime.preflight(bytes, totalSize),
-  [Request.LOAD_BEGIN]: (runtime, { prefix, totalSize, confirmed, maxChunk }) =>
-    runtime.loadBegin({ prefix, totalSize, confirmed, maxChunk }),
-  [Request.LOAD_CHUNK]: (runtime, { offset, bytes }) => runtime.loadChunk({ offset, bytes }),
-  [Request.LOAD_FINISH]: (runtime) => runtime.loadFinish(),
-  [Request.CHECK_BEGIN]: (runtime, { maxChunk }) =>
-    (runtime.canCheck ? runtime.checkBegin({ maxChunk }) : { skipped: true }),
-  [Request.CHECK_CHUNK]: (runtime, { offset, bytes }) => runtime.checkChunk({ offset, bytes }),
-  [Request.CHECK_FINISH]: (runtime) => runtime.checkFinish(),
-  [Request.GENERATE]: (runtime, { id, prompt, sampling, seed }, streamText) =>
-    runtime.generate({ id, prompt, sampling, seed, onText: streamText }),
-  [Request.CANCEL]: (runtime, { target }) => runtime.cancel(target),
+  [Request.LOAD]: async (runtime, { id, name, indexBytes, confirmed, maxChunk }, { progress }) => {
+    const controller = new AbortController();
+    loads.set(id, controller);
+    try {
+      return await runtime.loadFromCache({ name, indexBytes, confirmed, maxChunk, onProgress: progress,
+        signal: controller.signal });
+    } finally {
+      loads.delete(id);
+    }
+  },
+  [Request.GENERATE]: (runtime, { id, prompt, sampling, seed }, { token }) =>
+    runtime.generate({ id, prompt, sampling, seed, onText: token }),
+  [Request.CANCEL]: (runtime, { target }) => {
+    const load = loads.get(target);
+    if (load === undefined) return runtime.cancel(target);
+    load.abort();
+    return true;
+  },
 };
 
 self.addEventListener('message', async ({ data: request }) => {
@@ -52,8 +63,9 @@ self.addEventListener('message', async ({ data: request }) => {
   }
   try {
     const runtime = await runtimePromise;
-    const streamText = (text) => reply({ kind: Reply.TOKEN, text });
-    reply({ kind: Reply.DONE, value: await handler(runtime, request, streamText) });
+    const token = (text) => reply({ kind: Reply.TOKEN, text });
+    const progress = (value) => reply({ kind: Reply.PROGRESS, progress: value });
+    reply({ kind: Reply.DONE, value: await handler(runtime, request, { token, progress }) });
   } catch (error) {
     reply({ kind: Reply.FAILED, error: { stage: request.kind, message: String(error?.message ?? error) } });
   }

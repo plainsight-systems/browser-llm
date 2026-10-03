@@ -8,6 +8,10 @@
 //
 // Network and storage change independently, so this is not part of fetch.js.
 
+// The name a model's complete file has in the cache's directory, which the
+// worker opens by name to load it.
+export const cachedFileName = (key) => `${key}.gguf`;
+
 export class ModelCache {
   #directory;
 
@@ -36,7 +40,7 @@ export class ModelCache {
   // The cached file for `key`, or null if it is not cached.
   async file(key) {
     try {
-      const handle = await this.#directory.getFileHandle(`${key}.gguf`);
+      const handle = await this.#directory.getFileHandle(cachedFileName(key));
       return await handle.getFile();
     } catch (error) {
       if (error.name === 'NotFoundError') return null;

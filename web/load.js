@@ -32,10 +32,13 @@
 //
 // Optimization (browser): the worker reads the cache through a
 // FileSystemSyncAccessHandle, which only a worker may open, into the module's
-// own memory. On an Apple M3 Max in Chrome 152, warm, Qwen3 0.6B's 382 MB
-// read in about 24 ms this way, against 125 ms by blob reads on the page, one
-// at a time as loads made them, plus a copy into the heap and two messages
-// a chunk between page and worker, all gone.
+// own memory: the page's main thread reads nothing, and a copy into the heap
+// and two messages a chunk between page and worker are gone. On an Apple M3
+// Max in Chrome 152, warm, Qwen3 0.6B's 382 MB read in about 24 ms this way,
+// against 125 ms by blob reads on the page one at a time. The load itself
+// gained less, 257 to 241 ms median of five: the page's reads had overlapped
+// the GPU process working through the previous chunk's writes, and those
+// writes, not the reads, bound the load.
 //
 // Guidelines (the C++ performance guidelines; their WASM and GPU entries
 // govern the page as much as the module):
@@ -50,27 +53,23 @@
 
 export const LOAD_CHUNK_BYTES = 16 * 2 ** 20;
 
-// `begin({ maxChunk })` starts the load; `send({ offset, bytes })` delivers
-// one chunk and resolves when the runtime has taken it; `finish()` resolves
-// once the runtime confirms every write. A load the page aborts is still
-// finished, so the runtime settles it and takes the next; one the runtime
-// refuses is already settled there. Resolves with finish's answer.
-export const loadModel = (options) => streamThrough(options);
-
-// The diagnostic pass over a loaded model, the same sequence: resolves with
-// finish's answer, or with null when begin answers { skipped: true }, as a
-// build without the check does, and nothing is streamed.
-export const checkModel = (options) => streamThrough(options);
-
-async function streamThrough({ file, begin, send, finish, onProgress, signal, chunkBytes = LOAD_CHUNK_BYTES }) {
+// Streams a file of `size` bytes through one pass: `begin({ maxChunk })`
+// starts it, and may answer { skipped: true }, when nothing is streamed and
+// this resolves null; `read({ offset, length })` puts that part of the file
+// where the runtime takes it from; `send({ offset, length })` resolves when
+// the runtime has taken it; `finish()` resolves with the pass's answer. A
+// pass the caller aborts is still finished, so the runtime settles it; one
+// the runtime refuses is already settled there.
+export async function streamFile({ size, begin, read, send, finish, onProgress, signal, chunkBytes = LOAD_CHUNK_BYTES }) {
   const started = await begin({ maxChunk: chunkBytes });
   if (started?.skipped) return null;
   try {
-    for (let offset = 0; offset < file.size; offset += chunkBytes) {
+    for (let offset = 0; offset < size; offset += chunkBytes) {
       signal?.throwIfAborted();
-      const bytes = await file.slice(offset, offset + chunkBytes).arrayBuffer();
-      await send({ offset, bytes });
-      onProgress?.(Math.min(offset + chunkBytes, file.size), file.size);
+      const length = Math.min(chunkBytes, size - offset);
+      await read({ offset, length });
+      await send({ offset, length });
+      onProgress?.(offset + length, size);
     }
   } catch (error) {
     if (signal?.aborted) await finish().catch(() => {});

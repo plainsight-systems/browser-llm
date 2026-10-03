@@ -28,17 +28,18 @@ export class WorkerClient {
   }
 
   // Resolves with the request's result, or rejects with a WorkerError.
-  // `onToken` receives each piece of streamed text, in order.
+  // `onToken` receives each piece of streamed text, in order; `onProgress`
+  // each progress report.
   request(kind, payload = {}, options = {}) {
     return this.send(kind, payload, options).reply;
   }
 
   // As request(), but also returns the request's id, for a later request
   // that refers to it.
-  send(kind, payload = {}, { onToken, transfer = [] } = {}) {
+  send(kind, payload = {}, { onToken, onProgress, transfer = [] } = {}) {
     const id = this.#nextId++;
     const reply = new Promise((resolve, reject) => {
-      this.#pending.set(id, { resolve, reject, onToken });
+      this.#pending.set(id, { resolve, reject, onToken, onProgress });
       this.#port.postMessage({ id, kind, ...payload }, transfer);
     });
     return { id, reply };
@@ -62,6 +63,9 @@ export class WorkerClient {
     switch (message.kind) {
       case Reply.TOKEN:
         pending.onToken?.(message.text);
+        return;
+      case Reply.PROGRESS:
+        pending.onProgress?.(message.progress);
         return;
       case Reply.DONE:
         this.#pending.delete(message.id);

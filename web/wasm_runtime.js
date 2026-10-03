@@ -11,6 +11,7 @@
 // unlocked for the page to read again.
 
 import createModule from './charlotte.mjs';
+import { streamFile } from './load.js';
 
 // Starts the module and the device check, which reports through `onDevice`.
 // Resolves with the runtime once the module is instantiated.
@@ -29,11 +30,8 @@ export async function createRuntime({ onDevice, runBench }) {
 
   const module = await createModule();
   startDeviceCheck(module, { onDevice, runBench });
-  // The chunk buffer the load in progress copies into, from loadBegin.
-  let load = null;
-  // The same, for a check in progress; only a diagnostic module checks.
+  // Only a diagnostic module checks a load.
   const canCheck = typeof module._bllm_check_begin === 'function';
-  let check = null;
 
   return {
     preflight: async (bytes, totalSize) => {
@@ -44,45 +42,58 @@ export async function createRuntime({ onDevice, runBench }) {
           limits?.minStorageBufferOffsetAlignment ?? 0)));
     },
 
-    loadBegin: async ({ prefix, totalSize, confirmed, maxChunk }) => {
-      const answer = await withBytesInModule(module, prefix, (pointer, length) =>
-        withBytesInModule(module, u32s(confirmed), (ids) =>
-          callModule((call) =>
-            module._bllm_load_begin(call, pointer, length, totalSize, ids, confirmed.length, maxChunk))));
-      load = settled(answer);
-      return { chunkBytes: load.chunkBytes };
-    },
-
-    loadChunk: async ({ offset, bytes }) => {
-      if (load === null) throw new Error('no load is in progress');
-      // A fresh view each chunk: growing the heap detaches any view kept.
-      module.HEAPU8.set(new Uint8Array(bytes), load.chunkPointer);
-      settled(await callModule((call) => module._bllm_load_chunk(call, offset, bytes.byteLength)));
-    },
-
-    loadFinish: async () => {
-      const answer = await callModule((call) => module._bllm_load_finish(call));
-      load = null;
-      settled(answer);
-    },
-
     canCheck,
 
-    checkBegin: async ({ maxChunk }) => {
-      check = settled(await callModule((call) => module._bllm_check_begin(call, maxChunk)));
-      return { chunkBytes: check.chunkBytes };
-    },
+    loadFromCache: async ({ name, indexBytes, confirmed, maxChunk, onProgress, signal }) => {
+      const root = await navigator.storage.getDirectory();
+      const handle = await (await root.getFileHandle(name)).createSyncAccessHandle();
+      try {
+        const size = handle.getSize();
+        // Reads straight into the heap, through a view made now: growing the
+        // heap detaches any view kept.
+        const readInto = (pointer, offset, length) => {
+          const read = handle.read(module.HEAPU8.subarray(pointer, pointer + length), { at: offset });
+          if (read !== length) throw new Error(`the cached file ended early, at byte ${offset + read}`);
+        };
+        let chunkPointer = 0;
+        const pass = (phase, calls) => streamFile({
+          size, chunkBytes: maxChunk, signal,
+          begin: calls.begin,
+          read: ({ offset, length }) => readInto(chunkPointer, offset, length),
+          send: async ({ offset, length }) => settled(await callModule((call) => calls.chunk(call, offset, length))),
+          finish: async () => settled(await callModule((call) => calls.finish(call))),
+          onProgress: (done, total) => onProgress?.({ phase, done, total }),
+        });
 
-    checkChunk: async ({ offset, bytes }) => {
-      if (check === null) throw new Error('no check is in progress');
-      module.HEAPU8.set(new Uint8Array(bytes), check.chunkPointer);
-      settled(await callModule((call) => module._bllm_check_chunk(call, offset, bytes.byteLength)));
-    },
-
-    checkFinish: async () => {
-      const answer = await callModule((call) => module._bllm_check_finish(call));
-      check = null;
-      return { mismatches: settled(answer).mismatches };
+        await pass('load', {
+          begin: async ({ maxChunk: chunkBytes }) => {
+            const prefix = module._malloc(indexBytes);
+            const ids = module._malloc(Math.max(4, confirmed.length * 4));
+            try {
+              readInto(prefix, 0, indexBytes);
+              module.HEAPU8.set(new Uint8Array(u32s(confirmed)), ids);
+              chunkPointer = settled(await callModule((call) => module._bllm_load_begin(
+                call, prefix, indexBytes, size, ids, confirmed.length, chunkBytes))).chunkPointer;
+            } finally {
+              module._free(prefix);
+              module._free(ids);
+            }
+          },
+          chunk: (call, offset, length) => module._bllm_load_chunk(call, offset, length),
+          finish: (call) => module._bllm_load_finish(call),
+        });
+        if (!canCheck) return { check: null };
+        const checked = await pass('check', {
+          begin: async ({ maxChunk: chunkBytes }) => {
+            chunkPointer = settled(await callModule((call) => module._bllm_check_begin(call, chunkBytes))).chunkPointer;
+          },
+          chunk: (call, offset, length) => module._bllm_check_chunk(call, offset, length),
+          finish: (call) => module._bllm_check_finish(call),
+        });
+        return { check: { mismatches: checked.mismatches } };
+      } finally {
+        handle.close();
+      }
     },
 
     generate: () => {

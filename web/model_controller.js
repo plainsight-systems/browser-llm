@@ -9,9 +9,9 @@
 import { cacheKey, downloadModel } from './download.js';
 import { confirmDuplicates } from './duplicates.js';
 import { fetchRange, openDownload } from './fetch.js';
-import { checkModel, loadModel } from './load.js';
+import { LOAD_CHUNK_BYTES } from './load.js';
 import { renderModel } from './model_view.js';
-import { requestPersistence } from './opfs.js';
+import { cachedFileName, requestPersistence } from './opfs.js';
 import { preflight, rangesOfFile } from './preflight.js';
 import { Request } from './protocol.js';
 
@@ -84,32 +84,21 @@ export function createModelController({ element, client, cache, onLoaded, onCach
     try {
       const file = await cache.file(cacheKey(model));
       if (file === null) throw new Error('the file is no longer in the cache');
-      // The index preflight read, sent again so the module reads the same one,
-      // and the duplicates whose bytes really match.
-      const prefix = await file.slice(0, verdict.indexBytes).arrayBuffer();
+      // The duplicates whose bytes really match, compared before the worker
+      // opens the file, which locks it while it reads.
       const confirmed = await confirmDuplicates({ file, candidates: verdict.fit?.duplicates ?? [], signal });
-      await loadModel({
-        file, signal,
-        begin: ({ maxChunk }) => client.request(Request.LOAD_BEGIN,
-          { prefix, totalSize: file.size, confirmed, maxChunk }, { transfer: [prefix] }),
-        send: ({ offset, bytes }) => client.request(Request.LOAD_CHUNK, { offset, bytes }, { transfer: [bytes] }),
-        finish: () => client.request(Request.LOAD_FINISH, {}),
-        onProgress: (done, total) => {
-          if (!signal.aborted) show({ ...state, done, total });
-        },
-      });
-      if (signal.aborted) return;
-      // A diagnostic build reads every byte back; the clean build skips it.
-      show({ phase: 'verifying', model, verdict, done: 0, total: null });
-      const check = await checkModel({
-        file, signal,
-        begin: ({ maxChunk }) => client.request(Request.CHECK_BEGIN, { maxChunk }),
-        send: ({ offset, bytes }) => client.request(Request.CHECK_CHUNK, { offset, bytes }, { transfer: [bytes] }),
-        finish: () => client.request(Request.CHECK_FINISH, {}),
-        onProgress: (done, total) => {
-          if (!signal.aborted) show({ ...state, done, total });
-        },
-      });
+      const { id, reply } = client.send(Request.LOAD,
+        { name: cachedFileName(cacheKey(model)), indexBytes: verdict.indexBytes, confirmed, maxChunk: LOAD_CHUNK_BYTES },
+        {
+          // A diagnostic build reads every byte back after loading them.
+          onProgress: ({ phase, done, total }) => {
+            if (!signal.aborted) show({ phase: phase === 'check' ? 'verifying' : 'loading', model, verdict, done, total });
+          },
+        });
+      const cancel = () => client.request(Request.CANCEL, { target: id }).catch(() => {});
+      signal.addEventListener('abort', cancel, { once: true });
+      const { check } = await reply;
+      signal.removeEventListener('abort', cancel);
       if (signal.aborted) return;
       show({ phase: 'loaded', model, verdict, check });
       onLoaded(model, verdict);

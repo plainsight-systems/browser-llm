@@ -2,31 +2,26 @@
 // this file, so every kind is spelled once.
 //
 // A request carries an id. Every reply to it carries the same id, and the
-// replies end with exactly one DONE or FAILED; TOKEN replies may come before.
+// replies end with exactly one DONE or FAILED; TOKEN and PROGRESS replies may
+// come before.
 // Notices carry no id: the worker sends them unprompted.
 
 export const Request = Object.freeze({
   // Read a model file's index from its first bytes and judge it.
   PREFLIGHT: 'preflight',
-  // Begin loading a model: its index prefix, size and confirmed duplicates.
-  LOAD_BEGIN: 'load-begin',
-  // Hand the runtime the next chunk of the model file, in order.
-  LOAD_CHUNK: 'load-chunk',
-  // End the load: answered once every write is confirmed on the device.
-  LOAD_FINISH: 'load-finish',
-  // A diagnostic build's check of the loaded model, the same three steps;
-  // a build without it answers CHECK_BEGIN with { skipped: true }.
-  CHECK_BEGIN: 'check-begin',
-  CHECK_CHUNK: 'check-chunk',
-  CHECK_FINISH: 'check-finish',
+  // Load a cached model, by its file's name, with the index prefix length
+  // and the confirmed duplicates; progress comes back as PROGRESS replies.
+  LOAD: 'load',
   // Generate a reply to a rendered prompt, streaming its text.
   GENERATE: 'generate',
-  // Stop a generation early; `target` is its request id.
+  // Stop a load or a generation early; `target` is its request id.
   CANCEL: 'cancel',
 });
 
 export const Reply = Object.freeze({
   TOKEN: 'token',
+  // How far a load has come: { phase, done, total }.
+  PROGRESS: 'progress',
   DONE: 'done',
   FAILED: 'failed',
 });

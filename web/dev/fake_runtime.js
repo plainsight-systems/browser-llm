@@ -32,11 +32,9 @@ export async function createRuntime({ onDevice, runBench }) {
       return { ...answer, reached: 'run', blockers: [] };
     },
 
-    // Loads nothing: the chunks are counted and dropped.
-    loadBegin: async ({ maxChunk }) => ({ chunkBytes: maxChunk }),
-    loadChunk: async ({ offset, bytes }) => ({ received: offset + bytes.byteLength }),
-    loadFinish: async () => ({}),
+    // Loads nothing, and says so: no check is made.
     canCheck: false,
+    loadFromCache: async () => ({ check: null }),
 
     generate: async ({ id, prompt, onText }) => {
       const text = `${REPLY}The rendered prompt was ${prompt.length} characters.`;

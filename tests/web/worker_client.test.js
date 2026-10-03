@@ -88,3 +88,15 @@ test('send returns the request id alongside its reply', async () => {
   assert.equal(await reply, id);
   close();
 });
+
+test('PROGRESS replies reach onProgress in order before the request resolves', async () => {
+  const { client, close } = connect((req, send) => {
+    for (const done of [10, 20]) send({ id: req.id, kind: Reply.PROGRESS, progress: { phase: 'load', done, total: 20 } });
+    send({ id: req.id, kind: Reply.DONE, value: { check: null } });
+  });
+  const seen = [];
+  const value = await client.request('load', {}, { onProgress: (p) => seen.push(p.done) });
+  assert.deepEqual(seen, [10, 20]);
+  assert.deepEqual(value, { check: null });
+  close();
+});
