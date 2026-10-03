@@ -79,12 +79,15 @@ Decided 2026-10-02:
 
 Decided 2026-10-03:
 
-- **A data path is not done until it is measured against its floor.** Every
-  stage accounted — bytes moved, calls across each boundary including the
-  module's calls into browser APIs, the stage's own ceiling on the target —
-  and the whole measured against them once it runs. The load path shipped
-  with each optimization reasoned locally and none checked against a floor;
-  an audit asked for after the fact found it 3–4 times its floor
+- **A data path's cost is derived before it is built.** Every stage walked
+  and counted as functions of the model — bytes and copies, inner-loop
+  operations and whether they inline, calls across each boundary including
+  the module's calls into browser APIs — and anything that scales with
+  blocks, fields or pieces where it could scale with chunks is designed out
+  before code. Measurement afterwards calibrates per-call costs and overlap;
+  it does not discover the bottleneck. The load path shipped without the
+  walk; an audit asked for after the fact found it 3–4 times its floor, and
+  every cause it found was countable on paper
   (`research/2026-10-03-load-performance-audit.md`).
 
 Decided 2026-08-28 during repo bootstrap:
@@ -129,7 +132,7 @@ Not yet decided. These block the first implementation packet:
 - `research/2026-10-03-load-performance-audit.md` — the load path against its
   measured floor: per-stage ceilings, what the fixed-width rearrangement and
   worker-side reads bought, and why writeBuffer call count, not bytes, binds
-  the load now. Also why the audit had to be asked for, and the rule.
+  the load now. Also why every cause was countable on paper, and the rule.
 - `research/2026-08-31-measurement-build-configurations.md` — three build
   configurations for performance work. The diagnostic build is Release, not
   Debug: the axis is instrumentation, not optimisation. Compile-time gate with

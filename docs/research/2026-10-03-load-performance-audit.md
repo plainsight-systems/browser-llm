@@ -48,36 +48,46 @@ about half a millisecond in Chrome at these sizes, whatever its length.
 
 ## Why the audit had to be asked for
 
-Each optimization in the load was designed by reasoning and labelled — one
-write per stream rather than per block, F32 written straight from the chunk,
-two chunks in flight — and each was right locally. None was checked against
-the path's floor, because the design never stated one:
+Every bottleneck the audit found could have been found by walking the path
+on paper and counting, with the guidelines already in the corpus. None of
+it needed a measurement to discover:
 
-- **No accounting of the whole path.** GDSA.6 asks for the bytes each stage
-  moves and a comparison with memcpy. The headers cited it for one stage at
-  most, and no document added the stages up, so a stage running at a
-  fourteenth of memcpy went unseen.
-- **Crossings were counted on one side only.** WASM.2 prices every call out
-  of wasm into a web API. The headers counted the page's crossings into the
-  module (46 a load) and never the module's calls into WebGPU (567).
-- **Measurement was deferred, then dropped on a guess.** The design said
-  "measured where it can be", the harness that would have measured it was
-  postponed, and I then recommended dropping it because the load "isn't
-  where the performance story is" — a judgement about importance, made
-  without the numbers GPU.10 asks for before it.
-- **Smoke timings stood in for evidence.** 0.33 s and 1.2 s looked fast, and
-  nothing said fast compared with what.
+| Stage | What a walk counts | What it shows |
+|---|---|---|
+| Rearrangement | Q4_0, 360 MiB: 21 M blocks, two fields each, so 42 M `memcpy` calls whose length is known only at run time, which the compiler cannot inline | A per-field call where memcpy of the same bytes is one pass: tens of milliseconds against about six |
+| Writes | One `writeBuffer` per stream of every piece: 567 a load, against 23 chunks | Crossings out of the module that scale with pieces, where WASM.2 asks for one per phase |
+| Reads | Blob to `ArrayBuffer`, then a copy into the module's memory, on the page | Two copies of the file and a crossing a chunk, where reading straight into the module's memory is one copy (GDSA.6) |
+
+Each optimization in the load was reasoned about locally — one write per
+stream rather than per block, F32 written straight from the chunk, two
+chunks in flight — and each was right locally. What the design never did
+was walk the whole path and write the counts down as functions of the
+model. So nothing showed that the inner loop was a call per field, or that
+the module's calls into WebGPU (567) dwarfed the page's calls into the
+module (46), which were the only crossings the headers counted. Without the
+counts, a guess that the load "isn't where the performance story is" went
+unchallenged, and single smoke timings (0.33 s, 1.2 s) passed for evidence.
+
+Measurement told us two things a walk could not: what a `writeBuffer` call
+costs in Chrome (about half a millisecond, whatever its size), and that the
+page's reads already overlapped the GPU's work on the previous chunk, so
+moving them saved 16 ms rather than the 100 the read stage alone promised.
+Those are magnitudes and overlap. Measurement calibrates them; it did not
+discover the bottlenecks, and it does not stand in for the walk.
 
 ## The rule
 
-**A data path is not done until it has been measured against its floor.**
-Before a path's design is accepted, its header accounts every stage: the
-bytes it moves, the calls it makes across every boundary, including from the
-module into browser APIs, and the ceiling that stage reaches alone on the
-target. Once the path runs, it is measured end to end against the sum or the
-overlap of those ceilings, and any stage well off its own is either fixed or
-named as the remaining gap. A labelled optimization claims its effect
-against that floor, not against intuition.
+**A data path's cost is derived before it is built.** Its header walks every
+stage and counts, as functions of the model: the bytes it moves and the
+copies it makes (GDSA.6), the operations in its inner loop and whether each
+is a call the compiler can inline, and the calls it makes across every
+boundary, including the module's calls into browser APIs (WASM.2). A count
+that scales with blocks or fields where it could scale with chunks, or a
+crossing per piece where one per phase would do, is a bottleneck by
+construction, and is designed out before code is written. Once the path
+runs it is measured against that floor (GPU.10, WASM.11) to calibrate
+per-call costs and overlap, and any stage well off its own ceiling is fixed
+or named as the remaining gap.
 
 ## Levers not taken here
 
