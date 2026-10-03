@@ -77,6 +77,16 @@ Decided 2026-10-02:
   it came from, and nothing is claimed for hardware it did not run on.
   Supersedes BLLM-002's target matrix and its owed floor budget.
 
+Decided 2026-10-03:
+
+- **A data path is not done until it is measured against its floor.** Every
+  stage accounted — bytes moved, calls across each boundary including the
+  module's calls into browser APIs, the stage's own ceiling on the target —
+  and the whole measured against them once it runs. The load path shipped
+  with each optimization reasoned locally and none checked against a floor;
+  an audit asked for after the fact found it 3–4 times its floor
+  (`research/2026-10-03-load-performance-audit.md`).
+
 Decided 2026-08-28 during repo bootstrap:
 
 - **Core implementation language is C++ compiled to WebAssembly via Emscripten.**
@@ -116,6 +126,10 @@ Not yet decided. These block the first implementation packet:
 
 ## Research Index
 
+- `research/2026-10-03-load-performance-audit.md` — the load path against its
+  measured floor: per-stage ceilings, what the fixed-width rearrangement and
+  worker-side reads bought, and why writeBuffer call count, not bytes, binds
+  the load now. Also why the audit had to be asked for, and the rule.
 - `research/2026-08-31-measurement-build-configurations.md` — three build
   configurations for performance work. The diagnostic build is Release, not
   Debug: the axis is instrumentation, not optimisation. Compile-time gate with

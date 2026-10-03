@@ -30,6 +30,14 @@ This repo is C++-dominant and performance-sensitive.
   `// Optimization (practice): …`, with its concrete reason and the guideline
   or system it follows, so a reader sees a choice rather than an accident.
   Where it can be measured, it is, and the figures go in the note.
+- **A data path is not done until it is measured against its floor.** Its
+  header accounts every stage: the bytes it moves (GDSA.6), the calls it
+  makes across every boundary, including the module's calls into browser
+  APIs (WASM.2), and the ceiling that stage reaches alone on the target.
+  Once the path runs it is measured end to end against those ceilings
+  (GPU.10, WASM.11), and a stage well off its own is fixed or named as the
+  remaining gap. Optimizations claim their effect against that floor
+  (`research/2026-10-03-load-performance-audit.md`).
 - **Every C++ step is checked against `cpp-guidelines` before its code is
   written, and performance-sensitive work against `cpp-perf-guidelines`.** The
   citations in the headers and optimization notes are the record. If either
