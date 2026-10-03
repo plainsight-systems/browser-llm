@@ -1,13 +1,40 @@
 // The only Emscripten-aware translation unit in this repository.
 //
 // Its job is translation, not behavior: it starts the device request, forwards
-// the result to JavaScript as JSON, and owns nothing else. Product behavior
-// belongs in src/core.
+// the result to JavaScript as JSON, and holds the session's state across
+// crossings. Product behavior belongs in src/core.
+//
+// The session's state is what outlives one crossing, held in one place here,
+// at the boundary, because the module has one page and one device:
+//   - the device the self-check acquired and checked, kept rather than
+//     released, so the model loads onto the device that was checked;
+//   - a load: the index read from the prefix begin was given, the plan made
+//     for it, the Upload carrying it out (residency/upload.h), and one chunk
+//     buffer, allocated at begin and reused for every chunk (WASM.1).
+// Every decision about that state is core's; this file only holds it and
+// translates.
 //
 // Contract 11, the boundary: this file and web/worker.js are the only two
-// places JavaScript and C++ meet. The crossings are preflight a header prefix,
-// load a chunk of the file, generate from a rendered prompt and the turn's
-// policy, and cancel. Text goes back one crossing per token (WASM.2).
+// places JavaScript and C++ meet. The crossings are preflight a header prefix;
+// begin a load, load a chunk of the file, and finish the load (web/load.js);
+// generate from a rendered prompt and the turn's policy; and cancel. Text goes
+// back one crossing per token (WASM.2).
+//
+//   bllm_load_begin(request, prefix, prefix_length, file_size, confirmed,
+//                   confirmed_count)
+//     Reads the index from `prefix` — the bytes preflight read — describes
+//     the model, plans it for the kept device, and begins the Upload with the
+//     duplicates the page confirmed (web/duplicates.js). Answers once the
+//     device holds the buffers: the chunk buffer's address and size, or the
+//     failure, named.
+//   bllm_load_chunk(request, file_offset, length)
+//     The page has copied `length` bytes at `file_offset` into the chunk
+//     buffer. Answers when the page may send the next (residency/upload.h).
+//   bllm_load_finish(request)
+//     Answers once every write has completed, shown by the witness, or with
+//     the failure that stopped them.
+// A load already begun is refused, by name, until it finishes or fails; a
+// chunk or finish without a load is refused the same way.
 
 #include <emscripten.h>
 #include <emscripten/eventloop.h>

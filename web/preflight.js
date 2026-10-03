@@ -20,8 +20,9 @@ export class PreflightError extends Error {
 
 // `fetchRange(start, end)` resolves with { bytes, totalSize } for that part of
 // the file. `readIndex(bytes, totalSize)` resolves with the reader's answer
-// for the file's first bytes. Resolves with the reader's verdict and the
-// file's size.
+// for the file's first bytes. Resolves with the reader's verdict, the file's
+// size, and `indexBytes`: how many of its first bytes the index needed, which
+// a load sends again so the module reads the same index.
 export async function preflight({ fetchRange, readIndex }) {
   let resident = new Uint8Array(0);
   let totalSize = Infinity;

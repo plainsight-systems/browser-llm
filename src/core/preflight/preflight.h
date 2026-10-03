@@ -67,6 +67,17 @@ struct Blocker {
     std::string detail;
 };
 
+// A tensor the plan marks as possibly a byte-for-byte copy of another, with
+// both byte ranges in the file, for the page to compare before upload
+// (web/duplicates.js, residency/routes.h).
+struct DuplicateCandidate {
+    gguf::TensorId tensor;
+    gguf::TensorId copies;
+    std::uint64_t offset;
+    std::uint64_t copies_offset;
+    std::uint64_t length;
+};
+
 // What the residency plan found for a model that fits.
 struct FitSummary {
     std::uint64_t weight_bytes;
@@ -77,6 +88,9 @@ struct FitSummary {
     std::uint32_t context_offered;
     std::uint32_t trained_context;
     std::size_t buffer_count;
+    // Empty for a model whose output head reads its embedding, as every
+    // listed model's does.
+    std::vector<DuplicateCandidate> duplicates;
 };
 
 struct Verdict {

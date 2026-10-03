@@ -1,5 +1,12 @@
 // The runtime: the C++ module, behind the operations the worker offers the
 // page. Every call into C++ goes through here.
+//
+// A load is three operations (src/wasm/bindings.cpp): loadBegin with the
+// index prefix preflight read, the file's size and the confirmed duplicates;
+// loadChunk for each chunk, in order, copied into the chunk buffer begin
+// reported through a fresh view of the heap each time, since growing the
+// heap detaches any view kept (WASM.1); and loadFinish. Each resolves with
+// the module's answer, or rejects with the failure it names.
 
 import createModule from './charlotte.mjs';
 
