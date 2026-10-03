@@ -48,6 +48,11 @@ std::size_t gather_fixed(std::span<const std::byte> run, std::size_t block_bytes
 //   memcpy of the same bytes: 63 GB/s
 std::size_t gather(std::span<const std::byte> run, std::size_t block_bytes, formats::Stream stream,
                    std::span<std::byte> out) {
+    // A stream that is the whole block (F32) is the run itself, in order.
+    if (stream.offset == 0 && stream.width == block_bytes) {
+        std::memcpy(out.data(), run.data(), run.size());
+        return run.size();
+    }
     switch (stream.width) {
         case 2: return gather_fixed<2>(run, block_bytes, stream.offset, out);
         case 4: return gather_fixed<4>(run, block_bytes, stream.offset, out);
@@ -62,13 +67,6 @@ std::size_t gather(std::span<const std::byte> run, std::size_t block_bytes, form
         std::memcpy(out.data() + at, run.data() + b + stream.offset, stream.width);
     }
     return at;
-}
-
-// A layout of one stream that is the whole block: the device order is the
-// file's, so a run of whole blocks is already its stream.
-bool is_identity(const DeviceLayout& layout) {
-    return layout.streams.size() == 1 && layout.streams[0].offset == 0 &&
-           layout.streams[0].width == layout.block_bytes;
 }
 
 // Takes `n` bytes of staging past `staged`. The bound the staging is sized at
@@ -89,6 +87,14 @@ PieceWriter::PieceWriter(std::span<const Route> routes, std::size_t max_chunk)
       max_chunk_(max_chunk),
       staging_(staging_bound(routes.size(), max_chunk)) {
     while (route_ < routes_.size() && routes_[route_].blocks == 0) ++route_;
+    // Where each buffer's pieces have reached, walking the routes in order.
+    std::vector<std::uint64_t> reached;
+    for (const Route& r : routes_) {
+        const auto b = static_cast<std::size_t>(r.buffer);
+        if (b >= reached.size()) reached.resize(b + 1, 0);
+        if (r.buffer_offset < reached[b]) pieces_ascend_ = false;
+        reached[b] = std::max(reached[b], r.buffer_offset + r.length);
+    }
 }
 
 WriteError PieceWriter::accept(std::uint64_t file_offset, std::span<const std::byte> chunk,
@@ -101,6 +107,7 @@ WriteError PieceWriter::accept(std::uint64_t file_offset, std::span<const std::b
     }
 
     std::size_t staged = 0;
+    finished_ = nullptr;
     std::uint64_t pos = file_offset;
     while (route_ < routes_.size() && pos < end) {
         const Route& route = routes_[route_];
@@ -147,6 +154,14 @@ void PieceWriter::write_blocks(std::span<const std::byte> held, std::span<const 
     const std::uint64_t count = held.size() / block_bytes + blocks.size() / block_bytes;
     const bool finished = blocks_done_ + count == route.blocks;
 
+    // The plan's padding before this piece, written as zeros so its first
+    // run joins the piece this call finished before it.
+    if (const auto padding = joinable_padding()) {
+        const auto zeros = take(staging_, staged, *padding);
+        std::fill(zeros.begin(), zeros.end(), std::byte{0});
+        emit({route.buffer, route.buffer_offset - *padding, zeros}, out);
+    }
+
     for (std::size_t s = 0; s < layout.streams.size(); ++s) {
         const formats::Stream stream = layout.streams[s];
         Tail& tail = tails_[s];
@@ -155,14 +170,6 @@ void PieceWriter::write_blocks(std::span<const std::byte> held, std::span<const 
         const std::uint64_t device = route.buffer_offset + stream_start(layout, s, route.blocks) +
                                      blocks_done_ * stream.width - tail.count;
         const std::uint64_t length = tail.count + count * stream.width;
-
-        // Optimization (browser): a run already in device order, starting
-        // and ending on a word, is written straight from the chunk; the
-        // browser copies it once, and nothing is copied here first.
-        if (is_identity(layout) && held.empty() && tail.count == 0 && length % 4 == 0) {
-            out.push_back({route.buffer, device, blocks});
-            continue;
-        }
 
         const auto area = take(staging_, staged, round_up4(length));
         std::size_t at = std::copy_n(tail.bytes.begin(), tail.count, area.begin()) - area.begin();
@@ -182,16 +189,43 @@ void PieceWriter::write_blocks(std::span<const std::byte> held, std::span<const 
             tail.count = static_cast<std::uint8_t>(length - written);
             std::copy_n(area.begin() + written, tail.count, tail.bytes.begin());
         }
-        if (written > 0) out.push_back({route.buffer, device, area.first(written)});
+        if (written > 0) emit({route.buffer, device, area.first(written)}, out);
     }
 
     blocks_done_ += count;
     if (finished) {
+        finished_ = &route;
         blocks_done_ = 0;
         tails_ = {};
         do ++route_;
         while (route_ < routes_.size() && routes_[route_].blocks == 0);
     }
+}
+
+void PieceWriter::emit(const Write& w, std::vector<Write>& out) {
+    // Every write of a call is staged back to back, so a write that
+    // continues the last on the device also continues it in staging; the
+    // last test is what makes the joined span hold both writes' bytes.
+    if (!out.empty()) {
+        Write& last = out.back();
+        if (last.buffer == w.buffer && last.offset + last.bytes.size() == w.offset &&
+            last.bytes.data() + last.bytes.size() == w.bytes.data()) {
+            last.bytes = std::span(last.bytes.data(), last.bytes.size() + w.bytes.size());
+            return;
+        }
+    }
+    out.push_back(w);
+}
+
+std::optional<std::uint64_t> PieceWriter::joinable_padding() const {
+    if (!pieces_ascend_ || finished_ == nullptr) return std::nullopt;
+    const Route& route = routes_[route_];
+    const std::uint64_t end = finished_->buffer_offset + finished_->length;
+    // Pieces that ascend put route_'s at or past the one before it.
+    if (finished_->buffer != route.buffer || route.buffer_offset - end > kMaxJoinedPadding) {
+        return std::nullopt;
+    }
+    return route.buffer_offset - end;
 }
 
 WriteError PieceWriter::finish(std::uint64_t file_size) {

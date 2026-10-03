@@ -8,9 +8,11 @@
 #include <cstddef>
 #include <span>
 #include <string>
+#include <vector>
 
 #include "core/gpu/device.h"
 #include "core/gpu/wgpu_handles.h"
+#include "core/residency/piece_writer.h"
 #include "core/residency/upload.h"
 #include "core/residency/upload_check.h"
 #include "support/acquire.h"
@@ -106,6 +108,49 @@ TEST_CASE("one word changed on the device is found, by buffer, offset and tensor
     CHECK(found.buffer == route->buffer);
     CHECK(found.offset == route->buffer_offset + 4);
     CHECK(found.tensor == "extra.weight");
+}
+
+TEST_CASE("a word changed in every piece is found in each, though one write covers many") {
+    const gpu::Instance instance{wgpuCreateInstance(nullptr)};
+    const auto device = acquire(instance.get());
+    const Model m = load("tiny_qwen3_odd_blocks");
+    const auto upload = uploaded(instance.get(), *device, m);
+
+    // The whole file as one chunk, so pieces share writes: what upload
+    // wrote, regenerated as the check does.
+    residency::PieceWriter writer(upload->routes(), m.bytes.size());
+    std::vector<residency::Write> writes;
+    REQUIRE(writer.accept(0, m.bytes, writes) == residency::WriteError::Ok);
+
+    // Each piece's second word, complemented; a piece of one word is left
+    // alone.
+    std::vector<const residency::Route*> changed;
+    for (const residency::Route& r : upload->routes()) {
+        if (r.length < 8) continue;
+        const auto w = std::find_if(writes.begin(), writes.end(), [&](const residency::Write& w) {
+            return w.buffer == r.buffer && w.offset <= r.buffer_offset && r.buffer_offset + 8 <= w.offset + w.bytes.size();
+        });
+        REQUIRE(w != writes.end());
+        std::array<std::byte, 4> word{};
+        for (std::size_t i = 0; i < word.size(); ++i) word[i] = ~w->bytes[r.buffer_offset + 4 - w->offset + i];
+        wgpuQueueWriteBuffer(device->queue(), upload->buffer(r.buffer), r.buffer_offset + 4, word.data(), word.size());
+        changed.push_back(&r);
+    }
+    REQUIRE(writes.size() < changed.size());   // pieces share writes
+
+    UploadCheck check(*upload, m.bytes.size());
+    Checked accepted;
+    check.check(0, whole(m), on_checked, &accepted);
+    pump_until(instance.get(), accepted.done, "the file compared");
+    REQUIRE(accepted.error == CheckError::Ok);
+    CHECK(check.finish(m.bytes.size()) == CheckError::Ok);
+    REQUIRE(check.mismatches().size() == changed.size());
+    for (std::size_t i = 0; i < changed.size(); ++i) {
+        CAPTURE(i);
+        CHECK(check.mismatches()[i].buffer == changed[i]->buffer);
+        CHECK(check.mismatches()[i].offset == changed[i]->buffer_offset + 4);
+        CHECK(check.mismatches()[i].tensor == upload->tensor_name(changed[i]->tensor));
+    }
 }
 
 TEST_CASE("a check on a destroyed device fails; it never ends with nothing compared") {

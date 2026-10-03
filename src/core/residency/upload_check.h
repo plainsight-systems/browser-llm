@@ -42,15 +42,17 @@ namespace bllm::residency {
 //   - For each chunk, every write's range is copied into one mappable staging
 //     buffer, back to back, in one command buffer; the staging buffer is
 //     mapped once, and each range is compared with the write's bytes. The
-//     chunk is acknowledged only after that comparison, so the chunk and the
-//     writer's staging the writes point into are still intact when compared.
-//     The readback is bounded by a chunk, as the upload was.
-//   - The result names every mismatch: the buffer, the offset of its first
-//     differing byte, and the tensor the route belongs to, by the name the
-//     Upload kept. Zero mismatches
-//     means every byte written is on the device where the plan put it.
-//     Padding upload never wrote is not compared: WebGPU zeroes new buffers,
-//     and nothing reads past a piece's file bytes but its unpack.
+//     chunk is acknowledged only after that comparison, so the writer's
+//     staging the writes point into is still intact when compared. The
+//     readback is bounded by a chunk, as the upload was.
+//   - The result names each piece that differs: the buffer, the offset of
+//     its first differing byte, and the tensor the route belongs to, by the
+//     name the Upload kept. A write may span pieces and the padding between
+//     them (piece_writer.h); each piece in it is reported on its own, and a
+//     byte of padding that differs is reported with no tensor. Zero
+//     mismatches means every byte written is on the device where the plan
+//     put it. Padding upload never wrote is not compared: WebGPU zeroes new
+//     buffers, and nothing reads past a piece's file bytes but its unpack.
 //
 // Compiled only with diagnostics: CMake leaves its source out of every other
 // build, so the shipped module holds none of it. A load timed

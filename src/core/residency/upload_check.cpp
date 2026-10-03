@@ -51,19 +51,16 @@ CheckError from_mapped(Mapped mapped) {
     return CheckError::Internal;
 }
 
-// The tensor whose piece covers `offset` in `buffer`, by the name the Upload
-// kept.
-std::string tensor_at(const Upload& upload, BufferIndex buffer, std::uint64_t offset) {
+// The route whose piece covers `offset` in `buffer`, or null for padding.
+const Route* route_at(const Upload& upload, BufferIndex buffer, std::uint64_t offset) {
     for (const Route& r : upload.routes()) {
-        if (r.buffer == buffer && offset >= r.buffer_offset && offset - r.buffer_offset < r.length) {
-            return std::string(upload.tensor_name(r.tensor));
-        }
+        if (r.buffer == buffer && offset >= r.buffer_offset && offset - r.buffer_offset < r.length) return &r;
     }
-    return {};
+    return nullptr;
 }
 
 // One chunk's readback: the writes it compares against, whose spans point
-// into the chunk and the writer's staging, both intact until it accepts.
+// into the writer's staging, intact until it accepts.
 struct Comparison {
     std::shared_ptr<CheckState> state;
     const Upload* upload;
@@ -88,11 +85,19 @@ void compare(WGPUMapAsyncStatus status, Comparison& c) {
     const auto* device = static_cast<const std::byte*>(range);
     std::uint64_t at = 0;
     for (const Write& w : c.writes) {
-        const auto held = std::span(device + at, w.bytes.size());
-        const auto [mine, theirs] = std::mismatch(w.bytes.begin(), w.bytes.end(), held.begin());
-        if (mine != w.bytes.end()) {
+        // A write may span pieces (piece_writer.h): the first differing byte
+        // of each is reported, so every tensor a write covers is named.
+        const auto* held = device + at;
+        std::uint64_t i = 0;
+        while (i < w.bytes.size()) {
+            const auto from = w.bytes.begin() + static_cast<std::ptrdiff_t>(i);
+            const auto mine = std::mismatch(from, w.bytes.end(), held + i).first;
+            if (mine == w.bytes.end()) break;
             const std::uint64_t offset = w.offset + static_cast<std::uint64_t>(mine - w.bytes.begin());
-            s.mismatches.push_back({w.buffer, offset, tensor_at(*c.upload, w.buffer, offset)});
+            const Route* route = route_at(*c.upload, w.buffer, offset);
+            s.mismatches.push_back(
+                {w.buffer, offset, route ? std::string(c.upload->tensor_name(route->tensor)) : std::string()});
+            i = (route ? route->buffer_offset + route->length : offset + 1) - w.offset;
         }
         at += w.bytes.size();
     }

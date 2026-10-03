@@ -37,14 +37,17 @@ previous chunk's queue work.
 | Before the audit | about 298 ms |
 | Fixed-width rearrangement (95a1c62) | about 230 ms |
 | Worker reads the cache into the module (a70fb55) | 241 ms median of five, against 257 |
+| Writes joined across streams and pieces | 140 ms median of twelve, against 198 on the same page and day; 567 writes become 78 |
 
 The reads gained less than their stage measurement promised: the page's reads
 had overlapped the GPU process working through the previous chunk's writes.
-What binds the load now is the number of `writeBuffer` calls. The module
-issues 567 a load, one per stream of every piece; merged where they touch or
-are separated only by the plan's alignment padding they are 78, and replayed
-both ways on a clean page the write phase halves. A `writeBuffer` call costs
-about half a millisecond in Chrome at these sizes, whatever its length.
+What bound the load next was the number of `writeBuffer` calls. The module
+issued 567 a load, one per stream of every piece; joined where they touch or
+are separated only by the plan's alignment padding they are 78, and the
+worker's side of the load went from 174 to 119 ms (median of six against
+twelve). A `writeBuffer` call costs about half a millisecond in Chrome at
+these sizes, whatever its length. The diagnostic check reads every byte back
+after the joined writes and finds the model's bytes where the plan put them.
 
 ## Why the audit had to be asked for
 
@@ -91,8 +94,7 @@ or named as the remaining gap.
 
 ## Levers not taken here
 
-- Merging writes (above): the measured lever, a change to the piece writer's
-  output contract.
-- Rearranging on the GPU instead: one raw write a chunk and a compute pass;
-  not pursued while merging is the simpler fix.
+- Rearranging on the GPU instead: one raw write a chunk and a compute pass,
+  which would remove the writes a cut piece still takes per stream; the
+  joined writes leave about three a chunk.
 - Wasm SIMD: no measurable effect on rearrangement, in Node or Chrome.

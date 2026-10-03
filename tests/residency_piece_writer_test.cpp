@@ -33,12 +33,17 @@ struct Piece {
     const DeviceLayout* layout;
     std::uint64_t blocks;
     std::uint64_t gap_before;   // file bytes outside every route, before it
+    // Where the plan puts it: in a buffer of its own, or this many bytes past
+    // the next 256-byte boundary — past kMaxJoinedPadding, which no plan's
+    // padding reaches.
+    bool new_buffer = false;
+    std::uint64_t extra_padding = 0;
 };
 
 struct Fixture {
     std::vector<std::byte> file;
     std::vector<Route> routes;
-    std::uint64_t buffer_size = 0;
+    std::vector<std::uint64_t> buffer_sizes;
 };
 
 constexpr std::byte kUntouched{0xEE};
@@ -46,7 +51,7 @@ constexpr std::byte kUntouched{0xEE};
 std::uint64_t round_up(std::uint64_t n, std::uint64_t to) { return (n + to - 1) / to * to; }
 
 // A file of deterministic pseudo-random bytes holding `pieces` in order, each
-// routed into buffer 0 at the next 256-byte boundary, as a plan places them.
+// routed into its buffer at the next 256-byte boundary, as a plan places them.
 Fixture make(std::span<const Piece> pieces, std::uint64_t trailing = 5) {
     Fixture f;
     std::uint32_t state = 0x9E3779B9u;
@@ -60,29 +65,37 @@ Fixture make(std::span<const Piece> pieces, std::uint64_t trailing = 5) {
     std::uint32_t tensor = 0;
     for (const Piece& p : pieces) {
         bytes(p.gap_before);
+        if (f.buffer_sizes.empty() || p.new_buffer) f.buffer_sizes.push_back(0);
+        std::uint64_t& size = f.buffer_sizes.back();
+        size += p.extra_padding;
         const std::uint64_t stored = p.blocks * p.layout->block_bytes;
         f.routes.push_back({gguf::TensorId{tensor++}, f.file.size(), p.blocks, p.layout,
-                            residency::BufferIndex{0}, f.buffer_size, round_up(stored, 4)});
-        f.buffer_size = round_up(f.buffer_size + round_up(stored, 4), 256);
+                            residency::BufferIndex{static_cast<std::uint32_t>(f.buffer_sizes.size() - 1)}, size,
+                            round_up(stored, 4)});
+        size = round_up(size + round_up(stored, 4), 256);
         bytes(stored);
     }
     bytes(trailing);
     return f;
 }
 
+using Buffers = std::vector<std::vector<std::byte>>;
+
 // What the device should hold: each route's blocks gathered by hand into its
 // streams, the last run zero-padded to the route's length, nothing else
 // written. The untransformed reference CDSA.32 asks the conversion be
 // tested against.
-std::vector<std::byte> expected(const Fixture& f) {
-    std::vector<std::byte> device(f.buffer_size, kUntouched);
+Buffers expected(const Fixture& f) {
+    Buffers device;
+    for (const std::uint64_t size : f.buffer_sizes) device.emplace_back(size, kUntouched);
     for (const Route& r : f.routes) {
-        std::fill_n(device.begin() + static_cast<std::ptrdiff_t>(r.buffer_offset), r.length, std::byte{0});
+        auto& buffer = device[static_cast<std::size_t>(r.buffer)];
+        std::fill_n(buffer.begin() + static_cast<std::ptrdiff_t>(r.buffer_offset), r.length, std::byte{0});
         std::uint64_t at = r.buffer_offset;
         for (const formats::Stream s : r.layout->streams) {
             for (std::uint64_t b = 0; b < r.blocks; ++b) {
                 for (std::uint64_t i = 0; i < s.width; ++i) {
-                    device[at++] = f.file[r.file_offset + b * r.layout->block_bytes + s.offset + i];
+                    buffer[at++] = f.file[r.file_offset + b * r.layout->block_bytes + s.offset + i];
                 }
             }
         }
@@ -90,37 +103,82 @@ std::vector<std::byte> expected(const Fixture& f) {
     return device;
 }
 
-// Applies one write, checking it is word-aligned, a whole number of words,
-// and inside one route's binding.
-void apply(const Fixture& f, const Write& w, std::vector<std::byte>& device) {
-    CHECK(w.offset % 4 == 0);
-    CHECK(w.bytes.size() % 4 == 0);
-    const bool inside = std::any_of(f.routes.begin(), f.routes.end(), [&](const Route& r) {
-        return w.offset >= r.buffer_offset && w.offset + w.bytes.size() <= r.buffer_offset + r.length;
-    });
-    CHECK(inside);
-    REQUIRE(w.offset + w.bytes.size() <= device.size());
-    std::copy(w.bytes.begin(), w.bytes.end(), device.begin() + static_cast<std::ptrdiff_t>(w.offset));
+// The device as the writes leave it, and how many writes reached each byte.
+struct Device {
+    Buffers bytes;
+    std::vector<std::vector<int>> times;
+
+    explicit Device(const Fixture& f) {
+        for (const std::uint64_t size : f.buffer_sizes) {
+            bytes.emplace_back(size, kUntouched);
+            times.emplace_back(size, 0);
+        }
+    }
+
+    // Applies one write, checking it is word-aligned and a whole number of
+    // words.
+    void apply(const Write& w) {
+        CHECK(w.offset % 4 == 0);
+        CHECK(w.bytes.size() % 4 == 0);
+        auto& buffer = bytes[static_cast<std::size_t>(w.buffer)];
+        REQUIRE(w.offset + w.bytes.size() <= buffer.size());
+        std::copy(w.bytes.begin(), w.bytes.end(), buffer.begin() + static_cast<std::ptrdiff_t>(w.offset));
+        for (std::uint64_t i = 0; i < w.bytes.size(); ++i) ++times[static_cast<std::size_t>(w.buffer)][w.offset + i];
+    }
+};
+
+// Whether the device holds what it should: every byte of every route's
+// binding written once, with `want`'s value; and any other byte written is
+// padding between two routes of its buffer, written once, as zero — what
+// WebGPU creates a buffer holding.
+void check_settled(const Fixture& f, const Device& device, const Buffers& want) {
+    for (std::size_t b = 0; b < want.size(); ++b) {
+        std::vector<char> bound(want[b].size(), 0);
+        std::uint64_t first = want[b].size();
+        std::uint64_t last = 0;
+        for (const Route& r : f.routes) {
+            if (static_cast<std::size_t>(r.buffer) != b) continue;
+            std::fill_n(bound.begin() + static_cast<std::ptrdiff_t>(r.buffer_offset), r.length, 1);
+            first = std::min(first, r.buffer_offset);
+            last = std::max(last, r.buffer_offset + r.length);
+        }
+        std::size_t wrong = 0;
+        for (std::uint64_t i = 0; i < want[b].size(); ++i) {
+            const int times = device.times[b][i];
+            const std::byte got = device.bytes[b][i];
+            const bool ok = bound[i] ? times == 1 && got == want[b][i]
+                                     : times == 0 || (times == 1 && got == std::byte{0} && first < i && i < last);
+            if (!ok && wrong++ < 4) {
+                CAPTURE(b);
+                CAPTURE(i);
+                CAPTURE(times);
+                CHECK(ok);
+            }
+        }
+        CHECK(wrong == 0);
+    }
 }
 
 // Streams the file through a writer in chunks of `chunk_size` and returns
 // what the device would hold.
-std::vector<std::byte> upload(const Fixture& f, std::size_t chunk_size) {
+Device upload(const Fixture& f, std::size_t chunk_size) {
     PieceWriter writer(f.routes, chunk_size);
-    std::vector<std::byte> device(f.buffer_size, kUntouched);
+    Device device(f);
     for (std::size_t at = 0; at < f.file.size(); at += chunk_size) {
         const auto chunk = std::span(f.file).subspan(at, std::min(chunk_size, f.file.size() - at));
         std::vector<Write> writes;
         REQUIRE(writer.accept(at, chunk, writes) == WriteError::Ok);
-        for (const Write& w : writes) apply(f, w, device);
+        for (const Write& w : writes) device.apply(w);
     }
     CHECK(writer.finish(f.file.size()) == WriteError::Ok);
     return device;
 }
 
-bool points_into(std::span<const std::byte> inner, std::span<const std::byte> outer) {
-    return std::less_equal<>{}(outer.data(), inner.data()) &&
-           std::less_equal<>{}(inner.data() + inner.size(), outer.data() + outer.size());
+// The writes the whole file, as one chunk, gives.
+std::vector<Write> one_chunk(const Fixture& f, PieceWriter& writer) {
+    std::vector<Write> writes;
+    REQUIRE(writer.accept(0, f.file, writes) == WriteError::Ok);
+    return writes;
 }
 
 const Piece kEveryLayout[] = {
@@ -139,7 +197,7 @@ TEST_CASE("the device holds every stored block's fields as its layout's streams,
                                     std::size_t{18}, std::size_t{210}, std::size_t{211}, std::size_t{4096},
                                     f.file.size()}) {
         CAPTURE(chunk);
-        CHECK(upload(f, chunk) == want);
+        check_settled(f, upload(f, chunk), want);
     }
 }
 
@@ -159,26 +217,82 @@ TEST_CASE("the same chunks always give the same writes") {
     CHECK(run() == run());
 }
 
-TEST_CASE("a piece within one chunk takes one write per stream") {
+TEST_CASE("a piece within one chunk takes one write, its streams joined") {
     for (const DeviceLayout* layout : {&formats::kQ4_0Layout, &formats::kQ6_KLayout, &kOddLayout}) {
         const Piece piece[] = {{layout, 6, 0}};
         const Fixture f = make(piece);
         PieceWriter writer(f.routes, f.file.size());
-        std::vector<Write> writes;
-        REQUIRE(writer.accept(0, f.file, writes) == WriteError::Ok);
-        CHECK(writes.size() == layout->streams.size());
+        const auto writes = one_chunk(f, writer);
+        REQUIRE(writes.size() == 1);
+        CHECK(writes[0].offset == 0);
+        CHECK(writes[0].bytes.size() == f.routes[0].length);
     }
 }
 
-TEST_CASE("a layout already in device order is written straight from the chunk") {
-    const Piece piece[] = {{&formats::kF32Layout, 16, 0}};
-    const Fixture f = make(piece);
+TEST_CASE("the pieces of one buffer within one chunk take one write, across the padding between them") {
+    const Fixture f = make(kEveryLayout);
+    PieceWriter writer(f.routes, f.file.size());
+    const auto writes = one_chunk(f, writer);
+    REQUIRE(writes.size() == 1);
+    Device device(f);
+    device.apply(writes[0]);
+    check_settled(f, device, expected(f));
+}
+
+TEST_CASE("pieces in different buffers, or further apart than the plan's padding, are written apart") {
+    // The second buffer's piece starts 8 bytes past where the first's ends,
+    // as padding would, or exactly where it ends, as the next run would.
+    const Piece padded[] = {{&formats::kQ4_0Layout, 3, 0}, {&formats::kQ4_0Layout, 3, 0, true, 64}};
+    const Piece abutting[] = {{&formats::kQ4_0Layout, 3, 0}, {&formats::kQ4_0Layout, 3, 0, true, 56}};
+    const Piece apart[] = {{&formats::kQ4_0Layout, 3, 0}, {&formats::kQ4_0Layout, 3, 0, false, 256}};
+    for (const auto pieces :
+         {std::span<const Piece>(padded), std::span<const Piece>(abutting), std::span<const Piece>(apart)}) {
+        const Fixture f = make(pieces);
+        PieceWriter writer(f.routes, f.file.size());
+        const auto writes = one_chunk(f, writer);
+        CHECK(writes.size() == 2);
+        check_settled(f, upload(f, f.file.size()), expected(f));
+    }
+}
+
+TEST_CASE("a piece a chunk begins is not joined to one the chunk before finished") {
+    // The first chunk ends exactly where the first piece does.
+    const Piece pieces[] = {{&formats::kQ4_0Layout, 3, 0}, {&formats::kQ4_0Layout, 3, 0}};
+    const Fixture f = make(pieces);
+    const std::size_t first = 24 + 54;
     PieceWriter writer(f.routes, f.file.size());
     std::vector<Write> writes;
-    REQUIRE(writer.accept(0, f.file, writes) == WriteError::Ok);
+    REQUIRE(writer.accept(0, std::span(f.file).first(first), writes) == WriteError::Ok);
     REQUIRE(writes.size() == 1);
-    CHECK(points_into(writes[0].bytes, f.file));
-    CHECK(writes[0].bytes.size() == 64);
+    writes.clear();
+    REQUIRE(writer.accept(first, std::span(f.file).subspan(first), writes) == WriteError::Ok);
+    REQUIRE(writes.size() == 1);
+    CHECK(writes[0].offset == f.routes[1].buffer_offset);
+}
+
+TEST_CASE("padding is joined only when every buffer's pieces lie in route order") {
+    // The third piece lies in the padding between the first two: joining
+    // them would write that padding as zeros, and the third piece over it.
+    const Piece pieces[] = {{&formats::kF32Layout, 3, 0}, {&formats::kF32Layout, 3, 0}, {&formats::kF32Layout, 3, 0}};
+    Fixture f = make(pieces);
+    f.routes[2].buffer_offset = 128;
+    PieceWriter writer(f.routes, f.file.size());
+    CHECK(one_chunk(f, writer).size() == 3);
+    check_settled(f, upload(f, f.file.size()), expected(f));
+}
+
+TEST_CASE("a piece a chunk cuts is never joined across the part a later chunk writes") {
+    // Three Q4_0 blocks: the first chunk ends inside the third, so it
+    // writes two blocks' nibbles and their scales, 16 bytes apart on the
+    // device; the bytes between are the third block's nibbles, the next
+    // chunk's.
+    const Piece piece[] = {{&formats::kQ4_0Layout, 3, 0}};
+    const Fixture f = make(piece, 0);
+    PieceWriter writer(f.routes, f.file.size());
+    std::vector<Write> writes;
+    REQUIRE(writer.accept(0, std::span(f.file).first(24 + 36 + 5), writes) == WriteError::Ok);
+    CHECK(writes.size() == 2);
+    check_settled(f, upload(f, 24 + 36 + 5), expected(f));
 }
 
 TEST_CASE("a chunk out of order, or too large, is refused; out is untouched and nothing more is accepted") {
@@ -220,18 +334,19 @@ TEST_CASE("the file ending before every route is filled, or short of its size, i
 TEST_CASE("staging holds the case its bound is set by: a held block, then many padded one-block routes") {
     // Q6_K's 210-byte block cut by the first chunk's end, then 300 adjacent
     // one-block routes of the odd layout, each ending inside the full second
-    // chunk with its last stream padded.
+    // chunk with its last stream padded, and the plan's padding before it
+    // joined.
     std::vector<Piece> pieces{{&formats::kQ6_KLayout, 2, 0}};
     for (int i = 0; i < 300; ++i) pieces.push_back({&kOddLayout, 1, 0});
     const Fixture f = make(pieces, 0);
     const std::size_t first = 24 + 210 + 100;   // ends inside the second Q6_K block
     const std::size_t max_chunk = f.file.size() - first;
     PieceWriter writer(f.routes, max_chunk);
-    std::vector<std::byte> device(f.buffer_size, kUntouched);
+    Device device(f);
 
     std::vector<Write> writes;
     REQUIRE(writer.accept(0, std::span(f.file).first(first), writes) == WriteError::Ok);
-    for (const Write& w : writes) apply(f, w, device);
+    for (const Write& w : writes) device.apply(w);
 
     writes.clear();
     const auto chunk = std::span(f.file).subspan(first);
@@ -239,11 +354,15 @@ TEST_CASE("staging holds the case its bound is set by: a held block, then many p
     REQUIRE(writer.accept(first, chunk, writes) == WriteError::Ok);
     std::uint64_t staged = 0;
     for (const Write& w : writes) {
-        if (!points_into(w.bytes, chunk)) staged += w.bytes.size();
-        apply(f, w, device);
+        staged += w.bytes.size();
+        device.apply(w);
     }
+    // The held Q6_K block's first three streams continue runs the last chunk
+    // began, apart on the device; its last joins every route after it.
+    CHECK(writes.size() == 3);
     CHECK(staged <= PieceWriter::staging_bound(f.routes.size(), max_chunk));
-    CHECK(staged > max_chunk);   // the padding and the held block's bytes are counted
+    // The padding joined, past what the bound counted before joins.
+    CHECK(staged > max_chunk + formats::kMaxBlockBytes + f.routes.size() * formats::kMaxStreams * 6);
     CHECK(writer.finish(f.file.size()) == WriteError::Ok);
-    CHECK(device == expected(f));
+    check_settled(f, device, expected(f));
 }
