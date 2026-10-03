@@ -35,6 +35,17 @@
 //     the failure that stopped them.
 // A load already begun is refused, by name, until it finishes or fails; a
 // chunk or finish without a load is refused the same way.
+//
+// A diagnostic build adds the check of a finished load, the same three
+// crossings over the file streamed a second time (residency/upload_check.h);
+// the clean build compiles none of them, so its module has no such exports:
+//   bllm_check_begin(request, max_chunk)
+//     Begins checking the loaded model; answers with the chunk buffer.
+//   bllm_check_chunk(request, file_offset, length)
+//     Answers once the chunk's ranges are compared.
+//   bllm_check_finish(request)
+//     Answers with every mismatch, by buffer, offset and tensor, or the
+//     failure that stopped the check.
 
 #include <emscripten.h>
 #include <emscripten/eventloop.h>

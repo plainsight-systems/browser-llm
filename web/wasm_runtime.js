@@ -7,6 +7,10 @@
 // reported through a fresh view of the heap each time, since growing the
 // heap detaches any view kept (WASM.1); and loadFinish. Each resolves with
 // the module's answer, or rejects with the failure it names.
+//
+// A diagnostic module also offers the check of a finished load: checkBegin,
+// checkChunk and checkFinish, the same shape, ending with every mismatch.
+// `canCheck` says whether this module has them; the clean module does not.
 
 import createModule from './charlotte.mjs';
 

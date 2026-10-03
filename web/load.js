@@ -23,7 +23,8 @@
 // A diagnostic build then streams the file a second time, in the same
 // chunks, through a check that compares every byte upload wrote with what
 // the device holds (src/core/residency/upload_check.h); the same count of
-// crossings again.
+// crossings again. checkModel is that pass, the same sequence as loadModel,
+// resolving with the mismatches.
 //
 // Optimization (browser): each chunk is read from the cache into one
 // ArrayBuffer and copied once into the heap; it is never held twice, and the
