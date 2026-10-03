@@ -50,9 +50,10 @@ Unicode NormalizationTest.txt, fetched by tools/fetch_test_data.py
 
 Model file headers, fetched by tools/fetch_test_data.py: the tokenizer and
 chat-template tests read each model's vocabulary and chat template from them.
-Only token IDs the reference tokenizers produced (tests/fixtures/tokenizer/)
-and SHA-256 hashes of reference renderings (tests/web/fixtures/) are
-committed.
+The chat-template test commits only SHA-256 hashes of reference renderings
+(tests/web/fixtures/). The tokenizer fixtures (tests/fixtures/tokenizer/)
+commit the token IDs the reference tokenizers produced, for texts that
+include each chat template's rendering of the test conversations.
   Qwen3 0.6B: Apache License 2.0.
   Llama 3.2 1B Instruct: Llama 3.2 Community License Agreement.
   Gemma 3 1B: Gemma Terms of Use.
