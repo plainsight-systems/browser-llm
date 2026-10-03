@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <cstring>
 
 #include "core/gguf/checked.h"
 
@@ -19,6 +20,48 @@ std::uint64_t stream_start(const DeviceLayout& layout, std::size_t s, std::uint6
     std::uint64_t before = 0;
     for (std::size_t i = 0; i < s; ++i) before += layout.streams[i].width;
     return before * blocks;
+}
+
+// Copies one field of every block in `run` into `out`, back to back, and
+// returns the bytes copied.
+template <std::size_t Width>
+std::size_t gather_fixed(std::span<const std::byte> run, std::size_t block_bytes, std::size_t offset,
+                         std::span<std::byte> out) {
+    std::byte* to = out.data();
+    for (std::size_t b = 0; b < run.size(); b += block_bytes, to += Width) {
+        std::memcpy(to, run.data() + b + offset, Width);
+    }
+    return static_cast<std::size_t>(to - out.data());
+}
+
+// Optimization (practice): every field a listed layout has is one of these
+// widths, so its copy has a size the compiler knows and inlines as a few
+// loads and stores. Copied at a width known only at run time, each field
+// was a call to memcpy: 21 million calls a stream for a Q4_0 model's
+// weights. GDSA.6 prices this stage against memcpy of the same bytes, which
+// a gather of small fields can reach about half of. make bench
+// (bench/piece_writer_bench.cpp), 360 MiB, native release, Apple M3 Max:
+//   Q4_0  83.3 ms (4.5 GB/s)  ->  11.9 ms (31.8 GB/s)
+//   Q4_1 101.4 ms (3.7 GB/s)  ->  11.1 ms (34.2 GB/s)
+//   Q8_0  49.6 ms (7.6 GB/s)  ->  10.7 ms (35.4 GB/s)
+//   Q6_K  33.2 ms (11.4 GB/s) ->  13.7 ms (27.6 GB/s)
+//   memcpy of the same bytes: 63 GB/s
+std::size_t gather(std::span<const std::byte> run, std::size_t block_bytes, formats::Stream stream,
+                   std::span<std::byte> out) {
+    switch (stream.width) {
+        case 2: return gather_fixed<2>(run, block_bytes, stream.offset, out);
+        case 4: return gather_fixed<4>(run, block_bytes, stream.offset, out);
+        case 16: return gather_fixed<16>(run, block_bytes, stream.offset, out);
+        case 32: return gather_fixed<32>(run, block_bytes, stream.offset, out);
+        case 64: return gather_fixed<64>(run, block_bytes, stream.offset, out);
+        case 128: return gather_fixed<128>(run, block_bytes, stream.offset, out);
+        default: break;   // a width no listed layout has: copied as it comes
+    }
+    std::size_t at = 0;
+    for (std::size_t b = 0; b < run.size(); b += block_bytes, at += stream.width) {
+        std::memcpy(out.data() + at, run.data() + b + stream.offset, stream.width);
+    }
+    return at;
 }
 
 // A layout of one stream that is the whole block: the device order is the
@@ -124,10 +167,7 @@ void PieceWriter::write_blocks(std::span<const std::byte> held, std::span<const 
         const auto area = take(staging_, staged, round_up4(length));
         std::size_t at = std::copy_n(tail.bytes.begin(), tail.count, area.begin()) - area.begin();
         for (const auto run : {held, blocks}) {
-            for (std::size_t b = 0; b < run.size(); b += block_bytes) {
-                at = std::copy_n(run.begin() + b + stream.offset, stream.width, area.begin() + at) -
-                     area.begin();
-            }
+            at += gather(run, block_bytes, stream, area.subspan(at));
         }
 
         std::uint64_t written = length;

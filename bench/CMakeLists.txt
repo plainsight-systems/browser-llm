@@ -7,3 +7,7 @@ target_include_directories(charlotte_bench_tokenizer PRIVATE "${CMAKE_SOURCE_DIR
 target_compile_definitions(charlotte_bench_tokenizer PRIVATE
     BLLM_TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/.cache/test-data"
 )
+
+# Upload's CPU stage on each quantized layout (make bench).
+add_executable(charlotte_bench_piece_writer EXCLUDE_FROM_ALL piece_writer_bench.cpp)
+target_link_libraries(charlotte_bench_piece_writer PRIVATE charlotte_core)

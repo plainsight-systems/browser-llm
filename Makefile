@@ -57,6 +57,8 @@ bench: test-data dawn
 	./tools/make_bench_corpus.sh $(BENCH_COMMIT) .cache/bench/corpus.txt
 	@echo "machine: $$(uname -sm), $$(sysctl -n machdep.cpu.brand_string 2>/dev/null || grep -m1 'model name' /proc/cpuinfo | cut -d: -f2)"
 	./build/native-release/bench/charlotte_bench_tokenizer .cache/bench/corpus.txt
+	cmake --build --preset native-release --target charlotte_bench_piece_writer
+	./build/native-release/bench/charlotte_bench_piece_writer
 
 ## JavaScript unit tests, in Node. No dependencies to install.
 test-web:
