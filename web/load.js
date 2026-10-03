@@ -42,15 +42,23 @@
 
 export const LOAD_CHUNK_BYTES = 16 * 2 ** 20;
 
-// `send({ offset, bytes, totalSize })` delivers one chunk and resolves when
-// the runtime has taken it. Resolves with the last chunk's answer.
-export async function loadModel({ file, send, onProgress, signal, chunkBytes = LOAD_CHUNK_BYTES }) {
-  let answer;
-  for (let offset = 0; offset < file.size; offset += chunkBytes) {
-    signal?.throwIfAborted();
-    const bytes = await file.slice(offset, offset + chunkBytes).arrayBuffer();
-    answer = await send({ offset, bytes, totalSize: file.size });
-    onProgress?.(Math.min(offset + chunkBytes, file.size), file.size);
+// `begin({ maxChunk })` starts the load; `send({ offset, bytes })` delivers
+// one chunk and resolves when the runtime has taken it; `finish()` resolves
+// once the runtime confirms every write. A load the page aborts is still
+// finished, so the runtime settles it and takes the next; one the runtime
+// refuses is already settled there. Resolves with finish's answer.
+export async function loadModel({ file, begin, send, finish, onProgress, signal, chunkBytes = LOAD_CHUNK_BYTES }) {
+  await begin({ maxChunk: chunkBytes });
+  try {
+    for (let offset = 0; offset < file.size; offset += chunkBytes) {
+      signal?.throwIfAborted();
+      const bytes = await file.slice(offset, offset + chunkBytes).arrayBuffer();
+      await send({ offset, bytes });
+      onProgress?.(Math.min(offset + chunkBytes, file.size), file.size);
+    }
+  } catch (error) {
+    if (signal?.aborted) await finish().catch(() => {});
+    throw error;
   }
-  return answer;
+  return finish();
 }

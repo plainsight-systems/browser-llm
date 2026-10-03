@@ -28,8 +28,10 @@ runtimePromise.catch((error) =>
 // function that streams text back; it returns the request's result or throws.
 const handlers = {
   [Request.PREFLIGHT]: (runtime, { bytes, totalSize }) => runtime.preflight(bytes, totalSize),
-  [Request.LOAD_CHUNK]: (runtime, { offset, bytes, totalSize }) =>
-    runtime.loadChunk({ offset, bytes, totalSize }),
+  [Request.LOAD_BEGIN]: (runtime, { prefix, totalSize, confirmed, maxChunk }) =>
+    runtime.loadBegin({ prefix, totalSize, confirmed, maxChunk }),
+  [Request.LOAD_CHUNK]: (runtime, { offset, bytes }) => runtime.loadChunk({ offset, bytes }),
+  [Request.LOAD_FINISH]: (runtime) => runtime.loadFinish(),
   [Request.GENERATE]: (runtime, { id, prompt, sampling, seed }, streamText) =>
     runtime.generate({ id, prompt, sampling, seed, onText: streamText }),
   [Request.CANCEL]: (runtime, { target }) => runtime.cancel(target),

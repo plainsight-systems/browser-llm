@@ -27,6 +27,8 @@ export async function createRuntime({ onDevice, runBench }) {
 
   const module = await createModule();
   startDeviceCheck(module, { onDevice, runBench });
+  // The chunk buffer the load in progress copies into, from loadBegin.
+  let load = null;
 
   return {
     preflight: async (bytes, totalSize) => {
@@ -37,8 +39,26 @@ export async function createRuntime({ onDevice, runBench }) {
           limits?.minStorageBufferOffsetAlignment ?? 0)));
     },
 
-    loadChunk: () => {
-      throw new Error('loading a model onto the GPU is not implemented in this build');
+    loadBegin: async ({ prefix, totalSize, confirmed, maxChunk }) => {
+      const answer = await withBytesInModule(module, prefix, (pointer, length) =>
+        withBytesInModule(module, u32s(confirmed), (ids) =>
+          callModule((call) =>
+            module._bllm_load_begin(call, pointer, length, totalSize, ids, confirmed.length, maxChunk))));
+      load = settled(answer);
+      return { chunkBytes: load.chunkBytes };
+    },
+
+    loadChunk: async ({ offset, bytes }) => {
+      if (load === null) throw new Error('no load is in progress');
+      // A fresh view each chunk: growing the heap detaches any view kept.
+      module.HEAPU8.set(new Uint8Array(bytes), load.chunkPointer);
+      settled(await callModule((call) => module._bllm_load_chunk(call, offset, bytes.byteLength)));
+    },
+
+    loadFinish: async () => {
+      const answer = await callModule((call) => module._bllm_load_finish(call));
+      load = null;
+      settled(answer);
     },
 
     generate: () => {
@@ -82,6 +102,19 @@ function callModule(start) {
     pendingCalls.set(call, resolve);
     start(call);
   });
+}
+
+// A load answer, or its failure thrown, named.
+function settled(answer) {
+  if (!answer.ok) throw new Error(answer.subject ? `${answer.error} (${answer.subject})` : answer.error);
+  return answer;
+}
+
+// Tensor ids as little-endian 32-bit words, for the module.
+function u32s(values) {
+  const words = new DataView(new ArrayBuffer(Math.max(4, values.length * 4)));
+  values.forEach((v, i) => words.setUint32(i * 4, v, true));
+  return words.buffer;
 }
 
 // Copies `bytes` into the module's memory for the duration of `use`.

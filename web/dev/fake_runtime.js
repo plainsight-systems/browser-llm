@@ -32,8 +32,10 @@ export async function createRuntime({ onDevice, runBench }) {
       return { ...answer, reached: 'run', blockers: [] };
     },
 
-    loadChunk: async ({ offset, bytes, totalSize }) =>
-      ({ received: offset + bytes.byteLength, totalSize }),
+    // Loads nothing: the chunks are counted and dropped.
+    loadBegin: async ({ maxChunk }) => ({ chunkBytes: maxChunk }),
+    loadChunk: async ({ offset, bytes }) => ({ received: offset + bytes.byteLength }),
+    loadFinish: async () => ({}),
 
     generate: async ({ id, prompt, onText }) => {
       const text = `${REPLY}The rendered prompt was ${prompt.length} characters.`;

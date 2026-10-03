@@ -7,6 +7,7 @@
 // and a fresh download is read back from the cache before it is offered.
 
 import { cacheKey, downloadModel } from './download.js';
+import { confirmDuplicates } from './duplicates.js';
 import { fetchRange, openDownload } from './fetch.js';
 import { loadModel } from './load.js';
 import { renderModel } from './model_view.js';
@@ -83,10 +84,16 @@ export function createModelController({ element, client, cache, onLoaded, onCach
     try {
       const file = await cache.file(cacheKey(model));
       if (file === null) throw new Error('the file is no longer in the cache');
+      // The index preflight read, sent again so the module reads the same one,
+      // and the duplicates whose bytes really match.
+      const prefix = await file.slice(0, verdict.indexBytes).arrayBuffer();
+      const confirmed = await confirmDuplicates({ file, candidates: verdict.fit?.duplicates ?? [], signal });
       await loadModel({
         file, signal,
-        send: ({ offset, bytes, totalSize }) =>
-          client.request(Request.LOAD_CHUNK, { offset, bytes, totalSize }, { transfer: [bytes] }),
+        begin: ({ maxChunk }) => client.request(Request.LOAD_BEGIN,
+          { prefix, totalSize: file.size, confirmed, maxChunk }, { transfer: [prefix] }),
+        send: ({ offset, bytes }) => client.request(Request.LOAD_CHUNK, { offset, bytes }, { transfer: [bytes] }),
+        finish: () => client.request(Request.LOAD_FINISH, {}),
         onProgress: (done, total) => {
           if (!signal.aborted) show({ ...state, done, total });
         },
