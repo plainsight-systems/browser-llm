@@ -75,3 +75,9 @@ Agents should read [`AGENTS.md`](AGENTS.md) first. This repo is C++-dominant and
 performance-sensitive: both the C++ architecture gate and the C++ performance
 gate bind non-trivial work. Inherited governance is a pinned submodule at
 [`docs/decisions/governance/`](docs/decisions/governance/).
+
+## License
+
+Code is licensed under the Apache License 2.0; documentation, prose and
+original visual assets under CC BY 4.0. See [`LICENSE`](LICENSE) for the
+split, and [`NOTICE`](NOTICE) for third-party components and their licenses.
