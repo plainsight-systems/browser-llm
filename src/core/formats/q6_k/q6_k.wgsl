@@ -1,38 +1,42 @@
-// Q6_K unpack (format.h). A super-block is 256 weights: 128 bytes of low
-// nibbles (ql), 64 of high bit pairs (qh), 16 signed 8-bit scales and an fp16
-// d. As ggml's dequantize_row_q6_K decodes it, it is two halves of 128
-// weights, each four runs of 32; run r of half h is group 4h + r of the
-// block. Weight l of a run takes nibble (r / 2) of ql byte 64h + 32(r % 2) + l,
-// bit pair r of qh byte 32h + l, and scale 8h + 2r + l / 16, and is
-// (d * scale) * (q - 32), in that order.
+// Q6_K unpack (format.h). A super-block is 256 weights, eight groups of 32,
+// each weight six bits: q = low nibble | high pair << 4. Group k of a block
+// takes scales 2k and 2k + 1 of its sixteen signed 8-bit scales, the first
+// for weights 0 .. 15, the second for 16 .. 31, and an fp16 d; weight l is
+// (d * scale) * (q - 32), in that order, as ggml's dequantize_row_q6_K.
 //
-// On the device a piece holds every block's ql, then every block's qh, then
-// every block's scales, then every block's d (device_layout.h); each run's
-// ql and qh bytes are four-aligned, so they are read a word at a time.
+// On the device a piece holds blocks as upload repacked them (q6_k.h): every
+// block's low nibbles, 16 bytes a group, byte j holding weight j's then
+// weight j + 16's; then every block's high pairs, 8 bytes a group, byte m
+// holding the pairs of weights m, m + 8, m + 16 and m + 24 from bit 0 up;
+// then every block's scales, then every block's d (device_layout.h). A group
+// reads 8 words: four of nibbles, two of pairs, one of scales, one of d.
 fn unpack(blocks_in_piece: u32, group: u32) -> array<vec4<f32>, 8> {
     let n = blocks_in_piece;
     let b = group / 8u;
-    let h = (group % 8u) / 4u;
-    let r = group % 4u;
+    let k = group % 8u;
     let d = unpack2x16float(weights[n * 52u + b / 2u])[b % 2u];
-    // The run's two scales, adjacent bytes at an even offset in their word.
-    let scale_byte = n * 192u + b * 16u + h * 8u + r * 2u;
+    // The group's two scales, adjacent bytes at an even offset in their word.
+    let scale_byte = n * 192u + b * 16u + k * 2u;
     let scales = weights[scale_byte / 4u] >> ((scale_byte % 4u) * 8u);
     let first = d * f32(bitcast<i32>(scales << 24u) >> 24u);
     let second = d * f32(bitcast<i32>((scales >> 8u) << 24u) >> 24u);
-    let ql_byte = b * 128u + h * 64u + (r % 2u) * 32u;
-    let qh_byte = n * 128u + b * 64u + h * 32u;
-    let ql_shift = vec4<u32>((r / 2u) * 4u);
-    let qh_shift = vec4<u32>(r * 2u);
+    let pairs_at = n * 32u + b * 16u + k * 2u;
+    let pairs = vec2<u32>(weights[pairs_at], weights[pairs_at + 1u]);
     var out: array<vec4<f32>, 8>;
-    for (var v = 0u; v < 8u; v++) {
-        let ql = weights[(ql_byte + v * 4u) / 4u];
-        let qh = weights[(qh_byte + v * 4u) / 4u];
-        let lo = (vec4<u32>(ql, ql >> 8u, ql >> 16u, ql >> 24u) >> ql_shift) & vec4<u32>(0xFu);
-        let hi = (vec4<u32>(qh, qh >> 8u, qh >> 16u, qh >> 24u) >> qh_shift) & vec4<u32>(3u);
-        let q = vec4<f32>(vec4<i32>(lo | (hi << vec4<u32>(4u))) - vec4<i32>(32));
-        // Weights 0 .. 15 of the run take its first scale, 16 .. 31 its second.
-        out[v] = select(second, first, v < 4u) * q;
+    for (var w = 0u; w < 4u; w++) {
+        // Weights 4w .. 4w + 3 and 16 + 4w .. 16 + 4w + 3: nibble bytes
+        // 4w .. 4w + 3; pair bytes 4(w % 2) .. 4(w % 2) + 3, at bits 2(w / 2)
+        // and 2(w / 2) + 4.
+        let word = weights[b * 32u + k * 4u + w];
+        let nibbles = vec4<u32>(word, word >> 8u, word >> 16u, word >> 24u);
+        let pair_word = select(pairs.x, pairs.y, w % 2u == 1u);
+        let pair_bytes = vec4<u32>(pair_word, pair_word >> 8u, pair_word >> 16u, pair_word >> 24u);
+        let shift = (w / 2u) * 2u;
+        let low = (nibbles & vec4<u32>(0xFu)) | (((pair_bytes >> vec4<u32>(shift)) & vec4<u32>(3u)) << vec4<u32>(4u));
+        let high = ((nibbles >> vec4<u32>(4u)) & vec4<u32>(0xFu)) |
+                   (((pair_bytes >> vec4<u32>(shift + 4u)) & vec4<u32>(3u)) << vec4<u32>(4u));
+        out[w] = first * vec4<f32>(vec4<i32>(low) - vec4<i32>(32));
+        out[w + 4u] = second * vec4<f32>(vec4<i32>(high) - vec4<i32>(32));
     }
     return out;
 }

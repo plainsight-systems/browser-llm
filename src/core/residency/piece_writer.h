@@ -26,8 +26,9 @@ namespace bllm::residency {
 //     until the next chunk completes it — never more than one block (210
 //     bytes, Q6_K's), so what is held does not grow with the file.
 //   - A chunk's whole blocks of a piece are laid out as the piece's device
-//     layout says: each stream's run of fields, contiguous. A piece in a
-//     16 MiB chunk takes one run per stream, not one per block.
+//     layout says: each stream's run of fields, contiguous, the blocks
+//     repacked first by a layout that repacks (device_layout.h). A piece in
+//     a 16 MiB chunk takes one run per stream, not one per block.
 //   - A chunk's writes are issued in device order, and a run that continues
 //     the write before it, in the same buffer, joins it rather than starting
 //     its own: the streams of a piece the chunk holds whole, and the pieces

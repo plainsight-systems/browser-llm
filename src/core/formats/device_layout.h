@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -16,6 +17,21 @@ namespace bllm::formats {
 // instead: every block's nibbles, in block order, then every block's scales.
 // Upload writes a piece that way (residency/piece_writer.h) and a format's
 // unpack reads it that way.
+//
+// Most formats' streams are fields of the stored block, copied as they are.
+// A format whose stored bits do not group the way unpack reads them repacks
+// each block first, at upload, and its streams are fields of the repacked
+// block, of the same size; repack writes them straight into their streams.
+// Q6_K is the one that does: its stored block keeps each weight's low four
+// bits in a byte shared with another 32-weight group and its high two bits in
+// a byte shared with three others, so an unpack of one group read 18 words,
+// 72 bytes, for 26.25 bytes of weights. Repacked, each group's bits lie
+// together — 16 bytes of low nibbles, 8 of high bit pairs — and it reads 8
+// words, 32 bytes.
+// Optimization (practice): CDSA.32 — the transform is done once, as the
+// block is written, so every token's read of the weight costs less. The
+// repack moves eight bytes at a time with shifts and masks, no call per
+// field, and costs upload nothing measurable (q6_k_repack.cpp).
 //
 // A layout is part of its format: each Format names its own (format.h), and
 // the capability table, which lists the formats this build runs, is the one
@@ -69,22 +85,28 @@ namespace bllm::formats {
 //     EMB.6  Push computation to compile time with constexpr and consteval —
 //            the check is consteval, so it cannot drift to run time.
 
-// One field of a block: where it lies in the stored block, and how wide it is.
+// The bounds every layout here keeps, which the piece writer sizes what it
+// holds between chunks by: one block, and a few bytes of each stream.
+inline constexpr std::size_t kMaxBlockBytes = 210;   // Q6_K's
+inline constexpr std::size_t kMaxStreams = 4;        // Q6_K's
+
+// One field of a block — the stored block's, or, for a layout that repacks,
+// the repacked block's: where it lies, and how wide it is.
 struct Stream {
     std::uint16_t offset;
     std::uint16_t width;
 };
 
+// Repacks whole blocks, `blocks` holding a whole number of them, writing
+// block i's stream s at streams[s] + i × that stream's width.
+using Repack = void (*)(std::span<const std::byte> blocks, const std::array<std::byte*, kMaxStreams>& streams);
+
 struct DeviceLayout {
     gguf::TensorType type;
     std::uint32_t block_bytes;
     std::span<const Stream> streams;   // in device order
+    Repack repack = nullptr;           // null: streams are the stored block's fields
 };
-
-// The bounds every layout here keeps, which the piece writer sizes what it
-// holds between chunks by: one block, and a few bytes of each stream.
-inline constexpr std::size_t kMaxBlockBytes = 210;   // Q6_K's
-inline constexpr std::size_t kMaxStreams = 4;        // Q6_K's
 
 // The layouts of the formats the listed models use: F32 for norms, Q4_0 and
 // Q4_1 for most weights, Q8_0 and Q6_K for embeddings. ggml's block structs
@@ -95,14 +117,17 @@ inline constexpr Stream kF32[] = {{0, 4}};
 inline constexpr Stream kQ4_0[] = {{2, 16}, {0, 2}};                     // qs, then d
 inline constexpr Stream kQ4_1[] = {{4, 16}, {0, 4}};                     // qs, then d and m
 inline constexpr Stream kQ8_0[] = {{2, 32}, {0, 2}};                     // qs, then d
-inline constexpr Stream kQ6_K[] = {{0, 128}, {128, 64}, {192, 16}, {208, 2}};   // ql, qh, scales, d
+// Of the repacked block: each group's low nibbles, its high bit pairs, then
+// the scales and d as stored (formats/q6_k/q6_k_repack.cpp).
+inline constexpr Stream kQ6_K[] = {{0, 128}, {128, 64}, {192, 16}, {208, 2}};
+void repack_q6_k(std::span<const std::byte> blocks, const std::array<std::byte*, kMaxStreams>& streams);
 }  // namespace detail
 
 inline constexpr DeviceLayout kF32Layout{gguf::TensorType::F32, 4, detail::kF32};
 inline constexpr DeviceLayout kQ4_0Layout{gguf::TensorType::Q4_0, 18, detail::kQ4_0};
 inline constexpr DeviceLayout kQ4_1Layout{gguf::TensorType::Q4_1, 20, detail::kQ4_1};
 inline constexpr DeviceLayout kQ8_0Layout{gguf::TensorType::Q8_0, 34, detail::kQ8_0};
-inline constexpr DeviceLayout kQ6_KLayout{gguf::TensorType::Q6_K, 210, detail::kQ6_K};
+inline constexpr DeviceLayout kQ6_KLayout{gguf::TensorType::Q6_K, 210, detail::kQ6_K, detail::repack_q6_k};
 
 // Whether `layout` keeps the promise above: its streams cover the block, its
 // block size is the file format's, only its last stream may be unaligned, and

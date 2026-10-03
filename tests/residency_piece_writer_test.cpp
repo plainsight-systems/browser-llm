@@ -1,6 +1,7 @@
 #include <doctest/doctest.h>
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -81,6 +82,17 @@ Fixture make(std::span<const Piece> pieces, std::uint64_t trailing = 5) {
 
 using Buffers = std::vector<std::vector<std::byte>>;
 
+// One block as the device holds it: as stored, or as its layout repacks it.
+std::vector<std::byte> device_block(const DeviceLayout& layout, const std::byte* stored) {
+    std::vector<std::byte> block(stored, stored + layout.block_bytes);
+    if (layout.repack != nullptr) {
+        std::array<std::byte*, formats::kMaxStreams> to{};
+        for (std::size_t s = 0; s < layout.streams.size(); ++s) to[s] = block.data() + layout.streams[s].offset;
+        layout.repack(std::span(stored, layout.block_bytes), to);
+    }
+    return block;
+}
+
 // What the device should hold: each route's blocks gathered by hand into its
 // streams, the last run zero-padded to the route's length, nothing else
 // written. The untransformed reference CDSA.32 asks the conversion be
@@ -94,9 +106,8 @@ Buffers expected(const Fixture& f) {
         std::uint64_t at = r.buffer_offset;
         for (const formats::Stream s : r.layout->streams) {
             for (std::uint64_t b = 0; b < r.blocks; ++b) {
-                for (std::uint64_t i = 0; i < s.width; ++i) {
-                    buffer[at++] = f.file[r.file_offset + b * r.layout->block_bytes + s.offset + i];
-                }
+                const auto block = device_block(*r.layout, &f.file[r.file_offset + b * r.layout->block_bytes]);
+                for (std::uint64_t i = 0; i < s.width; ++i) buffer[at++] = block[s.offset + i];
             }
         }
     }

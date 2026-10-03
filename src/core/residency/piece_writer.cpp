@@ -1,6 +1,7 @@
 #include "core/residency/piece_writer.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <cstring>
 
@@ -44,7 +45,8 @@ std::size_t gather_fixed(std::span<const std::byte> run, std::size_t block_bytes
 //   Q4_0  83.3 ms (4.5 GB/s)  ->  11.9 ms (31.8 GB/s)
 //   Q4_1 101.4 ms (3.7 GB/s)  ->  11.1 ms (34.2 GB/s)
 //   Q8_0  49.6 ms (7.6 GB/s)  ->  10.7 ms (35.4 GB/s)
-//   Q6_K  33.2 ms (11.4 GB/s) ->  13.7 ms (27.6 GB/s)
+//   Q6_K  33.2 ms (11.4 GB/s) ->  13.7 ms (27.6 GB/s), before Q6_K was
+//         repacked instead (formats/q6_k/q6_k_repack.cpp)
 //   memcpy of the same bytes: 63 GB/s
 std::size_t gather(std::span<const std::byte> run, std::size_t block_bytes, formats::Stream stream,
                    std::span<std::byte> out) {
@@ -163,21 +165,42 @@ void PieceWriter::write_blocks(std::span<const std::byte> held, std::span<const 
         emit({route.buffer, route.buffer_offset - *padding, zeros}, out);
     }
 
-    for (std::size_t s = 0; s < layout.streams.size(); ++s) {
+    // Each stream's run: the bytes its tail held back, then its fields of
+    // these blocks, in staging. The areas are taken in stream order, so a
+    // stream's write can join the one before it.
+    const std::size_t streams = layout.streams.size();
+    std::array<std::span<std::byte>, formats::kMaxStreams> areas{};
+    std::array<std::uint64_t, formats::kMaxStreams> devices{};
+    std::array<std::uint64_t, formats::kMaxStreams> lengths{};
+    for (std::size_t s = 0; s < streams; ++s) {
         const formats::Stream stream = layout.streams[s];
-        Tail& tail = tails_[s];
+        const Tail& tail = tails_[s];
         // The tail holds the run's bytes past its last whole word, so the
         // write starts on the word they begin.
-        const std::uint64_t device = route.buffer_offset + stream_start(layout, s, route.blocks) +
-                                     blocks_done_ * stream.width - tail.count;
-        const std::uint64_t length = tail.count + count * stream.width;
-
-        const auto area = take(staging_, staged, round_up4(length));
-        std::size_t at = std::copy_n(tail.bytes.begin(), tail.count, area.begin()) - area.begin();
+        devices[s] = route.buffer_offset + stream_start(layout, s, route.blocks) + blocks_done_ * stream.width -
+                     tail.count;
+        lengths[s] = tail.count + count * stream.width;
+        areas[s] = take(staging_, staged, round_up4(lengths[s]));
+        std::copy_n(tail.bytes.begin(), tail.count, areas[s].begin());
+    }
+    if (layout.repack != nullptr) {
+        std::array<std::byte*, formats::kMaxStreams> to{};
+        for (std::size_t s = 0; s < streams; ++s) to[s] = areas[s].data() + tails_[s].count;
         for (const auto run : {held, blocks}) {
-            at += gather(run, block_bytes, stream, area.subspan(at));
+            layout.repack(run, to);
+            for (std::size_t s = 0; s < streams; ++s) to[s] += run.size() / block_bytes * layout.streams[s].width;
         }
+    } else {
+        for (std::size_t s = 0; s < streams; ++s) {
+            std::size_t at = tails_[s].count;
+            for (const auto run : {held, blocks}) at += gather(run, block_bytes, layout.streams[s], areas[s].subspan(at));
+        }
+    }
 
+    for (std::size_t s = 0; s < streams; ++s) {
+        Tail& tail = tails_[s];
+        const auto area = areas[s];
+        const std::uint64_t length = lengths[s];
         std::uint64_t written = length;
         if (finished) {
             // The run that ends the piece is padded to the word; the piece's
@@ -190,7 +213,7 @@ void PieceWriter::write_blocks(std::span<const std::byte> held, std::span<const 
             tail.count = static_cast<std::uint8_t>(length - written);
             std::copy_n(area.begin() + written, tail.count, tail.bytes.begin());
         }
-        if (written > 0) emit({route.buffer, device, area.first(written)}, out);
+        if (written > 0) emit({route.buffer, devices[s], area.first(written)}, out);
     }
 
     blocks_done_ += count;
