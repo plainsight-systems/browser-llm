@@ -89,9 +89,10 @@ std::string fit_failure(const residency::PlanResult& r, const residency::Residen
 }
 
 // Fit: the residency plan fits the granted limits and the memory budget.
+// `plan` is the plan judged, for a load to carry out.
 void check_fit(const gguf::TensorIndex& index, const model::ModelDescription& description,
                const residency::DeviceLimits& limits, const policy::LoadPolicy& policy,
-               Verdict& verdict) {
+               Verdict& verdict, residency::ResidencyPlan& plan) {
     if (limits.max_buffer_size == 0 || limits.max_storage_binding_size == 0 ||
         limits.storage_offset_alignment == 0) {
         verdict.blockers.push_back({Stage::Fit, "no GPU device was acquired, so fit cannot be judged"});
@@ -101,7 +102,6 @@ void check_fit(const gguf::TensorIndex& index, const model::ModelDescription& de
         verdict.blockers.push_back({Stage::Fit, "the device's storage-offset alignment is not a power of two"});
         return;
     }
-    residency::ResidencyPlan plan;
     if (const auto r = residency::plan_residency(index, description, limits, policy, plan); !r.ok()) {
         verdict.blockers.push_back({Stage::Fit, fit_failure(r, plan, policy)});
         return;
@@ -197,11 +197,24 @@ void check_tokenizer(const gguf::TensorIndex& index, Verdict& verdict) {
 
 }  // namespace
 
+std::string plan_load(const gguf::TensorIndex& index, const residency::DeviceLimits& limits,
+                      const policy::LoadPolicy& policy, model::ModelDescription& description,
+                      residency::ResidencyPlan& plan) {
+    Verdict verdict;
+    const auto described = check_architecture(index, verdict);
+    if (!described) return verdict.blockers.front().detail;
+    check_fit(index, *described, limits, policy, verdict, plan);
+    if (!verdict.fit) return verdict.blockers.front().detail;
+    description = *described;
+    return {};
+}
+
 Verdict preflight(const gguf::TensorIndex& index, const residency::DeviceLimits& limits,
                   const policy::LoadPolicy& policy) {
     Verdict verdict;
     if (const auto description = check_architecture(index, verdict)) {
-        check_fit(index, *description, limits, policy, verdict);
+        residency::ResidencyPlan plan;
+        check_fit(index, *description, limits, policy, verdict, plan);
     }
     check_formats(index, verdict);
     check_rows(index, verdict);

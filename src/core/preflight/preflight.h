@@ -111,6 +111,13 @@ struct Verdict {
     }
 };
 
+// What a load carries out: the description and the plan preflight judged
+// Fit, made again from the same index and limits. Returns what stops it,
+// worded as preflight's blocker would be, or an empty string.
+[[nodiscard]] std::string plan_load(const gguf::TensorIndex& index, const residency::DeviceLimits& limits,
+                                    const policy::LoadPolicy& policy, model::ModelDescription& description,
+                                    residency::ResidencyPlan& plan);
+
 [[nodiscard]] Verdict preflight(const gguf::TensorIndex& index,
                                 const residency::DeviceLimits& limits,
                                 const policy::LoadPolicy& policy);

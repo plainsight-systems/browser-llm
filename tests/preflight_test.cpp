@@ -177,3 +177,22 @@ TEST_CASE("a model that fits reports its duplicate candidates with both byte ran
     REQUIRE(plain.fit.has_value());
     CHECK(plain.fit->duplicates.empty());   // the head reads the embedding
 }
+
+TEST_CASE("a load plans what preflight judged Fit, or says what stops it as preflight does") {
+    const auto bytes = testing::load_gguf_fixture("tiny_qwen3");
+    gguf::MemoryByteSource source{bytes};
+    gguf::TensorIndex index;
+    REQUIRE(gguf::read_index(source, index).error == gguf::ReadError::Ok);
+    const residency::DeviceLimits limits{256ull << 20, 128ull << 20, 256};
+    model::ModelDescription description;
+    residency::ResidencyPlan plan;
+    REQUIRE(preflight::plan_load(index, limits, policy::LoadPolicy{}, description, plan).empty());
+    const auto verdict = preflight::preflight(index, limits, policy::LoadPolicy{});
+    REQUIRE(verdict.fit.has_value());
+    CHECK(plan.total_bytes == verdict.fit->total_bytes);
+    CHECK(plan.buffers.size() == verdict.fit->buffer_count);
+    CHECK(description.layers.size() == 2);
+
+    const auto refused = preflight::plan_load(index, residency::DeviceLimits{}, policy::LoadPolicy{}, description, plan);
+    CHECK(refused == "no GPU device was acquired, so fit cannot be judged");
+}

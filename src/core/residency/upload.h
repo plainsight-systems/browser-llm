@@ -201,6 +201,28 @@ enum class UploadError {
     Unfinished,         // the file ended before every weight was filled
 };
 
+// Each value's name, for the page to report.
+[[nodiscard]] constexpr std::string_view to_string(UploadError error) noexcept {
+    switch (error) {
+        case UploadError::Ok: return "ok";
+        case UploadError::Cancelled: return "cancelled";
+        case UploadError::UnsupportedFormat: return "unsupported format";
+        case UploadError::OutOfRange: return "out of range";
+        case UploadError::NotACandidate: return "not a duplicate candidate";
+        case UploadError::RowNotSteppable: return "rows not a multiple of 32 weights";
+        case UploadError::OutOfMemory: return "out of GPU memory";
+        case UploadError::Validation: return "rejected by WebGPU validation";
+        case UploadError::Internal: return "internal error";
+        case UploadError::DeviceLost: return "GPU device lost";
+        case UploadError::Unconfirmed: return "upload not confirmed by the device";
+        case UploadError::WitnessMismatch: return "the device holds other bytes than were written";
+        case UploadError::OutOfOrder: return "out of order";
+        case UploadError::ChunkTooLarge: return "chunk too large";
+        case UploadError::Unfinished: return "the file ended before every weight was filled";
+    }
+    return "unknown";
+}
+
 // What finish reports for its witness: the mapping's outcome, by
 // mapping_result, then the bytes it gave back, compared with those written.
 // Deterministic, so every branch is tested without a device. `mapped` is
