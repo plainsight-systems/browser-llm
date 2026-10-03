@@ -1,5 +1,8 @@
-// Axis L. Reads a cached model file in chunks and hands each to the runtime,
-// in order, one at a time — so the page never holds more than one chunk.
+// Axis L. Streams a cached model file through the module, in order, one
+// chunk at a time. It runs in the worker: the worker reads the cache itself,
+// straight into the module's chunk buffer, so a chunk is never held by the
+// page, never crosses between page and worker, and is never copied into the
+// heap after being read.
 //
 // A load crosses into the module in three kinds of call — begin and finish
 // once each, and one per chunk: ceil(size / LOAD_CHUNK_BYTES) + 2 crossings
@@ -9,26 +12,30 @@
 //      duplicates confirmDuplicates confirmed (duplicates.js). The module
 //      plans the routes and creates the buffers, and answers once the device
 //      has confirmed it holds them, or names what it could not hold.
-//   2. a chunk, LOAD_CHUNK_BYTES at a time, in order: copied straight into a
-//      chunk buffer the module allocated once at begin, by pointer and length.
-//      The view over the heap is made afresh for each chunk and never kept,
-//      since growing the heap detaches it (WASM.1). The module answers when it
-//      may take the next — after the queue has finished the chunk before, so
-//      reading chunk n + 1 from the cache can overlap the GPU copying chunk
-//      n; whether it does is measured per target, and claimed only where a
-//      timeline shows it (src/core/residency/upload.h).
+//   2. a chunk, LOAD_CHUNK_BYTES at a time, in order: read from the cache
+//      directly into the chunk buffer the module allocated once at begin,
+//      through a view over the heap made afresh for each chunk and never
+//      kept, since growing the heap detaches it (WASM.1). The module answers
+//      when it may take the next — after the queue has finished the chunk
+//      before (src/core/residency/upload.h).
 //   3. finish: answered once every write has completed, or with the failure
 //      that stopped them.
+//
+// The page makes one request for the whole load and is told its progress;
+// it cancels by naming that request (worker.js).
 //
 // A diagnostic build then streams the file a second time, in the same
 // chunks, through a check that compares every byte upload wrote with what
 // the device holds (src/core/residency/upload_check.h); the same count of
-// crossings again. checkModel is that pass, the same sequence as loadModel,
-// resolving with the mismatches.
+// crossings again. streamFile runs both passes; a pass whose begin answers
+// { skipped: true }, as a build without the check does, streams nothing.
 //
-// Optimization (browser): each chunk is read from the cache into one
-// ArrayBuffer and copied once into the heap; it is never held twice, and the
-// heap does not grow with the file (WASM.1, WASM.9).
+// Optimization (browser): the worker reads the cache through a
+// FileSystemSyncAccessHandle, which only a worker may open, into the module's
+// own memory. On an Apple M3 Max in Chrome 152, warm, Qwen3 0.6B's 382 MB
+// read in about 24 ms this way, against 125 ms by blob reads on the page, one
+// at a time as loads made them, plus a copy into the heap and two messages
+// a chunk between page and worker, all gone.
 //
 // Guidelines (the C++ performance guidelines; their WASM and GPU entries
 // govern the page as much as the module):
@@ -37,9 +44,9 @@
 //          view per chunk.
 //   WASM.2 Batch work across the JS boundary — ceil(size / chunk) + 2
 //          crossings, one chunk per crossing, by pointer and length.
-//   WASM.9 Stream in bounded chunks — the page holds one chunk.
-//   GPU.7  Pipeline CPU and GPU work — reading the next chunk is free to
-//          overlap the GPU copying the last; claimed only where measured.
+//   WASM.9 Stream in bounded chunks — one chunk is held, in the heap.
+//   GDSA.6 Count the bytes each stage moves — the read now writes each byte
+//          once, into the buffer the module reads it from.
 
 export const LOAD_CHUNK_BYTES = 16 * 2 ** 20;
 

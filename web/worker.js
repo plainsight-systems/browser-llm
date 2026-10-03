@@ -3,9 +3,11 @@
 //
 // Contract 11, the boundary: this file and src/wasm/bindings.cpp are the only
 // two places JavaScript and C++ meet. The crossings are preflight a header
-// prefix; begin a load, load a chunk of the file, and finish the load
-// (load.js); generate from a rendered prompt and the turn's policy; and
-// cancel. Text comes back one message per token (WASM.2).
+// prefix; load a cached model, which the worker streams through the module
+// itself (load.js); generate from a rendered prompt and the turn's policy;
+// and cancel, which stops a load or a generation by naming its request. Text
+// comes back one message per token, and a load's progress one message a
+// chunk (WASM.2).
 //
 // A plain Web Worker, deliberately: it needs no SharedArrayBuffer, so it works
 // on GitHub Pages, which cannot set the COOP/COEP headers that cross-origin

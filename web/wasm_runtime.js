@@ -1,16 +1,14 @@
 // The runtime: the C++ module, behind the operations the worker offers the
 // page. Every call into C++ goes through here.
 //
-// A load is three operations (src/wasm/bindings.cpp): loadBegin with the
-// index prefix preflight read, the file's size and the confirmed duplicates;
-// loadChunk for each chunk, in order, copied into the chunk buffer begin
-// reported through a fresh view of the heap each time, since growing the
-// heap detaches any view kept (WASM.1); and loadFinish. Each resolves with
-// the module's answer, or rejects with the failure it names.
-//
-// A diagnostic module also offers the check of a finished load: checkBegin,
-// checkChunk and checkFinish, the same shape, ending with every mismatch.
-// `canCheck` says whether this module has them; the clean module does not.
+// A load is one operation, loadFromCache: it opens the cached file with a
+// FileSystemSyncAccessHandle, reads the index prefix into the heap, begins,
+// reads each chunk straight into the chunk buffer begin reported through a
+// fresh view of the heap each time, since growing the heap detaches any
+// view kept (WASM.1), and finishes. A diagnostic module then checks every
+// byte the same way, through the same handle; the clean module has no check
+// (`canCheck`). The handle is closed however the load ends, so the file is
+// unlocked for the page to read again.
 
 import createModule from './charlotte.mjs';
 
