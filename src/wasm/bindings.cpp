@@ -72,6 +72,7 @@
 #include "core/diagnostics.h"
 #if BLLM_DIAGNOSTICS_ENABLED
 #include "core/gpu/readback_bench.h"
+#include "core/residency/upload_check.h"
 #endif
 
 namespace {
@@ -279,13 +280,26 @@ void disarm_timeout() {
 struct Load {
     std::unique_ptr<bllm::residency::Upload> upload;   // null until begin's answer
     std::vector<std::byte> chunk;                      // the chunk buffer
+    std::uint64_t file_size = 0;
     bool settled = false;   // finished or failed: the next begin replaces it
 };
+
+#if BLLM_DIAGNOSTICS_ENABLED
+// A check of the loaded model, which must outlive it (upload_check.h).
+struct Check {
+    std::unique_ptr<bllm::residency::UploadCheck> check;
+    std::vector<std::byte> chunk;
+};
+#endif
 
 struct Session {
     std::unique_ptr<bllm::gpu::Device> device;          // the checked device, kept
     std::unique_ptr<Load> load;
     std::unique_ptr<bllm::residency::Upload> loaded;    // the model a load finished
+    std::uint64_t loaded_file_size = 0;
+#if BLLM_DIAGNOSTICS_ENABLED
+    std::unique_ptr<Check> check;   // declared after `loaded`, so released before it
+#endif
 };
 
 Session& session() {
@@ -335,7 +349,10 @@ void on_load_finished(bllm::residency::UploadError error, void* userdata) {
     }
     // The finished Upload owns the model's buffers: it stays as the loaded
     // model. The chunk buffer goes with the load.
-    if (s.load != nullptr) s.loaded = std::move(s.load->upload);
+    if (s.load != nullptr) {
+        s.loaded = std::move(s.load->upload);
+        s.loaded_file_size = s.load->file_size;
+    }
     bllm_reply(request, "{\"ok\":true}");
 }
 
@@ -391,6 +408,17 @@ void on_self_check(bllm::gpu::SelfCheckResult result, void* userdata) {
     session().device = std::move(result.device);
     bllm_deliver(json.c_str());
 }
+
+#if BLLM_DIAGNOSTICS_ENABLED
+void on_check_accepted(bllm::residency::CheckError error, void* userdata) {
+    const std::uint32_t request = to_generation(userdata);
+    if (error != bllm::residency::CheckError::Ok) {
+        bllm_reply(request, failure_json(bllm::residency::to_string(error)).c_str());
+        return;
+    }
+    bllm_reply(request, "{\"ok\":true}");
+}
+#endif
 
 #if BLLM_DIAGNOSTICS_ENABLED
 // --- readback measurement spike -------------------------------------------
@@ -578,10 +606,15 @@ EMSCRIPTEN_KEEPALIVE void bllm_load_begin(std::uint32_t request, const std::byte
     for (std::uint32_t i = 0; i < confirmed_count; ++i) duplicates.push_back(bllm::gguf::TensorId{confirmed[i]});
 
     // A new load replaces the model loaded before it, releasing its buffers
-    // first so the two are never on the device together.
+    // first so the two are never on the device together; any check of it
+    // goes first, since it must not outlive what it checks.
+#if BLLM_DIAGNOSTICS_ENABLED
+    s.check.reset();
+#endif
     s.loaded.reset();
     s.load = std::make_unique<Load>();
     s.load->chunk.resize(max_chunk);
+    s.load->file_size = size;
     bllm::residency::Upload::begin(*s.device, index, plan, size, bllm::capability::find_format, duplicates,
                                    max_chunk, on_load_ready, to_userdata(request));
 }
@@ -614,6 +647,65 @@ EMSCRIPTEN_KEEPALIVE void bllm_load_finish(std::uint32_t request) {
 #if BLLM_DIAGNOSTICS_ENABLED
 // Measurement spike. Present only in a diagnostic build; the clean build does
 // not compile it, so the symbol is absent from the shipped module.
+// Begins checking the loaded model: see the top of this file.
+EMSCRIPTEN_KEEPALIVE void bllm_check_begin(std::uint32_t request, std::uint32_t max_chunk) {
+    Session& s = session();
+    if (s.loaded == nullptr) {
+        bllm_reply(request, failure_json("no model is loaded to check").c_str());
+        return;
+    }
+    if (max_chunk == 0) {
+        bllm_reply(request, failure_json("the sizes passed in are not valid").c_str());
+        return;
+    }
+    s.check.reset();
+    s.check = std::make_unique<Check>();
+    s.check->chunk.resize(max_chunk);
+    s.check->check = std::make_unique<bllm::residency::UploadCheck>(*s.loaded, max_chunk);
+    const std::string json = "{\"ok\":true,\"chunkPointer\":" +
+                             std::to_string(reinterpret_cast<std::uintptr_t>(s.check->chunk.data())) +
+                             ",\"chunkBytes\":" + std::to_string(s.check->chunk.size()) + "}";
+    bllm_reply(request, json.c_str());
+}
+
+// The page has copied `length` bytes at `file_offset` into the check's buffer.
+EMSCRIPTEN_KEEPALIVE void bllm_check_chunk(std::uint32_t request, double file_offset, std::uint32_t length) {
+    Check* check = session().check.get();
+    if (check == nullptr) {
+        bllm_reply(request, failure_json("no check is in progress").c_str());
+        return;
+    }
+    if (!(file_offset >= 0 && file_offset == static_cast<double>(static_cast<std::uint64_t>(file_offset))) ||
+        length > check->chunk.size()) {
+        bllm_reply(request, failure_json("the chunk passed in is not valid").c_str());
+        return;
+    }
+    check->check->check(static_cast<std::uint64_t>(file_offset), std::span(check->chunk.data(), length),
+                        on_check_accepted, to_userdata(request));
+}
+
+EMSCRIPTEN_KEEPALIVE void bllm_check_finish(std::uint32_t request) {
+    Session& s = session();
+    if (s.check == nullptr) {
+        bllm_reply(request, failure_json("no check is in progress").c_str());
+        return;
+    }
+    const auto error = s.check->check->finish(s.loaded_file_size);
+    if (error != bllm::residency::CheckError::Ok) {
+        bllm_reply(request, failure_json(bllm::residency::to_string(error)).c_str());
+        return;
+    }
+    std::string json = "{\"ok\":true,\"mismatches\":[";
+    const auto found = s.check->check->mismatches();
+    for (std::size_t i = 0; i < found.size(); ++i) {
+        json += i == 0 ? "{" : ",{";
+        json += "\"buffer\":" + std::to_string(static_cast<std::uint32_t>(found[i].buffer)) +
+                ",\"offset\":" + std::to_string(found[i].offset) + ",\"tensor\":" + json_string(found[i].tensor) +
+                "}";
+    }
+    bllm_reply(request, (json + "]}").c_str());
+}
+
 EMSCRIPTEN_KEEPALIVE void bllm_run_readback_bench() {
     const std::uint32_t generation = guard().begin();
     if (generation == bllm::RunGuard::kNoRun) {

@@ -90,6 +90,21 @@ enum class CheckError {
     Unfinished,         // the file ended before every route was compared
 };
 
+// Each value's name, for the page to report.
+[[nodiscard]] constexpr std::string_view to_string(CheckError error) noexcept {
+    switch (error) {
+        case CheckError::Ok: return "ok";
+        case CheckError::Cancelled: return "cancelled";
+        case CheckError::DeviceLost: return "GPU device lost";
+        case CheckError::MapFailed: return "a readback could not be mapped";
+        case CheckError::Internal: return "internal error";
+        case CheckError::OutOfOrder: return "out of order";
+        case CheckError::ChunkTooLarge: return "chunk too large";
+        case CheckError::Unfinished: return "the file ended before every route was compared";
+    }
+    return "unknown";
+}
+
 struct Mismatch {
     BufferIndex buffer;
     std::uint64_t offset;   // the first differing byte, within the buffer
