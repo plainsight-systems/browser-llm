@@ -19,11 +19,14 @@
 //
 // Each step moves eight bytes, eight weights, at once: a shift and a mask
 // pick one nibble or one bit pair out of every byte of a word, and a second
-// shift places it. A half's 32 qh bytes are loaded once for its four groups.
-// Optimization (practice): no loop runs per weight or per field, so a block
-// costs a few dozen word operations, not 256 bit extractions. make bench
+// shift places it. Every source word is loaded once, into a local, so no
+// store through a byte pointer forces it to be reloaded (GEN.3): a half's 32
+// qh bytes for its four groups, each 32 ql bytes for the two groups that
+// share them. A block reads its 210 bytes once and writes 210, with fewer
+// than one shift, mask or OR a weight.
+// Optimization (practice): no loop runs per weight or per field. make bench
 // (bench/piece_writer_bench.cpp), 360 MiB, native release, Apple M3 Max:
-// 13.4 ms (28.1 GB/s), against 14.0 ms for the stored fields gathered as they
+// 9.7 ms (38.9 GB/s), against 14.0 ms for the stored fields gathered as they
 // were, and 6.0 ms for memcpy of the same bytes; one pass writes all four
 // streams.
 
@@ -57,20 +60,25 @@ void repack_q6_k(std::span<const std::byte> blocks, const std::array<std::byte*,
             const std::byte* ql = block + 64 * h;
             const std::byte* qh = block + 128 + 32 * h;
             const std::uint64_t pairs[4] = {load(qh), load(qh + 8), load(qh + 16), load(qh + 24)};
-            for (unsigned r = 0; r < 4; ++r) {
-                const unsigned k = 4 * h + r;
-                const std::byte* run = ql + 32 * (r % 2);
-                const unsigned nibble = 4 * (r / 2);
-                // lo byte j: weight j's nibble, then weight j + 16's.
-                for (unsigned part = 0; part < 2; ++part) {
-                    const std::uint64_t first = (load(run + 8 * part) >> nibble) & kNibbles;
-                    const std::uint64_t second = (load(run + 16 + 8 * part) >> nibble) & kNibbles;
-                    store(lo + 16 * k + 8 * part, first | (second << 4));
+            // Groups r and r + 2 of the half take the low and high nibbles of
+            // the same 32 ql bytes, so each run is loaded once, for both.
+            for (unsigned p = 0; p < 2; ++p) {
+                const std::byte* run = ql + 32 * p;
+                const std::uint64_t codes[4] = {load(run), load(run + 8), load(run + 16), load(run + 24)};
+                for (unsigned r = p; r < 4; r += 2) {
+                    const unsigned k = 4 * h + r;
+                    const unsigned nibble = 4 * (r / 2);
+                    // lo byte j: weight j's nibble, then weight j + 16's.
+                    for (unsigned part = 0; part < 2; ++part) {
+                        const std::uint64_t first = (codes[part] >> nibble) & kNibbles;
+                        const std::uint64_t second = (codes[2 + part] >> nibble) & kNibbles;
+                        store(lo + 16 * k + 8 * part, first | (second << 4));
+                    }
+                    // hi byte m: the pairs of weights m, m + 8, m + 16 and m + 24.
+                    std::uint64_t packed = 0;
+                    for (unsigned t = 0; t < 4; ++t) packed |= ((pairs[t] >> (2 * r)) & kPairs) << (2 * t);
+                    store(hi + 8 * k, packed);
                 }
-                // hi byte m: the pairs of weights m, m + 8, m + 16 and m + 24.
-                std::uint64_t packed = 0;
-                for (unsigned t = 0; t < 4; ++t) packed |= ((pairs[t] >> (2 * r)) & kPairs) << (2 * t);
-                store(hi + 8 * k, packed);
             }
         }
         std::memcpy(scales, block + 192, 16);
