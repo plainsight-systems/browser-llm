@@ -3,11 +3,10 @@
 #
 # Usage:  ./scripts/codex-review.sh [--post] <commit> [output-file]
 #
-# Hand it a commit. It reviews the commit's claims — its message, and the
-# design its headers state — against the code, grounded in the cpp-guidelines
-# and cpp-performance MCP servers. The commit is the unit of work
-# (docs/decisions/workflow.md): a design commit is reviewed before it is
-# implemented, an implementation commit against the design it carries out.
+# Hand it a commit. It looks for two things only: where the code is wrong, and
+# where it is slower than it needs to be — the latter by walking the changed
+# path and counting what it costs, grounded in the cpp-guidelines and
+# cpp-performance MCP servers. Process, style and governance are out of scope.
 #
 # The review is JSON in the shape of the schema below, written to the output
 # file (default .cache/reviews/<sha>.json). With --post it is also posted as
@@ -31,9 +30,6 @@ EFFORT="${CODEX_EFFORT:-high}"
 # reviewer will cite tools it never called.
 GUIDELINES_URL="${CPP_GUIDELINES_URL:-http://127.0.0.1:7011}"
 PERF_URL="${CPP_PERF_URL:-http://127.0.0.1:7015}"
-
-ARCH_CHECKLIST="docs/decisions/governance/cpp_architecture_review.md"
-PERF_CHECKLIST="docs/decisions/governance/cpp_performance_review.md"
 
 # ----------------------------------------------------------------------
 # Preflight. Every check below fails loudly: a review that silently skips
@@ -59,13 +55,6 @@ if [ "${POST}" = 1 ]; then
   [ -n "$(git branch -r --contains "${COMMIT}" 2>/dev/null)" ] \
     || die "commit ${COMMIT:0:7} is not on any remote branch — push it before posting a review of it"
 fi
-
-# The governance checklists live in a submodule. If it is not populated the
-# review would silently lose both gates, so refuse rather than degrade.
-for f in "${ARCH_CHECKLIST}" "${PERF_CHECKLIST}"; do
-  [ -r "$f" ] || die "missing governance checklist: $f
-  the governance submodule is not populated — run: git submodule update --init"
-done
 
 # The MCP servers are a hard requirement of this review, not a nice-to-have.
 # Checking here converts a silent mid-review skip into an upfront failure.
@@ -106,20 +95,19 @@ cat > "${SCHEMA_FILE}" <<'SCHEMAEOF'
 {
   "type": "object",
   "additionalProperties": false,
-  "required": ["outcome", "summary", "findings", "architecture_review", "performance_review",
-               "mcp_grounding", "residual_risk"],
+  "required": ["outcome", "summary", "findings", "cost_walk", "mcp_grounding"],
   "properties": {
-    "outcome": {"type": "string",
-                "enum": ["approved", "approved_with_notes", "changes_requested", "needs_decision"]},
+    "outcome": {"type": "string", "enum": ["approved", "approved_with_notes", "changes_requested"]},
     "summary": {"type": "string"},
     "findings": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["severity", "path", "line", "title", "body", "guidelines"],
+        "required": ["severity", "kind", "path", "line", "title", "body", "guidelines"],
         "properties": {
           "severity": {"type": "string", "enum": ["P0", "P1", "P2", "P3"]},
+          "kind": {"type": "string", "enum": ["correctness", "performance"]},
           "path": {"type": "string"},
           "line": {"type": ["integer", "null"]},
           "title": {"type": "string"},
@@ -128,10 +116,8 @@ cat > "${SCHEMA_FILE}" <<'SCHEMAEOF'
         }
       }
     },
-    "architecture_review": {"type": "string"},
-    "performance_review": {"type": "string"},
-    "mcp_grounding": {"type": "string"},
-    "residual_risk": {"type": "string"}
+    "cost_walk": {"type": "string"},
+    "mcp_grounding": {"type": "string"}
   }
 }
 SCHEMAEOF
@@ -142,151 +128,95 @@ SCHEMAEOF
 
 {
   cat <<'PROMPTEOF'
-You are performing an independent review of one commit in the Charlotte
-repository. You are the second reader: the commit's author already believes
-the work is correct. Your job is to find where that belief is wrong.
+You are reviewing one commit in the Charlotte repository. You are the second
+reader: the author believes the change is correct and fast. Find where it is
+not. Two questions only:
+
+  1. Is it correct?
+  2. Could it be faster, and is every performance claim it makes true?
 
 PROJECT CONTEXT
 ---------------
-Charlotte is a from-scratch LLM inference harness that runs entirely in the
-browser. Internal R&D under Plainsight Systems LLC; no operating brand.
+Charlotte is a from-scratch LLM inference harness that runs in the browser:
+C++20 compiled to WebAssembly with Emscripten, GPU compute through the
+webgpu.h C API (emdawnwebgpu), running in a plain Web Worker. Single-threaded
+(no SharedArrayBuffer), exceptions disabled in the wasm build. It is a
+demonstration of harness work and its optimizations, not a product. There is
+one target: an Apple M3 Max running Chrome, at WebGPU's default limits.
 
-Stack:
-  - C++20 core, platform-neutral, compiled to WebAssembly via Emscripten
-  - GPU compute through the webgpu.h C API (--use-port=emdawnwebgpu)
-  - Single-threaded: GitHub Pages cannot set COOP/COEP, so SharedArrayBuffer
-    and pthreads are unavailable. The harness runs in a plain Web Worker.
-  - Exceptions are DISABLED in the wasm build (Emscripten default)
-  - Static page, plain ES modules, no npm and no bundler
-  - No llama.cpp, no ggml, no ONNX Runtime — owning the harness is the point
+Design lives in file headers; each optimization is labelled
+"Optimization (browser)" or "Optimization (practice)" with its reason and,
+where measured, its figures.
 
-Structural invariants, enforced by tools/check_boundaries.sh:
-  - src/core/** never includes emscripten.h and never depends on src/wasm/
-    or web/. Dependency direction is inward only.
-  - src/wasm/bindings.cpp is the only Emscripten-aware translation unit.
+CORRECTNESS
+-----------
+Bugs, undefined behavior, overflow, lifetimes and dangling spans, off-by-one,
+alignment, unchecked error paths that let a failure pass as success, state
+left inconsistent after a failure, WebGPU rules the code breaks, and claims in
+comments or the commit message that the code does not honor. Read the code the
+change depends on, not just the diff. A test that cannot fail for the bug it
+names is a finding; a request for more tests in general is not.
 
-How work is done here (docs/decisions/workflow.md): the design of a change
-lives in its file headers, which state the contract and the design and cite
-the guidelines behind them by ID. A design commit is headers only, reviewed
-before anything is implemented. Every optimization is labelled
-"Optimization (browser)" or "Optimization (practice)" with its reason.
+PERFORMANCE — WALK THE PATH AND COUNT
+-------------------------------------
+For each hot path the commit touches (model load, inference, GPU dispatch,
+tokenization), walk it stage by stage and write down, as functions of the
+model's size: the bytes each stage moves and the copies it makes; the
+operations in each inner loop and whether each is a call the compiler cannot
+inline; and the calls across every boundary — page to worker, JS to wasm, and
+wasm into browser APIs such as writeBuffer, submit, mapAsync. A count that
+scales with blocks, fields, tensors or tokens where it could scale with chunks
+or phases is a finding, with the count and the cheaper design. Compare each
+stage with the ceiling the same bytes would reach as a plain memcpy or a
+single call. If the commit states measured figures, check they are consistent
+with your counts. Put the walk in "cost_walk".
 
-Scope (docs/decisions/MEMORY.md): Charlotte demonstrates an inference harness
-and its optimizations; it is not a product. There is one target, the
-development machine at WebGPU's default limits, and figures are labelled with
-the machine and build they came from. Optimizations are designed in, not held
-until a baseline exists; they are measured on that machine once the path runs
-end to end. Do not raise findings that ask for a target matrix, a
-weakest-device budget, regression baselines, or measurements before an
-optimization may land. Do raise a claim of measured performance that has no
-measurement behind it.
+Setup code that runs once per page is not hot; say so and move on.
 
-Governance: AGENTS.md at the repo root, and docs/decisions/governance/ (a
-submodule). The no-facades rule is central: unimplemented paths must fail
-explicitly, and documentation must not describe behavior that does not exist.
+OUT OF SCOPE — DO NOT RAISE
+---------------------------
+Process, governance, change classification, commit hygiene, documentation
+style, naming, guideline citation bookkeeping, architecture taste, requests for
+device matrices, budgets, baselines, benchmarks before landing, or more tests in
+general. A finding must change what the program computes or how fast it does
+it. If the commit is sound, say so briefly; do not pad.
 
-HARD REQUIREMENT — GROUND EVERY CITATION IN THE MCP SERVERS
------------------------------------------------------------
-Two MCP servers are available and you MUST use them. Do not cite a rule from
-memory.
+GUIDELINES
+----------
+Two MCP servers are available: cpp-guidelines and cpp-performance
+(search_guidelines / get_guideline). When a finding rests on a rule, look it
+up and cite its ID; do not cite from memory. If a server is unavailable or a
+call is cancelled, say so in mcp_grounding.
 
-  cpp-guidelines       search_guidelines / get_guideline   (C++ Core Guidelines)
-  cpp-performance      search_guidelines / get_guideline   (performance corpus)
-
-  1. Search before you cite. Confirm the rule says what you think it says.
-  2. Cite rule IDs (e.g. R.1, E.25, I.11, C.31, LIFE.6) for every guideline
-     claim you make.
-  3. Check every guideline the commit itself cites: does the rule say what
-     the header claims it says, and does the design actually follow it?
-  4. Look for rules the design violates that the commit did not consider —
-     not only the ones it already cites.
-
-If either server is unavailable, or any MCP call is cancelled or denied, you
-MUST state this in your output as a REVIEW ENVIRONMENT FAILURE and mark the
-affected check as NOT PERFORMED. Never proceed as though a guideline had been
-consulted when it was not. Silently skipping this is the single worst thing
-you can do in this review.
-
-WHAT TO REVIEW
---------------
-The commit message and its headers are the authority for what the work is
-supposed to be. Run `git show <commit>` for the full change, read the code it
-touches and whatever it depends on, and judge the gap.
-
-  1. DOES THE DESIGN HOLD? For a design commit: is it correct, complete and
-     implementable as stated? Do the headers agree with each other, with the
-     existing code they depend on (residency/plan.h, weight_view.h, the GGUF
-     reader), and with WebGPU's actual rules? A header promising behavior the
-     interfaces cannot deliver is a serious finding.
-
-  2. DOES THE CODE MATCH ITS CLAIMS? Every claim in the commit message and the
-     headers — sizes, alignments, counts, what another project does — checked
-     against reality.
-
-  3. CORRECTNESS. Bugs, undefined behavior, contract violations, unchecked
-     error paths, resource leaks, lifetimes. Exceptions are disabled, so RAII
-     must be simulated rather than assumed (see E.25).
-
-  4. C++ GUIDELINES COMPLIANCE, grounded in the MCP servers per above.
-
-  5. NO-FACADES. Stubbed success paths, silent fallbacks, partial work
-     presented as complete, failures that do not surface anywhere observable.
-
-  6. SCOPE AND TESTS. Does the commit stay inside its stated intent? Will the
-     design be testable deterministically, and does it say how?
-
-Do not manufacture findings to appear thorough. If something is sound, say so
-and say why. Equally, do not soften a real finding to be agreeable.
-
-PROMPTEOF
-
-  cat <<CHECKLISTEOF
-GATE CHECKLISTS
----------------
-Read these two files now. They are the authoritative checklists:
-
-  ${ARCH_CHECKLIST}
-  ${PERF_CHECKLIST}
-
-C++ ARCHITECTURE GATE — applies to any non-trivial C++ change. Evaluate the
-core/wrapper boundary, component cohesion, dependency direction, header
-discipline, interface design, ownership and lifetime, abstraction quality and
-test surface. Use the checklist's own P0-P3 severity scale.
-
-C++ PERFORMANCE GATE — decide from the checklist's own scope criteria whether
-this work is performance-sensitive. This repo treats inference execution, model
-load, memory footprint and GPU dispatch as performance-sensitive by default;
-setup-time code that runs once is not. If it IS performance-sensitive, ground
-your findings in the cpp-perf-guidelines MCP server. If it is NOT, say so
-explicitly in one line and skip the gate — a stated null result is the correct
-artifact, not an omission.
-
-A P0 or P1 finding in either gate blocks acceptance.
+SEVERITY
+--------
+  P0  wrong results, memory corruption, undefined behavior, or a crash on a
+      path the shipped page runs
+  P1  wrong in a reachable case; or a hot path whose cost scales with the
+      wrong unit; or a stated measurement or performance claim that is false
+  P2  a latent bug that needs an unlikely input; or a missed optimization
+      with a stated, material gain
+  P3  minor
 
 OUTPUT
 ------
 Answer in the JSON schema you were given:
 
-  outcome              approved | approved_with_notes | changes_requested |
-                       needs_decision
-  summary              what the commit claims, and whether it holds
-  findings             each with severity (P0-P3), the file path from the
-                       repository root, the line in the commit's version of
-                       that file (null if it concerns the file as a whole),
-                       a short title, the body (why it matters, expected
-                       fix), and the guideline IDs it rests on
-  architecture_review  in the checklist's vocabulary and summary template
-  performance_review   or one line stating why it does not apply
-  mcp_grounding        which servers and tools you actually called, and any
-                       REVIEW ENVIRONMENT FAILURE
-  residual_risk
+  outcome        approved | approved_with_notes | changes_requested
+  summary        what the commit does, and whether it is correct and fast
+  findings       each with severity, kind (correctness | performance), the
+                 file path from the repository root, the line in the commit's
+                 version of that file (null for the file as a whole), a short
+                 title, a body that stands on its own (what is wrong, the
+                 input or count that shows it, the fix), and guideline IDs
+  cost_walk      the per-stage counts for the hot paths touched, or one line
+                 saying none is touched
+  mcp_grounding  which servers and tools you called, and any failure
 
-Write the text fields in Markdown. Each finding is posted on its line of the
-commit, so its body must stand on its own.
+Write the text fields in Markdown.
+PROMPTEOF
 
-=== COMMIT UNDER REVIEW: ${COMMIT} ===
-CHECKLISTEOF
-
+  printf '\n=== COMMIT UNDER REVIEW: %s ===\n' "${COMMIT}"
   git show --stat --format='%H%n%an <%ae>%n%ad%n%n%B' "${COMMIT}"
 
   printf '\n=== END COMMIT SUMMARY ===\n\n'

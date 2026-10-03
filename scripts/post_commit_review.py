@@ -51,14 +51,18 @@ def summary(review, commit, unanchored):
         for f in review["findings"]:
             where = f"`{f['path']}:{f['line']}`" if f["line"] else f"`{f['path']}`"
             cited = f" ({', '.join(f['guidelines'])})" if f["guidelines"] else ""
-            lines += [f"- **{f['severity']}** {where} — {f['title']}{cited}"]
+            kind = f" ({f['kind']})" if "kind" in f else ""
+            lines += [f"- **{f['severity']}**{kind} {where} — {f['title']}{cited}"]
             if f in unanchored:
                 lines += ["", "  " + f["body"].replace("\n", "\n  ")]
         lines += [""]
-    lines += ["### C++ architecture review", "", review["architecture_review"], "",
-              "### C++ performance review", "", review["performance_review"], "",
-              "### MCP grounding", "", review["mcp_grounding"], "",
-              "### Residual risk", "", review["residual_risk"]]
+    # Reviews written before the prompt asked only for correctness and cost
+    # carry the gate sections instead; whichever a review has is posted.
+    for key, title in (("cost_walk", "Cost walk"), ("architecture_review", "C++ architecture review"),
+                       ("performance_review", "C++ performance review"), ("mcp_grounding", "MCP grounding"),
+                       ("residual_risk", "Residual risk")):
+        if key in review:
+            lines += [f"### {title}", "", review[key], ""]
     return "\n".join(lines)
 
 
