@@ -139,7 +139,7 @@ TEST_CASE("with a device's limits, a model that describes reaches fit and says h
 
     const residency::DeviceLimits defaults{256ull << 20, 128ull << 20, 256};
     const auto verdict = preflight::preflight(index, defaults, policy::LoadPolicy{});
-    CHECK(verdict.reached() == Stage::Fit);
+    CHECK(verdict.reached() == Stage::Upload);   // Run needs a tokenizer the fixture lacks
     REQUIRE(verdict.fit.has_value());
     CHECK(verdict.fit->context_offered == 64);
     CHECK(verdict.fit->total_bytes <= verdict.fit->memory_budget);

@@ -24,7 +24,9 @@ namespace bllm::preflight {
 //   Download   the file can be fetched and cached — every readable file can
 //   Describe   its architecture is implemented and can describe this file
 //   Fit        its residency plan fits the granted limits and the budget
-//   Upload     its weights are written to the GPU and read back identical
+//   Upload     its weights are written to the GPU, every write confirmed on a
+//              live device (residency/upload.h); a diagnostic build reads
+//              every byte back (residency/upload_check.h)
 //   Run        it generates: graph, every weight format, tokenizer
 //
 // The verdict lists blockers, each naming the stage it stops and why: the
@@ -58,7 +60,7 @@ enum class Stage {
 // The furthest stage this build implements. Every later stage is blocked, by
 // name, whatever the model: a verdict never claims a stage that does not
 // exist. Advanced when the next stage is built.
-inline constexpr Stage kImplementedThrough = Stage::Fit;
+inline constexpr Stage kImplementedThrough = Stage::Upload;
 
 // What stops `stage`. Never Read or Download: those depend only on the
 // reader.
