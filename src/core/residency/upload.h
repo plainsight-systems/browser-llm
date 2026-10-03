@@ -32,8 +32,9 @@ namespace bllm::residency {
 //     (GPU.9). Weights are STORAGE | COPY_DST; the cache STORAGE; working
 //     buffers STORAGE | COPY_SRC, for the sampled token's readback. A
 //     diagnostic build adds COPY_SRC to the weights, to read them back
-//     (upload_check.h). WebGPU zeroes a new buffer, so padding is never
-//     written.
+//     (upload_check.h). WebGPU zeroes a new buffer, so padding needs no write
+//     of its own; what padding is written is zeros, where one write joins
+//     two pieces (piece_writer.h).
 //   - Creation is checked: it runs inside out-of-memory, validation and
 //     internal error scopes, and ready reports only what those can show: a
 //     buffer the device refused is a named failure before any byte is

@@ -4,7 +4,7 @@
 **Context:** Qwen3 0.6B (382 MB, Q4_0 / Q4_1 / Q6_K / F32), loaded from the
 browser's cache onto the GPU. Apple M3 Max, Chrome 152, release module, warm
 (the file in the operating system's cache), not cross-origin isolated (a
-100 µs clock, ample at these durations). Best or median of three to five
+100 µs clock, ample at these durations). Best or median of three to twelve
 runs, as marked. Cold loads were not measured: the browser cannot flush the
 operating system's cache.
 
@@ -37,15 +37,15 @@ previous chunk's queue work.
 | Before the audit | about 298 ms |
 | Fixed-width rearrangement (95a1c62) | about 230 ms |
 | Worker reads the cache into the module (a70fb55) | 241 ms median of five, against 257 |
-| Writes joined across streams and pieces | 140 ms median of twelve, against 198 on the same page and day; 567 writes become 78 |
+| Writes joined across streams and pieces | 140 ms median of twelve, against 198 median of six on the same page and day; 567 writes become 78 |
 
 The reads gained less than their stage measurement promised: the page's reads
 had overlapped the GPU process working through the previous chunk's writes.
 What bound the load next was the number of `writeBuffer` calls. The module
 issued 567 a load, one per stream of every piece; joined where they touch or
 are separated only by the plan's alignment padding they are 78, and the
-worker's side of the load went from 174 to 119 ms (median of six against
-twelve). A `writeBuffer` call costs about half a millisecond in Chrome at
+worker's side of the load went from 174 to 119 ms (medians of six runs
+before and twelve after). A `writeBuffer` call costs about half a millisecond in Chrome at
 these sizes, whatever its length. The diagnostic check reads every byte back
 after the joined writes and finds the model's bytes where the plan put them.
 

@@ -31,15 +31,14 @@ namespace bllm::residency {
 //   - A chunk's writes are issued in device order, and a run that continues
 //     the write before it, in the same buffer, joins it rather than starting
 //     its own: the streams of a piece the chunk holds whole, and the pieces
-//     the plan packs back to back into one buffer. Between two such pieces
-//     lies only the plan's alignment padding — the plan packs a buffer's
-//     pieces in file order with a bump allocator (plan.h), so no other piece
-//     lies there — and the join writes it as zeros, which is what WebGPU
-//     created it holding, so the buffer ends byte for byte as it would
-//     without the join. Padding is joined only between a piece the chunk
-//     finished and the next piece's first run, at most kMaxJoinedPadding
-//     bytes, and only where every piece of the buffer lies after the one
-//     before it in the routes; a gap inside a piece, which a later chunk
+//     the plan packs back to back into one buffer. Padding is joined only
+//     if every buffer's pieces lie in route order, each after the one
+//     before it — checked once, at construction — so that the gap between
+//     two consecutive pieces of a buffer holds no other piece; and only
+//     between a piece the chunk finished and the next piece's first run, at
+//     most kMaxJoinedPadding bytes. The join writes the gap as zeros, which
+//     is what WebGPU created it holding, so the buffer ends byte for byte as
+//     it would without the join. A gap inside a piece, which a later chunk
 //     fills, is never joined. A chunk takes a write for each buffer it
 //     reaches, and one more for each stream of a piece it cuts, rather than
 //     one for each stream of every piece: Qwen3 0.6B's 567 writes become 78.
@@ -47,9 +46,9 @@ namespace bllm::residency {
 //     validated there (WASM.2), about half a millisecond a call in Chrome on
 //     the target whatever its length, so the writes scale with buffers and
 //     cut pieces, not with streams or tensors. Qwen3 0.6B from the browser's
-//     cache, warm, release module, Chrome 152, Apple M3 Max, median of
-//     twelve against six: the worker's load 174 -> 119 ms, the page's 198 ->
-//     140 ms.
+//     cache, warm, release module, Chrome 152, Apple M3 Max, medians of six
+//     runs before and twelve after: the worker's load 174 -> 119 ms, the
+//     page's 198 -> 140 ms.
 //   - Every run is copied into staging, even one already in device order
 //     (F32): a layout whose one stream is its whole block is copied as one
 //     memcpy, which costs far less than the write it would otherwise take
@@ -91,8 +90,10 @@ namespace bllm::residency {
 //            its staging, allocated once.
 //     WASM.2 Batch work across the JS boundary — writes joined across
 //            streams and pieces, never one per block. Its caveat, that a
-//            batch blurs which item failed, is met by the diagnostic check,
-//            which names the tensor at each mismatching byte (upload_check.h).
+//            batch blurs which item failed, is met for content only: the
+//            diagnostic check names each piece whose bytes differ
+//            (upload_check.h). A write the browser rejects is still
+//            reported for its chunk as a whole.
 //     WASM.9 Stream in bounded chunks — what is held is at most one block.
 //     MEM.9  Allocate at init, not in steady state — the staging area.
 //     CDSA.32 Transform static data once into the layout its consumer reads —
