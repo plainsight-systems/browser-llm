@@ -1,7 +1,7 @@
 // F32 unpack (format.h). A "block" is one float, stored whole, so group g of
-// a piece is its floats 32g .. 32g + 31, read as words and reinterpreted:
-// nothing is computed, so every value, -0 and subnormals included, comes back
-// as stored. The caller asks only for groups within the piece.
+// a piece is its floats 32g .. 32g + 31, read as words and reinterpreted, so
+// nothing is computed; values come back as stored, within the numeric
+// contract format.h states. The caller asks only for groups within the piece.
 fn unpack(blocks_in_piece: u32, group: u32) -> array<vec4<f32>, 8> {
     var out: array<vec4<f32>, 8>;
     for (var v = 0u; v < 8u; v++) {
